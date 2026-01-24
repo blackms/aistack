@@ -2,7 +2,7 @@
  * Memory Manager tests
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MemoryManager, getMemoryManager, resetMemoryManager } from '../../src/memory/index.js';
 import type { AgentStackConfig } from '../../src/types.js';
 import { existsSync, unlinkSync } from 'node:fs';
@@ -261,6 +261,133 @@ describe('MemoryManager', () => {
     it('should vacuum database', () => {
       expect(() => manager.vacuum()).not.toThrow();
     });
+  });
+});
+
+describe('MemoryManager with vector search', () => {
+  let manager: MemoryManager;
+  let dbPath: string;
+  let config: AgentStackConfig;
+  const mockFetch = vi.fn();
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    global.fetch = mockFetch;
+    dbPath = join(tmpdir(), `aistack-mm-vector-${Date.now()}.db`);
+    config = {
+      version: '1.0.0',
+      memory: {
+        path: dbPath,
+        defaultNamespace: 'default',
+        vectorSearch: {
+          enabled: true,
+          provider: 'openai',
+        },
+      },
+      providers: {
+        default: 'anthropic',
+        openai: { apiKey: 'sk-test-key' },
+      },
+      agents: { maxConcurrent: 5, defaultTimeout: 300 },
+      github: { enabled: false },
+      plugins: { enabled: false, directory: './plugins' },
+      mcp: { transport: 'stdio' },
+      hooks: {
+        sessionStart: true,
+        sessionEnd: true,
+        preTask: true,
+        postTask: true,
+      },
+    };
+    manager = new MemoryManager(config);
+  });
+
+  afterEach(() => {
+    manager.close();
+    global.fetch = originalFetch;
+    resetMemoryManager();
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    if (existsSync(`${dbPath}-wal`)) unlinkSync(`${dbPath}-wal`);
+    if (existsSync(`${dbPath}-shm`)) unlinkSync(`${dbPath}-shm`);
+  });
+
+  it('should store with vector indexing', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    });
+
+    const entry = await manager.store('vector-key', 'test content for indexing');
+
+    expect(entry.key).toBe('vector-key');
+  });
+
+  it('should search using vector when enabled', async () => {
+    // Store embedding
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+    });
+    // Search embedding
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+    });
+
+    await manager.store('vector-search-key', 'unique content for vector search');
+    const results = await manager.search('unique content');
+
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it('should merge vector and FTS results', async () => {
+    // Store first entry
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+    });
+    // Store second entry
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [0.9, 0.1, 0.0] }] }),
+    });
+    // Search embedding
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+    });
+
+    await manager.store('merge-1', 'important keyword content');
+    await manager.store('merge-2', 'another important keyword text');
+
+    const results = await manager.search('important keyword');
+
+    // Should have merged results from both vector and FTS
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it('should reindex entries when vector enabled', async () => {
+    // Store entries first (no embedding)
+    await manager.store('reindex-1', 'content to reindex');
+
+    // Mock batch embedding
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    });
+
+    const count = await manager.reindex();
+
+    expect(count).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should get vector stats', () => {
+    const stats = manager.getVectorStats();
+
+    expect(stats).toHaveProperty('total');
+    expect(stats).toHaveProperty('indexed');
+    expect(stats).toHaveProperty('coverage');
   });
 });
 

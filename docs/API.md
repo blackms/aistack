@@ -886,7 +886,7 @@ const response = await provider.chat([
   maxTokens: 1000
 });
 
-// Embeddings (if supported)
+// Embeddings (OpenAI and Ollama only - Anthropic does not implement embed())
 const embedding = await provider.embed?.('text to embed');
 ```
 

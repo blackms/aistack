@@ -378,6 +378,17 @@ private processing: Map<string, QueuedTask> = new Map();
 - `task:completed` - Task finished
 - `queue:empty` - No pending tasks
 
+### 4.4 Workflow Runner Events
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `workflow:start` | `WorkflowConfig` | Workflow execution begins |
+| `workflow:complete` | `WorkflowReport` | Workflow finished successfully |
+| `workflow:error` | `Error` | Workflow failed with error |
+| `phase:start` | `WorkflowPhase` | Phase execution begins |
+| `phase:complete` | `PhaseResult` | Phase finished |
+| `finding` | `Finding` | Issue discovered during phase |
+
 ### 4.2 Message Bus (`message-bus.ts`)
 
 **Purpose**: Inter-agent communication.
@@ -624,7 +635,7 @@ interface LLMProvider {
 **AnthropicProvider**:
 - Model: claude-sonnet-4-20250514
 - SDK: @anthropic-ai/sdk
-- Features: chat, tool_use
+- Features: chat only (no embeddings in this implementation)
 
 **OpenAIProvider**:
 - Model: gpt-4o (chat), text-embedding-3-small (embed)
@@ -635,6 +646,8 @@ interface LLMProvider {
 - Model: llama3.2 (chat), nomic-embed-text (embed)
 - API: HTTP to localhost:11434
 - Features: chat, embeddings (local)
+
+> **Note**: For vector search embeddings, use OpenAI or Ollama providers. AnthropicProvider does not implement the `embed()` method.
 
 ## 9. Utils Module (`src/utils/`)
 

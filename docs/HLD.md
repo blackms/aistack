@@ -265,9 +265,16 @@ All LLM providers implement:
 interface LLMProvider {
   name: string;
   chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse>;
-  embed?(text: string): Promise<number[]>;
+  embed?(text: string): Promise<number[]>;  // Optional - OpenAI and Ollama only
 }
 ```
+
+**Embedding Support**:
+| Provider | Embeddings | Model |
+|----------|------------|-------|
+| Anthropic | No | - |
+| OpenAI | Yes | text-embedding-3-small/large |
+| Ollama | Yes | nomic-embed-text |
 
 ### 5.3 Plugin Interface
 
