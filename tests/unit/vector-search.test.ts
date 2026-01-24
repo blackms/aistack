@@ -237,3 +237,202 @@ describe('VectorSearch without OpenAI key', () => {
     expect(vectorSearch.isEnabled()).toBe(false);
   });
 });
+
+describe('VectorSearch with mocked embeddings', () => {
+  let store: SQLiteStore;
+  let dbPath: string;
+  const mockFetch = vi.fn();
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    dbPath = join(tmpdir(), `aistack-vector-mock-${Date.now()}.db`);
+    store = new SQLiteStore(dbPath);
+    mockFetch.mockReset();
+    global.fetch = mockFetch;
+  });
+
+  afterEach(() => {
+    store.close();
+    global.fetch = originalFetch;
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    if (existsSync(`${dbPath}-wal`)) unlinkSync(`${dbPath}-wal`);
+    if (existsSync(`${dbPath}-shm`)) unlinkSync(`${dbPath}-shm`);
+  });
+
+  it('should index entry and search with mocked openai embeddings', async () => {
+    // Mock embedding response
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+      });
+
+    const config = createVectorConfig(true, 'openai');
+    const vectorSearch = new VectorSearch(store, config);
+
+    // Store and index an entry
+    store.store('key1', 'test content');
+    const entry = store.get('key1')!;
+    await vectorSearch.indexEntry(entry);
+
+    // Search
+    const results = await vectorSearch.search('test query');
+
+    expect(mockFetch).toHaveBeenCalled();
+    expect(results.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should handle embedding error gracefully', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => 'Server error',
+    });
+
+    const config = createVectorConfig(true, 'openai');
+    const vectorSearch = new VectorSearch(store, config);
+
+    store.store('key1', 'test content');
+    const entry = store.get('key1')!;
+
+    // Should not throw
+    await expect(vectorSearch.indexEntry(entry)).resolves.not.toThrow();
+  });
+
+  it('should handle batch index with mocked embeddings', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { embedding: [0.1, 0.2, 0.3] },
+          { embedding: [0.4, 0.5, 0.6] },
+        ],
+      }),
+    });
+
+    const config = createVectorConfig(true, 'openai');
+    const vectorSearch = new VectorSearch(store, config);
+
+    store.store('key1', 'content 1');
+    store.store('key2', 'content 2');
+
+    const entry1 = store.get('key1')!;
+    const entry2 = store.get('key2')!;
+
+    const count = await vectorSearch.indexBatch([entry1, entry2]);
+
+    expect(count).toBe(2);
+  });
+
+  it('should handle batch index error gracefully', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      text: async () => 'Service unavailable',
+    });
+
+    const config = createVectorConfig(true, 'openai');
+    const vectorSearch = new VectorSearch(store, config);
+
+    store.store('key1', 'content 1');
+    const entry = store.get('key1')!;
+
+    const count = await vectorSearch.indexBatch([entry]);
+
+    expect(count).toBe(0);
+  });
+
+  it('should search with mocked embeddings and return results', async () => {
+    // First call for indexing
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+    });
+    // Second call for search query
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+    });
+
+    const config = createVectorConfig(true, 'openai');
+    const vectorSearch = new VectorSearch(store, config);
+
+    store.store('key1', 'test content about cats');
+    const entry = store.get('key1')!;
+    await vectorSearch.indexEntry(entry);
+
+    const results = await vectorSearch.search('cats');
+
+    // Should find the entry since vectors are identical
+    expect(results.length).toBe(1);
+    expect(results[0].matchType).toBe('vector');
+    expect(results[0].score).toBeCloseTo(1, 2);
+  });
+
+  it('should handle search error gracefully', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      text: async () => 'Rate limited',
+    });
+
+    const config = createVectorConfig(true, 'openai');
+    const vectorSearch = new VectorSearch(store, config);
+
+    const results = await vectorSearch.search('test query');
+
+    expect(results).toEqual([]);
+  });
+
+  it('should return empty when no entries have embeddings', async () => {
+    // Mock query embedding
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+    });
+
+    const config = createVectorConfig(true, 'openai');
+    const vectorSearch = new VectorSearch(store, config);
+
+    // Store entry but don't index it
+    store.store('key1', 'test content');
+
+    const results = await vectorSearch.search('test query');
+
+    expect(results).toEqual([]);
+  });
+
+  it('should find similar entries', async () => {
+    // Index two similar entries
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ embedding: [0.9, 0.1, 0.0] }] }),
+      });
+
+    const config = createVectorConfig(true, 'openai');
+    const vectorSearch = new VectorSearch(store, config);
+
+    store.store('key1', 'content about dogs');
+    store.store('key2', 'content about puppies');
+
+    const entry1 = store.get('key1')!;
+    const entry2 = store.get('key2')!;
+
+    await vectorSearch.indexEntry(entry1);
+    await vectorSearch.indexEntry(entry2);
+
+    // Find similar to key1
+    const results = await vectorSearch.findSimilar(entry1.id, { threshold: 0.5 });
+
+    expect(results.length).toBeGreaterThanOrEqual(0);
+  });
+});

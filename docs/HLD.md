@@ -67,7 +67,7 @@ flowchart TB
 
 **Components**:
 - Request handler for `ListTools` and `CallTool`
-- 30+ registered tools across 6 categories
+- 30 registered tools across 6 categories
 - JSON-RPC style response formatting
 
 **Interfaces**:
@@ -254,6 +254,8 @@ sequenceDiagram
 | Session | 4 | Start, end, status, active |
 | System | 3 | Status, health, config |
 | GitHub | 7 | Issues and PRs |
+
+**Total: 30 tools**
 
 ### 5.2 Provider Interface
 
