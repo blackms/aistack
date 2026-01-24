@@ -298,6 +298,42 @@ describe('OllamaProvider', () => {
       expect.any(Object)
     );
   });
+
+  it('should throw on chat API error', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => 'Internal server error',
+    });
+
+    const provider = new OllamaProvider();
+    await expect(provider.chat([{ role: 'user', content: 'Hi' }]))
+      .rejects.toThrow('Ollama API error: 500');
+  });
+
+  it('should throw on embed API error', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      text: async () => 'Service unavailable',
+    });
+
+    const provider = new OllamaProvider();
+    await expect(provider.embed!('test'))
+      .rejects.toThrow('Ollama API error: 503');
+  });
+
+  it('should throw on OpenAI embed API error', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => 'Invalid API key',
+    });
+
+    const provider = new OpenAIProvider('bad-key');
+    await expect(provider.embed!('test'))
+      .rejects.toThrow('OpenAI API error: 401');
+  });
 });
 
 describe('createProvider', () => {
