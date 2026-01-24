@@ -4,11 +4,11 @@
 
 ### Clean Agent Orchestration for Claude Code
 
-[![CI](https://github.com/blackms/agentstack/actions/workflows/ci.yml/badge.svg)](https://github.com/blackms/agentstack/actions/workflows/ci.yml)
+[![CI](https://github.com/blackms/aistack/actions/workflows/ci.yml/badge.svg)](https://github.com/blackms/aistack/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@blackms/aistack?style=flat-square&color=CB3837&logo=npm)](https://www.npmjs.com/package/@blackms/aistack)
 [![npm downloads](https://img.shields.io/npm/dm/@blackms/aistack?style=flat-square&color=CB3837)](https://www.npmjs.com/package/@blackms/aistack)
 [![npm bundle size](https://img.shields.io/bundlephobia/minzip/@blackms/aistack?style=flat-square&label=size)](https://bundlephobia.com/package/@blackms/aistack)
-[![codecov](https://codecov.io/gh/blackms/agentstack/branch/main/graph/badge.svg)](https://codecov.io/gh/blackms/agentstack)
+[![codecov](https://codecov.io/gh/blackms/aistack/branch/main/graph/badge.svg)](https://codecov.io/gh/blackms/aistack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
