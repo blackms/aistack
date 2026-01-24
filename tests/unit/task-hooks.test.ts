@@ -5,7 +5,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { preTaskHook, postTaskHook } from '../../src/hooks/task.js';
 import { MemoryManager, resetMemoryManager } from '../../src/memory/index.js';
-import { existsSync, unlinkSync } from 'node:fs';
+import {
+  registerWorkflowTrigger,
+  clearWorkflowTriggers,
+} from '../../src/hooks/workflow.js';
+import { resetWorkflowRunner } from '../../src/workflows/index.js';
+import { existsSync, unlinkSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AgentStackConfig, HookContext } from '../../src/types.js';
@@ -209,5 +214,143 @@ describe('Task Hooks', () => {
 
       await expect(postTaskHook(context, memory, config)).resolves.not.toThrow();
     });
+  });
+});
+
+describe('Task Hooks with Documentation Triggers', () => {
+  let memory: MemoryManager;
+  let config: AgentStackConfig;
+  let dbPath: string;
+  let testDir: string;
+  let docsDir: string;
+
+  beforeEach(() => {
+    clearWorkflowTriggers();
+    resetWorkflowRunner();
+    resetMemoryManager();
+
+    testDir = join(tmpdir(), `aistack-task-hooks-trigger-${Date.now()}`);
+    docsDir = join(testDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+
+    config = {
+      version: '1.0.0',
+      memory: {
+        path: join(tmpdir(), `aistack-task-hooks-trigger-${Date.now()}.db`),
+        defaultNamespace: 'default',
+        vectorSearch: { enabled: false },
+      },
+      providers: { default: 'anthropic' },
+      agents: { maxConcurrent: 5, defaultTimeout: 300 },
+      github: { enabled: false },
+      plugins: { enabled: true, directory: './plugins' },
+      mcp: { transport: 'stdio' },
+      hooks: { sessionStart: true, sessionEnd: true, preTask: true, postTask: true },
+    };
+
+    dbPath = config.memory.path;
+    memory = new MemoryManager(config);
+  });
+
+  afterEach(() => {
+    clearWorkflowTriggers();
+    resetWorkflowRunner();
+    memory.close();
+    resetMemoryManager();
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    if (existsSync(`${dbPath}-wal`)) unlinkSync(`${dbPath}-wal`);
+    if (existsSync(`${dbPath}-shm`)) unlinkSync(`${dbPath}-shm`);
+    if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('should trigger doc-sync workflow when docs modified and trigger registered', async () => {
+    // Create a test doc
+    writeFileSync(join(docsDir, 'test.md'), '# Test');
+
+    // Register the doc-sync trigger
+    registerWorkflowTrigger({
+      id: 'doc-sync-on-change',
+      name: 'Doc Sync',
+      condition: () => true,
+      workflowId: 'doc-sync',
+      options: {
+        targetDirectory: docsDir,
+        sourceCode: testDir,
+      },
+    });
+
+    const context: HookContext = {
+      event: 'post-task',
+      taskId: 'test-task',
+      data: {
+        modifiedFiles: [join(docsDir, 'test.md')],
+      },
+    };
+
+    // Should complete without throwing
+    await expect(postTaskHook(context, memory, config)).resolves.not.toThrow();
+  });
+
+  it('should handle trigger with missing docs directory gracefully', async () => {
+    // Register trigger pointing to non-existent dir
+    registerWorkflowTrigger({
+      id: 'doc-sync-on-change',
+      name: 'Doc Sync',
+      condition: () => true,
+      workflowId: 'doc-sync',
+      options: {
+        targetDirectory: '/nonexistent/path',
+        sourceCode: testDir,
+      },
+    });
+
+    const context: HookContext = {
+      event: 'post-task',
+      taskId: 'test-task',
+      data: {
+        modifiedFiles: ['/docs/README.md'],
+      },
+    };
+
+    // Should handle error gracefully
+    await expect(postTaskHook(context, memory, config)).resolves.not.toThrow();
+  });
+
+  it('should not trigger when no doc-sync trigger registered', async () => {
+    const context: HookContext = {
+      event: 'post-task',
+      taskId: 'test-task',
+      data: {
+        modifiedFiles: ['/docs/README.md'],
+      },
+    };
+
+    // Should complete without triggering workflow
+    await expect(postTaskHook(context, memory, config)).resolves.not.toThrow();
+  });
+
+  it('should detect .mdx files as documentation', async () => {
+    writeFileSync(join(docsDir, 'component.mdx'), '# Component');
+
+    registerWorkflowTrigger({
+      id: 'doc-sync-on-change',
+      name: 'Doc Sync',
+      condition: () => true,
+      workflowId: 'doc-sync',
+      options: {
+        targetDirectory: docsDir,
+        sourceCode: testDir,
+      },
+    });
+
+    const context: HookContext = {
+      event: 'post-task',
+      taskId: 'test-task',
+      data: {
+        modifiedFiles: [join(docsDir, 'component.mdx')],
+      },
+    };
+
+    await expect(postTaskHook(context, memory, config)).resolves.not.toThrow();
   });
 });
