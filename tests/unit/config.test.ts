@@ -10,7 +10,7 @@ describe('Configuration', () => {
     const config = getDefaultConfig();
 
     expect(config.version).toBe('1.0.0');
-    expect(config.memory.path).toBe('./data/agentstack.db');
+    expect(config.memory.path).toBe('./data/aistack.db');
     expect(config.memory.defaultNamespace).toBe('default');
     expect(config.memory.vectorSearch.enabled).toBe(false);
     expect(config.agents.maxConcurrent).toBe(5);
