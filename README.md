@@ -1,4 +1,4 @@
-# agentstack
+# aistack
 
 Clean agent orchestration for Claude Code.
 
@@ -14,20 +14,20 @@ Clean agent orchestration for Claude Code.
 ## Installation
 
 ```bash
-npm install agentstack
+npm install @blackms/aistack
 ```
 
 ## Quick Start
 
 ```bash
 # Initialize project
-npx agentstack init
+npx aistack init
 
 # Add MCP server to Claude Code
-claude mcp add agentstack -- npx agentstack mcp start
+claude mcp add aistack -- npx aistack mcp start
 
 # Check status
-npx agentstack status
+npx aistack status
 ```
 
 ## CLI Commands
@@ -47,53 +47,53 @@ npx agentstack status
 
 ```bash
 # Store a key-value pair
-npx agentstack memory store -k "auth-pattern" -v "Use JWT with refresh tokens"
+npx aistack memory store -k "auth-pattern" -v "Use JWT with refresh tokens"
 
 # Search memory
-npx agentstack memory search -q "authentication"
+npx aistack memory search -q "authentication"
 
 # List entries
-npx agentstack memory list -n my-namespace
+npx aistack memory list -n my-namespace
 ```
 
 ### Agent Operations
 
 ```bash
 # Spawn an agent
-npx agentstack agent spawn -t coder -n my-coder
+npx aistack agent spawn -t coder -n my-coder
 
 # List active agents
-npx agentstack agent list
+npx aistack agent list
 
 # Get agent status
-npx agentstack agent status -n my-coder
+npx aistack agent status -n my-coder
 
 # Stop an agent
-npx agentstack agent stop -n my-coder
+npx aistack agent stop -n my-coder
 
 # List available agent types
-npx agentstack agent types
+npx aistack agent types
 ```
 
 ### MCP Server
 
 ```bash
 # Start MCP server
-npx agentstack mcp start
+npx aistack mcp start
 
 # List available tools
-npx agentstack mcp tools
+npx aistack mcp tools
 ```
 
 ## Configuration
 
-Create `agentstack.config.json`:
+Create `aistack.config.json`:
 
 ```json
 {
   "version": "1.0.0",
   "memory": {
-    "path": "./data/agentstack.db",
+    "path": "./data/aistack.db",
     "defaultNamespace": "default",
     "vectorSearch": {
       "enabled": false,
@@ -174,7 +174,7 @@ import {
   getMemoryManager,
   startMCPServer,
   getConfig,
-} from 'agentstack';
+} from '@blackms/aistack';
 
 // Get config
 const config = getConfig();
@@ -195,7 +195,7 @@ const server = await startMCPServer(config);
 
 ```typescript
 // my-plugin/index.ts
-import type { AgentStackPlugin } from 'agentstack';
+import type { AIStackPlugin } from '@blackms/aistack';
 
 export default {
   name: 'my-plugin',
@@ -219,13 +219,13 @@ export default {
       }
     }
   ]
-} satisfies AgentStackPlugin;
+} satisfies AIStackPlugin;
 ```
 
 ## Architecture
 
 ```
-agentstack/
+aistack/
 ├── src/
 │   ├── cli/          # CLI commands
 │   ├── agents/       # Agent definitions and spawner

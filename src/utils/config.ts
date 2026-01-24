@@ -1,5 +1,5 @@
 /**
- * Configuration management for agentstack
+ * Configuration management for aistack
  */
 
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -16,7 +16,7 @@ const VectorSearchConfigSchema = z.object({
 });
 
 const MemoryConfigSchema = z.object({
-  path: z.string().default('./data/agentstack.db'),
+  path: z.string().default('./data/aistack.db'),
   defaultNamespace: z.string().default('default'),
   vectorSearch: VectorSearchConfigSchema.default({}),
 });
@@ -83,7 +83,7 @@ const ConfigSchema = z.object({
   hooks: HooksConfigSchema.default({}),
 });
 
-const CONFIG_FILE_NAME = 'agentstack.config.json';
+const CONFIG_FILE_NAME = 'aistack.config.json';
 
 /**
  * Interpolate environment variables in config values

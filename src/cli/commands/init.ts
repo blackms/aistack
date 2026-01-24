@@ -1,5 +1,5 @@
 /**
- * init command - Initialize a new agentstack project
+ * init command - Initialize a new aistack project
  */
 
 import { Command } from 'commander';
@@ -12,13 +12,13 @@ const log = logger.child('init');
 
 export function createInitCommand(): Command {
   const command = new Command('init')
-    .description('Initialize a new agentstack project')
+    .description('Initialize a new aistack project')
     .option('-f, --force', 'Overwrite existing configuration')
     .option('-d, --directory <path>', 'Directory to initialize', process.cwd())
     .action(async (options) => {
       const { force, directory } = options as { force?: boolean; directory: string };
 
-      const configPath = join(directory, 'agentstack.config.json');
+      const configPath = join(directory, 'aistack.config.json');
       const dataDir = join(directory, 'data');
 
       // Check if already initialized
@@ -27,7 +27,7 @@ export function createInitCommand(): Command {
         process.exit(1);
       }
 
-      console.log('Initializing agentstack project...\n');
+      console.log('Initializing aistack project...\n');
 
       // Create default config
       const config = getDefaultConfig();
@@ -51,9 +51,9 @@ export function createInitCommand(): Command {
 
       console.log('\nProject initialized successfully!\n');
       console.log('Next steps:');
-      console.log('  1. Configure providers in agentstack.config.json');
-      console.log('  2. Add MCP server: claude mcp add agentstack -- npx agentstack mcp start');
-      console.log('  3. Start using agentstack commands\n');
+      console.log('  1. Configure providers in aistack.config.json');
+      console.log('  2. Add MCP server: claude mcp add aistack -- npx aistack mcp start');
+      console.log('  3. Start using aistack commands\n');
 
       log.info('Project initialized', { directory });
     });
