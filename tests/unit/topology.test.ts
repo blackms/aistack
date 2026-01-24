@@ -191,6 +191,35 @@ describe('HierarchicalCoordinator', () => {
 
       await sessionCoordinator.shutdown();
     });
+
+    it('should not spawn more workers than maxWorkers limit', async () => {
+      const limitedCoordinator = new HierarchicalCoordinator({
+        maxWorkers: 1,
+        sessionId: 'limited-session',
+      });
+
+      await limitedCoordinator.initialize();
+
+      // Submit multiple tasks that would require multiple workers
+      const tasks = [
+        { id: 'limit-task-1', agentType: 'coder' as const, status: 'pending' as const, createdAt: new Date() },
+        { id: 'limit-task-2', agentType: 'tester' as const, status: 'pending' as const, createdAt: new Date() },
+        { id: 'limit-task-3', agentType: 'reviewer' as const, status: 'pending' as const, createdAt: new Date() },
+      ];
+
+      for (const task of tasks) {
+        await limitedCoordinator.submitTask(task);
+      }
+
+      // Wait a bit for processing
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const status = limitedCoordinator.getStatus();
+      // Should have at most 1 worker despite 3 tasks
+      expect(status.workers.length).toBeLessThanOrEqual(1);
+
+      await limitedCoordinator.shutdown();
+    });
   });
 
   describe('message handling', () => {
