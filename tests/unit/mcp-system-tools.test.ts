@@ -230,3 +230,92 @@ describe('MCP System Tools with ollama config', () => {
     expect(result.providers.ollama).toEqual({ baseUrl: 'http://localhost:11434' });
   });
 });
+
+describe('MCP System Tools status combinations', () => {
+  let memory: MemoryManager;
+  let config: AgentStackConfig;
+  let dbPath: string;
+  let tools: ReturnType<typeof createSystemTools>;
+
+  beforeEach(() => {
+    clearAgents();
+    resetMemoryManager();
+    config = createTestConfig();
+    dbPath = config.memory.path;
+    memory = new MemoryManager(config);
+    tools = createSystemTools(memory, config);
+  });
+
+  afterEach(() => {
+    clearAgents();
+    memory.close();
+    resetMemoryManager();
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    if (existsSync(`${dbPath}-wal`)) unlinkSync(`${dbPath}-wal`);
+    if (existsSync(`${dbPath}-shm`)) unlinkSync(`${dbPath}-shm`);
+  });
+
+  it('should show degraded status with warnings', async () => {
+    // Enable vector search but don't index anything
+    const vectorConfig = {
+      ...config,
+      memory: { ...config.memory, vectorSearch: { enabled: true } },
+    };
+    memory.close();
+    resetMemoryManager();
+    memory = new MemoryManager(vectorConfig);
+    tools = createSystemTools(memory, vectorConfig);
+
+    const result = await tools.system_health.handler();
+
+    expect(result.healthy).toBe(true);
+    expect(result.status).toBe('degraded');
+  });
+
+  it('should show vectorEnabled true when entries are indexed', async () => {
+    await memory.store('key1', 'content for testing');
+
+    const result = await tools.system_status.handler();
+
+    expect(result.memory).toBeDefined();
+    expect(result.memory.total).toBeGreaterThan(0);
+  });
+
+  it('should include mcp config', async () => {
+    const result = await tools.system_config.handler();
+
+    expect(result.mcp).toBeDefined();
+    expect(result.mcp.transport).toBe('stdio');
+  });
+
+  it('should include plugins config', async () => {
+    const result = await tools.system_config.handler();
+
+    expect(result.plugins).toBeDefined();
+    expect(result.plugins.enabled).toBe(true);
+    expect(result.plugins.directory).toBe('./plugins');
+  });
+
+  it('should include agent counts in status', async () => {
+    const result = await tools.system_status.handler();
+
+    expect(result.agents.registered).toBeDefined();
+    expect(result.agents.registered.total).toBeGreaterThan(0);
+    expect(result.agents.active).toBe(0);
+  });
+
+  it('should include agent info in health check', async () => {
+    const result = await tools.system_health.handler();
+
+    expect(result.checks.agents.status).toBe('ok');
+    expect(result.checks.agents.message).toContain('types');
+    expect(result.checks.agents.message).toContain('active');
+  });
+
+  it('should return correct tool definitions', () => {
+    expect(tools.system_status.name).toBe('system_status');
+    expect(tools.system_status.description).toBe('Get overall system status');
+    expect(tools.system_health.name).toBe('system_health');
+    expect(tools.system_config.name).toBe('system_config');
+  });
+});
