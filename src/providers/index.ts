@@ -4,6 +4,7 @@
 
 import type { LLMProvider, ChatMessage, ChatOptions, ChatResponse, AgentStackConfig } from '../types.js';
 import { logger } from '../utils/logger.js';
+import { ClaudeCodeProvider, GeminiCLIProvider, CodexProvider, checkCLIProviders } from './cli-providers.js';
 
 const log = logger.child('providers');
 
@@ -282,6 +283,23 @@ export function createProvider(config: AgentStackConfig): LLMProvider {
       return new OllamaProvider(ollamaConfig?.baseUrl, ollamaConfig?.model);
     }
 
+    case 'claude-code':
+    case 'claude_code': {
+      const claudeCodeConfig = config.providers.claude_code;
+      return new ClaudeCodeProvider(claudeCodeConfig);
+    }
+
+    case 'gemini-cli':
+    case 'gemini_cli': {
+      const geminiConfig = config.providers.gemini_cli;
+      return new GeminiCLIProvider(geminiConfig);
+    }
+
+    case 'codex': {
+      const codexConfig = config.providers.codex;
+      return new CodexProvider(codexConfig);
+    }
+
     default:
       throw new Error(`Unknown provider: ${defaultProvider}`);
   }
@@ -322,7 +340,24 @@ export function getProvider(name: string, config: AgentStackConfig): LLMProvider
       const ollamaConfig = config.providers.ollama;
       return new OllamaProvider(ollamaConfig?.baseUrl, ollamaConfig?.model);
     }
+    case 'claude-code':
+    case 'claude_code': {
+      const claudeCodeConfig = config.providers.claude_code;
+      return new ClaudeCodeProvider(claudeCodeConfig);
+    }
+    case 'gemini-cli':
+    case 'gemini_cli': {
+      const geminiConfig = config.providers.gemini_cli;
+      return new GeminiCLIProvider(geminiConfig);
+    }
+    case 'codex': {
+      const codexConfig = config.providers.codex;
+      return new CodexProvider(codexConfig);
+    }
     default:
       return null;
   }
 }
+
+// Re-export CLI providers
+export { ClaudeCodeProvider, GeminiCLIProvider, CodexProvider, checkCLIProviders };

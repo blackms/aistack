@@ -193,6 +193,20 @@ export interface ProvidersConfig {
     baseUrl: string;
     model?: string;
   };
+  claude_code?: {
+    command?: string;
+    model?: string;
+    timeout?: number;
+  };
+  gemini_cli?: {
+    command?: string;
+    model?: string;
+    timeout?: number;
+  };
+  codex?: {
+    command?: string;
+    timeout?: number;
+  };
 }
 
 export interface AgentsConfig {
