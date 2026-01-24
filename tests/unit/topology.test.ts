@@ -291,5 +291,95 @@ describe('HierarchicalCoordinator', () => {
       // Should handle without throwing
       expect(coordinator.getStatus().coordinator).toBeDefined();
     });
+
+    it('should handle task:completed from spawned worker', async () => {
+      await coordinator.initialize();
+      const coordinatorId = coordinator.getStatus().coordinator?.id;
+
+      // Submit a task to spawn a worker
+      const task = {
+        id: 'worker-task-complete',
+        agentType: 'coder' as const,
+        status: 'pending' as const,
+        createdAt: new Date(),
+      };
+      await coordinator.submitTask(task);
+
+      // Wait a bit for worker to spawn
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Get the spawned worker
+      const status = coordinator.getStatus();
+      if (status.workers.length > 0) {
+        const workerId = status.workers[0].id;
+        const bus = getMessageBus();
+
+        // Send task completed from the actual worker
+        bus.send(workerId, coordinatorId!, 'task:completed', {
+          taskId: 'worker-task-complete',
+        });
+      }
+
+      expect(coordinator.getStatus().coordinator).toBeDefined();
+    });
+
+    it('should handle task:failed from spawned worker', async () => {
+      await coordinator.initialize();
+      const coordinatorId = coordinator.getStatus().coordinator?.id;
+
+      // Submit a task to spawn a worker
+      const task = {
+        id: 'worker-task-fail',
+        agentType: 'coder' as const,
+        status: 'pending' as const,
+        createdAt: new Date(),
+      };
+      await coordinator.submitTask(task);
+
+      // Wait a bit for worker to spawn
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const status = coordinator.getStatus();
+      if (status.workers.length > 0) {
+        const workerId = status.workers[0].id;
+        const bus = getMessageBus();
+
+        // Send task failed from the actual worker
+        bus.send(workerId, coordinatorId!, 'task:failed', {
+          taskId: 'worker-task-fail',
+          error: 'Worker error',
+        });
+      }
+
+      expect(coordinator.getStatus().coordinator).toBeDefined();
+    });
+
+    it('should handle worker:ready from spawned worker', async () => {
+      await coordinator.initialize();
+      const coordinatorId = coordinator.getStatus().coordinator?.id;
+
+      // Submit a task to spawn a worker
+      const task = {
+        id: 'worker-ready-task',
+        agentType: 'coder' as const,
+        status: 'pending' as const,
+        createdAt: new Date(),
+      };
+      await coordinator.submitTask(task);
+
+      // Wait a bit for worker to spawn
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const status = coordinator.getStatus();
+      if (status.workers.length > 0) {
+        const workerId = status.workers[0].id;
+        const bus = getMessageBus();
+
+        // Send worker ready from the actual worker
+        bus.send(workerId, coordinatorId!, 'worker:ready', {});
+      }
+
+      expect(coordinator.getStatus().coordinator).toBeDefined();
+    });
   });
 });
