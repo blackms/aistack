@@ -14,17 +14,30 @@ import {
 import { createProvider, getProvider } from '../../src/providers/index.js';
 import type { AgentStackConfig, ChatMessage } from '../../src/types.js';
 
+// Mock module state
+const mockState = {
+  execCallback: null as ((err: Error | null, stdout: string, stderr: string) => void) | null,
+  nextResult: { stdout: '', stderr: '', error: null as Error | null },
+};
+
 // Mock child_process
 vi.mock('node:child_process', () => ({
-  exec: vi.fn(),
+  exec: vi.fn((_cmd: string, _opts: unknown, callback: (err: Error | null, stdout: string, stderr: string) => void) => {
+    if (mockState.nextResult.error) {
+      callback(mockState.nextResult.error, '', '');
+    } else {
+      callback(null, mockState.nextResult.stdout, mockState.nextResult.stderr);
+    }
+    mockState.nextResult = { stdout: '', stderr: '', error: null };
+  }),
   execSync: vi.fn(),
 }));
 
 vi.mock('node:util', () => ({
-  promisify: vi.fn((fn) => {
-    return async (...args: unknown[]) => {
+  promisify: vi.fn((fn: Function) => {
+    return async (command: string, options: unknown) => {
       return new Promise((resolve, reject) => {
-        (fn as Function)(...args, (error: Error | null, stdout: string, stderr: string) => {
+        fn(command, options, (error: Error | null, stdout: string, stderr: string) => {
           if (error) reject(error);
           else resolve({ stdout, stderr });
         });
@@ -34,6 +47,16 @@ vi.mock('node:util', () => ({
 }));
 
 const mockExecSync = vi.mocked(execSync);
+
+// Helper to simulate successful CLI execution
+function mockExecSuccess(stdout: string, stderr: string = '') {
+  mockState.nextResult = { stdout, stderr, error: null };
+}
+
+// Helper to simulate failed CLI execution
+function mockExecError(message: string) {
+  mockState.nextResult = { stdout: '', stderr: '', error: new Error(message) };
+}
 
 function createTestConfig(defaultProvider: string = 'anthropic'): AgentStackConfig {
   return {
@@ -129,6 +152,73 @@ describe('ClaudeCodeProvider', () => {
       expect(provider.getVersion()).toBeNull();
     });
   });
+
+  describe('chat', () => {
+    it('should execute CLI and return response', async () => {
+      mockExecSuccess('This is the response from Claude Code');
+
+      const provider = new ClaudeCodeProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hello, Claude!' },
+      ];
+
+      const response = await provider.chat(messages);
+
+      expect(response.content).toBe('This is the response from Claude Code');
+      expect(response.model).toBe('claude-code:sonnet');
+    });
+
+    it('should use custom model from options', async () => {
+      mockExecSuccess('Response with opus model');
+
+      const provider = new ClaudeCodeProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hello' },
+      ];
+
+      const response = await provider.chat(messages, { model: 'opus' });
+
+      expect(response.model).toBe('claude-code:opus');
+    });
+
+    it('should format system messages correctly', async () => {
+      mockExecSuccess('Response with system context');
+
+      const provider = new ClaudeCodeProvider();
+      const messages: ChatMessage[] = [
+        { role: 'system', content: 'You are helpful.' },
+        { role: 'user', content: 'Hello' },
+      ];
+
+      const response = await provider.chat(messages);
+
+      expect(response.content).toBe('Response with system context');
+    });
+
+    it('should handle stderr warnings', async () => {
+      mockExecSuccess('Response text', 'Warning: something happened');
+
+      const provider = new ClaudeCodeProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hello' },
+      ];
+
+      const response = await provider.chat(messages);
+
+      expect(response.content).toBe('Response text');
+    });
+
+    it('should throw on CLI error', async () => {
+      mockExecError('CLI execution failed');
+
+      const provider = new ClaudeCodeProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hello' },
+      ];
+
+      await expect(provider.chat(messages)).rejects.toThrow('Claude Code CLI error');
+    });
+  });
 });
 
 describe('GeminiCLIProvider', () => {
@@ -192,6 +282,61 @@ describe('GeminiCLIProvider', () => {
       expect(provider.getVersion()).toBeNull();
     });
   });
+
+  describe('chat', () => {
+    it('should execute CLI and return response', async () => {
+      mockExecSuccess('This is the response from Gemini');
+
+      const provider = new GeminiCLIProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hello, Gemini!' },
+      ];
+
+      const response = await provider.chat(messages);
+
+      expect(response.content).toBe('This is the response from Gemini');
+      expect(response.model).toBe('gemini-cli:gemini-2.0-flash');
+    });
+
+    it('should use custom model from options', async () => {
+      mockExecSuccess('Response with pro model');
+
+      const provider = new GeminiCLIProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hello' },
+      ];
+
+      const response = await provider.chat(messages, { model: 'gemini-pro' });
+
+      expect(response.model).toBe('gemini-cli:gemini-pro');
+    });
+
+    it('should format assistant messages correctly', async () => {
+      mockExecSuccess('Response with conversation');
+
+      const provider = new GeminiCLIProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: 'Hi there!' },
+        { role: 'user', content: 'How are you?' },
+      ];
+
+      const response = await provider.chat(messages);
+
+      expect(response.content).toBe('Response with conversation');
+    });
+
+    it('should throw on CLI error', async () => {
+      mockExecError('Gemini CLI failed');
+
+      const provider = new GeminiCLIProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hello' },
+      ];
+
+      await expect(provider.chat(messages)).rejects.toThrow('Gemini CLI error');
+    });
+  });
 });
 
 describe('CodexProvider', () => {
@@ -252,6 +397,47 @@ describe('CodexProvider', () => {
 
       const provider = new CodexProvider();
       expect(provider.getVersion()).toBeNull();
+    });
+  });
+
+  describe('chat', () => {
+    it('should execute CLI and return response', async () => {
+      mockExecSuccess('This is the response from Codex');
+
+      const provider = new CodexProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Write a function' },
+      ];
+
+      const response = await provider.chat(messages);
+
+      expect(response.content).toBe('This is the response from Codex');
+      expect(response.model).toBe('codex-cli');
+    });
+
+    it('should format multiple messages', async () => {
+      mockExecSuccess('Code output');
+
+      const provider = new CodexProvider();
+      const messages: ChatMessage[] = [
+        { role: 'system', content: 'You are a code generator' },
+        { role: 'user', content: 'Write hello world' },
+      ];
+
+      const response = await provider.chat(messages);
+
+      expect(response.content).toBe('Code output');
+    });
+
+    it('should throw on CLI error', async () => {
+      mockExecError('Codex CLI failed');
+
+      const provider = new CodexProvider();
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hello' },
+      ];
+
+      await expect(provider.chat(messages)).rejects.toThrow('Codex CLI error');
     });
   });
 });

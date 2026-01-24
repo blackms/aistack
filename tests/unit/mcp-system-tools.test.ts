@@ -319,3 +319,61 @@ describe('MCP System Tools status combinations', () => {
     expect(tools.system_config.name).toBe('system_config');
   });
 });
+
+describe('MCP System Tools error handling', () => {
+  let memory: MemoryManager;
+  let config: AgentStackConfig;
+  let dbPath: string;
+  let tools: ReturnType<typeof createSystemTools>;
+
+  beforeEach(() => {
+    clearAgents();
+    resetMemoryManager();
+    config = createTestConfig();
+    dbPath = config.memory.path;
+    memory = new MemoryManager(config);
+    tools = createSystemTools(memory, config);
+  });
+
+  afterEach(() => {
+    clearAgents();
+    memory.close();
+    resetMemoryManager();
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    if (existsSync(`${dbPath}-wal`)) unlinkSync(`${dbPath}-wal`);
+    if (existsSync(`${dbPath}-shm`)) unlinkSync(`${dbPath}-shm`);
+  });
+
+  it('should handle memory error in health check', async () => {
+    // Close memory to trigger an error
+    memory.close();
+
+    // Create tools with closed memory - count will fail
+    const brokenTools = createSystemTools(memory, config);
+
+    const result = await brokenTools.system_health.handler();
+
+    expect(result.healthy).toBe(false);
+    expect(result.status).toBe('unhealthy');
+    expect(result.checks.memory.status).toBe('error');
+  });
+
+  it('should show unhealthy status when checks have errors', async () => {
+    memory.close();
+    const brokenTools = createSystemTools(memory, config);
+
+    const result = await brokenTools.system_health.handler();
+
+    expect(result.healthy).toBe(false);
+    expect(result.status).toBe('unhealthy');
+  });
+
+  it('should include inputSchema for all tools', () => {
+    expect(tools.system_status.inputSchema).toBeDefined();
+    expect(tools.system_status.inputSchema.type).toBe('object');
+    expect(tools.system_health.inputSchema).toBeDefined();
+    expect(tools.system_health.inputSchema.type).toBe('object');
+    expect(tools.system_config.inputSchema).toBeDefined();
+    expect(tools.system_config.inputSchema.type).toBe('object');
+  });
+});
