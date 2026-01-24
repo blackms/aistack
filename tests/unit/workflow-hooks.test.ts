@@ -13,7 +13,8 @@ import {
   type WorkflowTrigger,
 } from '../../src/hooks/workflow.js';
 import { MemoryManager, resetMemoryManager } from '../../src/memory/index.js';
-import { existsSync, unlinkSync } from 'node:fs';
+import { resetWorkflowRunner } from '../../src/workflows/index.js';
+import { existsSync, unlinkSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AgentStackConfig, HookContext } from '../../src/types.js';
@@ -396,5 +397,126 @@ describe('workflowHook', () => {
     expect(condition1).toHaveBeenCalled();
     expect(condition2).toHaveBeenCalled();
     expect(condition3).toHaveBeenCalled();
+  });
+});
+
+describe('workflowHook with doc-sync', () => {
+  let memory: MemoryManager;
+  let config: AgentStackConfig;
+  let dbPath: string;
+  let testDir: string;
+  let docsDir: string;
+
+  beforeEach(() => {
+    clearWorkflowTriggers();
+    resetMemoryManager();
+    resetWorkflowRunner();
+
+    testDir = join(tmpdir(), `aistack-workflow-docsync-${Date.now()}`);
+    docsDir = join(testDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+
+    config = {
+      version: '1.0.0',
+      memory: {
+        path: join(tmpdir(), `aistack-workflow-hook-docsync-${Date.now()}.db`),
+        defaultNamespace: 'default',
+        vectorSearch: { enabled: false },
+      },
+      providers: { default: 'anthropic' },
+      agents: { maxConcurrent: 5, defaultTimeout: 300 },
+      github: { enabled: false },
+      plugins: { enabled: true, directory: './plugins' },
+      mcp: { transport: 'stdio' },
+      hooks: { sessionStart: true, sessionEnd: true, preTask: true, postTask: true },
+    };
+
+    dbPath = config.memory.path;
+    memory = new MemoryManager(config);
+  });
+
+  afterEach(() => {
+    clearWorkflowTriggers();
+    resetWorkflowRunner();
+    memory.close();
+    resetMemoryManager();
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    if (existsSync(`${dbPath}-wal`)) unlinkSync(`${dbPath}-wal`);
+    if (existsSync(`${dbPath}-shm`)) unlinkSync(`${dbPath}-shm`);
+    if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('should execute doc-sync workflow with workflowId', async () => {
+    // Create a test document
+    writeFileSync(join(docsDir, 'README.md'), '# Test Documentation\n\nSome content.');
+
+    const context: HookContext = {
+      event: 'workflow',
+      data: {
+        workflowId: 'doc-sync',
+        targetDirectory: docsDir,
+        sourceCode: testDir,
+      },
+    };
+
+    await expect(workflowHook(context, memory, config)).resolves.not.toThrow();
+  });
+
+  it('should execute doc-sync with full workflow ID', async () => {
+    writeFileSync(join(docsDir, 'test.md'), '# Test');
+
+    const context: HookContext = {
+      event: 'workflow',
+      data: {
+        workflowId: 'documentation_truth_sync_with_adversarial_review',
+      },
+    };
+
+    await expect(workflowHook(context, memory, config)).resolves.not.toThrow();
+  });
+
+  it('should execute workflow when trigger condition matches', async () => {
+    writeFileSync(join(docsDir, 'triggered.md'), '# Triggered');
+
+    // Register a trigger that matches
+    registerWorkflowTrigger({
+      id: 'test-doc-trigger',
+      name: 'Test Doc Trigger',
+      condition: () => true,
+      workflowId: 'doc-sync',
+      options: {
+        targetDirectory: docsDir,
+        sourceCode: testDir,
+      },
+    });
+
+    const context: HookContext = {
+      event: 'workflow',
+      data: { path: '/docs/test.md' },
+    };
+
+    await expect(workflowHook(context, memory, config)).resolves.not.toThrow();
+  });
+
+  it('should apply options to workflow config', async () => {
+    writeFileSync(join(docsDir, 'custom.md'), '# Custom');
+
+    registerWorkflowTrigger({
+      id: 'options-trigger',
+      name: 'Options Trigger',
+      condition: () => true,
+      workflowId: 'doc-sync',
+      options: {
+        targetDirectory: docsDir,
+        sourceCode: testDir,
+      },
+    });
+
+    const context: HookContext = {
+      event: 'workflow',
+      data: {},
+    };
+
+    await expect(workflowHook(context, memory, config)).resolves.not.toThrow();
   });
 });

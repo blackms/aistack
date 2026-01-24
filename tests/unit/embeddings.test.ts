@@ -2,7 +2,7 @@
  * Embeddings utility tests
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createEmbeddingProvider,
   cosineSimilarity,
@@ -134,6 +134,18 @@ describe('Embeddings Utils', () => {
   });
 
   describe('createEmbeddingProvider', () => {
+    const mockFetch = vi.fn();
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+      mockFetch.mockReset();
+      global.fetch = mockFetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
     it('should return null when vector search disabled', () => {
       const provider = createEmbeddingProvider(createConfig({ enabled: false }));
 
@@ -172,6 +184,180 @@ describe('Embeddings Utils', () => {
       );
 
       expect(provider).toBeNull();
+    });
+
+    it('should default to openai provider', () => {
+      const config = createConfig({ enabled: true, openaiKey: 'sk-test' });
+      delete (config.memory.vectorSearch as any).provider;
+
+      const provider = createEmbeddingProvider(config);
+
+      expect(provider).toBeDefined();
+      expect(provider?.dimensions).toBe(1536);
+    });
+  });
+
+  describe('OllamaEmbeddings', () => {
+    const mockFetch = vi.fn();
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+      mockFetch.mockReset();
+      global.fetch = mockFetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('should call embed and return embedding', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ embedding: [0.1, 0.2, 0.3, 0.4] }),
+      });
+
+      const provider = createEmbeddingProvider(
+        createConfig({ enabled: true, provider: 'ollama' })
+      );
+
+      const result = await provider!.embed('test text');
+
+      expect(result).toEqual([0.1, 0.2, 0.3, 0.4]);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:11434/api/embeddings',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('test text'),
+        })
+      );
+    });
+
+    it('should call embedBatch for multiple texts', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ embedding: [0.1, 0.2] }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ embedding: [0.3, 0.4] }),
+        });
+
+      const provider = createEmbeddingProvider(
+        createConfig({ enabled: true, provider: 'ollama' })
+      );
+
+      const results = await provider!.embedBatch(['text1', 'text2']);
+
+      expect(results).toEqual([
+        [0.1, 0.2],
+        [0.3, 0.4],
+      ]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw on API error', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: async () => 'Service unavailable',
+      });
+
+      const provider = createEmbeddingProvider(
+        createConfig({ enabled: true, provider: 'ollama' })
+      );
+
+      await expect(provider!.embed('test')).rejects.toThrow('Ollama API error: 503');
+    });
+  });
+
+  describe('OpenAIEmbeddings', () => {
+    const mockFetch = vi.fn();
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+      mockFetch.mockReset();
+      global.fetch = mockFetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('should call embedBatch and return embeddings', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { embedding: [0.1, 0.2, 0.3] },
+            { embedding: [0.4, 0.5, 0.6] },
+          ],
+        }),
+      });
+
+      const provider = createEmbeddingProvider(
+        createConfig({ enabled: true, provider: 'openai', openaiKey: 'sk-test' })
+      );
+
+      const results = await provider!.embedBatch(['text1', 'text2']);
+
+      expect(results).toEqual([
+        [0.1, 0.2, 0.3],
+        [0.4, 0.5, 0.6],
+      ]);
+    });
+
+    it('should call embed using embedBatch', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: [0.1, 0.2, 0.3] }],
+        }),
+      });
+
+      const provider = createEmbeddingProvider(
+        createConfig({ enabled: true, provider: 'openai', openaiKey: 'sk-test' })
+      );
+
+      const result = await provider!.embed('single text');
+
+      expect(result).toEqual([0.1, 0.2, 0.3]);
+    });
+
+    it('should throw on API error', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () => 'Invalid API key',
+      });
+
+      const provider = createEmbeddingProvider(
+        createConfig({ enabled: true, provider: 'openai', openaiKey: 'sk-bad' })
+      );
+
+      await expect(provider!.embed('test')).rejects.toThrow('OpenAI API error: 401');
+    });
+
+    it('should throw when no embedding returned', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      });
+
+      const provider = createEmbeddingProvider(
+        createConfig({ enabled: true, provider: 'openai', openaiKey: 'sk-test' })
+      );
+
+      await expect(provider!.embed('test')).rejects.toThrow('Failed to generate embedding');
+    });
+
+    it('should use correct dimensions for text-embedding-3-large', () => {
+      const config = createConfig({ enabled: true, provider: 'openai', openaiKey: 'sk-test' });
+      (config.memory.vectorSearch as any).model = 'text-embedding-3-large';
+
+      const provider = createEmbeddingProvider(config);
+
+      expect(provider?.dimensions).toBe(3072);
     });
   });
 });
