@@ -191,6 +191,51 @@ describe('WorkflowRunner', () => {
     });
   });
 
+  describe('Error handling', () => {
+    it('should emit error event when phase throws', async () => {
+      let errorEmitted = false;
+
+      runner.on('workflow:error', () => {
+        errorEmitted = true;
+      });
+
+      runner.registerPhase('inventory', async () => {
+        throw new Error('Phase execution failed');
+      });
+
+      const config: WorkflowConfig = {
+        id: 'test-error',
+        name: 'Test Error',
+        description: 'Test error handling',
+        agents: { primary: { name: 'Test', role: 'Test', type: 'tester' } },
+        inputs: { targetDirectory: './docs', sourceCode: '.' },
+        phases: ['inventory'],
+        constraints: [],
+      };
+
+      await expect(runner.run(config)).rejects.toThrow('Phase execution failed');
+      expect(errorEmitted).toBe(true);
+    });
+
+    it('should handle non-Error thrown values', async () => {
+      runner.registerPhase('inventory', async () => {
+        throw 'string error';
+      });
+
+      const config: WorkflowConfig = {
+        id: 'test-string-error',
+        name: 'Test String Error',
+        description: 'Test',
+        agents: { primary: { name: 'Test', role: 'Test', type: 'tester' } },
+        inputs: { targetDirectory: './docs', sourceCode: '.' },
+        phases: ['inventory'],
+        constraints: [],
+      };
+
+      await expect(runner.run(config)).rejects.toThrow('string error');
+    });
+  });
+
   describe('Singleton', () => {
     it('should return same instance', () => {
       const runner1 = getWorkflowRunner();
