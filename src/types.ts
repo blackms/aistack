@@ -142,7 +142,7 @@ export interface HookDefinition {
   handler: (context: HookContext) => Promise<void>;
 }
 
-export type HookEvent = 'session-start' | 'session-end' | 'pre-task' | 'post-task';
+export type HookEvent = 'session-start' | 'session-end' | 'pre-task' | 'post-task' | 'workflow';
 
 export interface HookContext {
   event: HookEvent;

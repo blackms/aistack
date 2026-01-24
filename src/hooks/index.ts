@@ -6,6 +6,7 @@ import type { HookEvent, HookContext, AgentStackConfig } from '../types.js';
 import { MemoryManager } from '../memory/index.js';
 import { sessionStartHook, sessionEndHook } from './session.js';
 import { preTaskHook, postTaskHook } from './task.js';
+import { workflowHook } from './workflow.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('hooks');
@@ -46,6 +47,9 @@ export async function executeHooks(
         break;
       case 'post-task':
         await postTaskHook(context, memory, config);
+        break;
+      case 'workflow':
+        await workflowHook(context, memory, config);
         break;
     }
 
@@ -131,3 +135,12 @@ export function getHookCount(event?: HookEvent): number {
 // Re-export hook functions
 export { sessionStartHook, sessionEndHook } from './session.js';
 export { preTaskHook, postTaskHook } from './task.js';
+export {
+  workflowHook,
+  registerWorkflowTrigger,
+  unregisterWorkflowTrigger,
+  getWorkflowTriggers,
+  clearWorkflowTriggers,
+  registerDefaultTriggers,
+  type WorkflowTrigger,
+} from './workflow.js';

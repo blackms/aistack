@@ -12,6 +12,7 @@ import {
   createMcpCommand,
   createPluginCommand,
   createStatusCommand,
+  createWorkflowCommand,
 } from './commands/index.js';
 
 // Read version from package.json would be ideal, but for now hardcode
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
   program.addCommand(createMcpCommand());
   program.addCommand(createPluginCommand());
   program.addCommand(createStatusCommand());
+  program.addCommand(createWorkflowCommand());
 
   // Parse arguments
   await program.parseAsync(process.argv);

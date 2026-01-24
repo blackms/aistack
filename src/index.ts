@@ -109,6 +109,13 @@ export {
   unregisterHooks,
   clearCustomHooks,
   getHookCount,
+  workflowHook,
+  registerWorkflowTrigger,
+  unregisterWorkflowTrigger,
+  getWorkflowTriggers,
+  clearWorkflowTriggers,
+  registerDefaultTriggers,
+  type WorkflowTrigger,
 } from './hooks/index.js';
 
 // GitHub
@@ -116,3 +123,32 @@ export {
   GitHubClient,
   createGitHubClient,
 } from './github/index.js';
+
+// Workflows
+export {
+  // Types
+  type WorkflowPhase,
+  type Severity,
+  type Verdict,
+  type WorkflowAgent,
+  type Finding,
+  type PhaseResult,
+  type WorkflowConfig,
+  type WorkflowContext,
+  type DocumentInfo,
+  type DocumentType,
+  type SyncResult,
+  type DocumentChange,
+  type DiagramUpdate,
+  type WorkflowReport,
+  type PhaseExecutor,
+  type WorkflowEvents,
+  // Runner
+  WorkflowRunner,
+  getWorkflowRunner,
+  resetWorkflowRunner,
+  // Doc Sync
+  docSyncConfig,
+  registerDocSyncWorkflow,
+  runDocSync,
+} from './workflows/index.js';
