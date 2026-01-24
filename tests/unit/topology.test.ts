@@ -216,5 +216,80 @@ describe('HierarchicalCoordinator', () => {
       // Sending to defunct coordinator shouldn't throw
       bus.send('test-sender', coordinatorId!, 'test', {});
     });
+
+    it('should handle task:completed message', async () => {
+      await coordinator.initialize();
+      const status = coordinator.getStatus();
+      const coordinatorId = status.coordinator?.id;
+
+      // Submit a task
+      const task = {
+        id: 'task-complete-test',
+        agentType: 'coder' as const,
+        status: 'pending' as const,
+        createdAt: new Date(),
+      };
+      await coordinator.submitTask(task);
+
+      // Simulate a worker sending task:completed
+      const bus = getMessageBus();
+      bus.send('fake-worker-id', coordinatorId!, 'task:completed', {
+        taskId: 'task-complete-test',
+      });
+
+      // Should handle without throwing
+      expect(coordinator.getStatus().coordinator).toBeDefined();
+    });
+
+    it('should handle task:failed message', async () => {
+      await coordinator.initialize();
+      const status = coordinator.getStatus();
+      const coordinatorId = status.coordinator?.id;
+
+      // Submit a task
+      const task = {
+        id: 'task-fail-test',
+        agentType: 'coder' as const,
+        status: 'pending' as const,
+        createdAt: new Date(),
+      };
+      await coordinator.submitTask(task);
+
+      // Simulate a worker sending task:failed
+      const bus = getMessageBus();
+      bus.send('fake-worker-id', coordinatorId!, 'task:failed', {
+        taskId: 'task-fail-test',
+        error: 'Test failure',
+      });
+
+      // Should handle without throwing
+      expect(coordinator.getStatus().coordinator).toBeDefined();
+    });
+
+    it('should handle worker:ready message', async () => {
+      await coordinator.initialize();
+      const status = coordinator.getStatus();
+      const coordinatorId = status.coordinator?.id;
+
+      // Simulate a worker sending worker:ready
+      const bus = getMessageBus();
+      bus.send('fake-worker-id', coordinatorId!, 'worker:ready', {});
+
+      // Should handle without throwing (worker not tracked, but no error)
+      expect(coordinator.getStatus().coordinator).toBeDefined();
+    });
+
+    it('should handle unknown message type gracefully', async () => {
+      await coordinator.initialize();
+      const status = coordinator.getStatus();
+      const coordinatorId = status.coordinator?.id;
+
+      // Simulate an unknown message type
+      const bus = getMessageBus();
+      bus.send('fake-sender', coordinatorId!, 'unknown:type', { data: 'test' });
+
+      // Should handle without throwing
+      expect(coordinator.getStatus().coordinator).toBeDefined();
+    });
   });
 });
