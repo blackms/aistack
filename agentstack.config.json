@@ -1,0 +1,38 @@
+{
+  "version": "1.0.0",
+  "memory": {
+    "path": "./data/agentstack.db",
+    "defaultNamespace": "default",
+    "vectorSearch": {
+      "enabled": true,
+      "provider": "openai",
+      "model": "text-embedding-3-small"
+    }
+  },
+  "providers": {
+    "default": "anthropic",
+    "openai": {
+      "apiKey": "${OPENAI_API_KEY}"
+    }
+  },
+  "agents": {
+    "maxConcurrent": 5,
+    "defaultTimeout": 300
+  },
+  "github": {
+    "enabled": false
+  },
+  "plugins": {
+    "enabled": true,
+    "directory": "./plugins"
+  },
+  "mcp": {
+    "transport": "stdio"
+  },
+  "hooks": {
+    "sessionStart": true,
+    "sessionEnd": true,
+    "preTask": true,
+    "postTask": true
+  }
+}
