@@ -148,6 +148,205 @@ describe('Plugin Loading with Mock Modules', () => {
   });
 });
 
+describe('Plugin Loading with Real Plugin', () => {
+  let testDir: string;
+  let config: AgentStackConfig;
+
+  beforeEach(async () => {
+    await clearPlugins();
+    testDir = join(tmpdir(), `aistack-plugin-real-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+
+    config = {
+      version: '1.0.0',
+      memory: {
+        path: './test.db',
+        defaultNamespace: 'default',
+        vectorSearch: { enabled: false },
+      },
+      providers: { default: 'anthropic' },
+      agents: { maxConcurrent: 5, defaultTimeout: 300 },
+      github: { enabled: false },
+      plugins: { enabled: true, directory: testDir },
+      mcp: { transport: 'stdio' },
+      hooks: {
+        sessionStart: true,
+        sessionEnd: true,
+        preTask: true,
+        postTask: true,
+      },
+    };
+  });
+
+  afterEach(async () => {
+    await clearPlugins();
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should load a valid plugin with cleanup function', async () => {
+    // Create a valid ES module plugin
+    const pluginDir = join(testDir, 'test-plugin');
+    mkdirSync(pluginDir, { recursive: true });
+
+    const pluginCode = `
+      let cleanupCalled = false;
+      export default {
+        name: 'test-plugin',
+        version: '1.0.0',
+        cleanup: async () => {
+          cleanupCalled = true;
+        }
+      };
+    `;
+
+    writeFileSync(join(pluginDir, 'index.mjs'), pluginCode);
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      JSON.stringify({ name: 'test-plugin', version: '1.0.0', main: 'index.mjs', type: 'module' })
+    );
+
+    const count = await discoverPlugins(config);
+
+    expect(count).toBe(1);
+    expect(getPlugin('test-plugin')).not.toBeNull();
+    expect(getPluginCount()).toBe(1);
+
+    // Test unload
+    const unloaded = await unloadPlugin('test-plugin');
+    expect(unloaded).toBe(true);
+    expect(getPlugin('test-plugin')).toBeNull();
+  });
+
+  it('should load plugin with init function', async () => {
+    const pluginDir = join(testDir, 'init-plugin');
+    mkdirSync(pluginDir, { recursive: true });
+
+    const pluginCode = `
+      export default {
+        name: 'init-plugin',
+        version: '1.0.0',
+        init: async (config) => {
+          // Init function called
+        }
+      };
+    `;
+
+    writeFileSync(join(pluginDir, 'index.mjs'), pluginCode);
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      JSON.stringify({ name: 'init-plugin', version: '1.0.0', main: 'index.mjs', type: 'module' })
+    );
+
+    const count = await discoverPlugins(config);
+
+    expect(count).toBe(1);
+    expect(getPlugin('init-plugin')).not.toBeNull();
+  });
+
+  it('should load plugin with agents', async () => {
+    const pluginDir = join(testDir, 'agent-plugin');
+    mkdirSync(pluginDir, { recursive: true });
+
+    const pluginCode = `
+      export default {
+        name: 'agent-plugin',
+        version: '1.0.0',
+        agents: [
+          {
+            type: 'custom-agent',
+            name: 'Custom Agent',
+            description: 'A custom agent from plugin',
+            capabilities: ['custom-task']
+          }
+        ]
+      };
+    `;
+
+    writeFileSync(join(pluginDir, 'index.mjs'), pluginCode);
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      JSON.stringify({ name: 'agent-plugin', version: '1.0.0', main: 'index.mjs', type: 'module' })
+    );
+
+    const count = await discoverPlugins(config);
+
+    expect(count).toBe(1);
+    const plugin = getPlugin('agent-plugin');
+    expect(plugin?.agents?.length).toBe(1);
+  });
+
+  it('should handle plugin with cleanup error', async () => {
+    const pluginDir = join(testDir, 'error-plugin');
+    mkdirSync(pluginDir, { recursive: true });
+
+    const pluginCode = `
+      export default {
+        name: 'error-plugin',
+        version: '1.0.0',
+        cleanup: async () => {
+          throw new Error('Cleanup failed intentionally');
+        }
+      };
+    `;
+
+    writeFileSync(join(pluginDir, 'index.mjs'), pluginCode);
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      JSON.stringify({ name: 'error-plugin', version: '1.0.0', main: 'index.mjs', type: 'module' })
+    );
+
+    await discoverPlugins(config);
+    expect(getPlugin('error-plugin')).not.toBeNull();
+
+    // Unload should handle cleanup error gracefully
+    const unloaded = await unloadPlugin('error-plugin');
+    expect(unloaded).toBe(true);
+    expect(getPlugin('error-plugin')).toBeNull();
+  });
+
+  it('should clear all plugins with cleanup', async () => {
+    const plugin1Dir = join(testDir, 'plugin-1');
+    const plugin2Dir = join(testDir, 'plugin-2');
+    mkdirSync(plugin1Dir, { recursive: true });
+    mkdirSync(plugin2Dir, { recursive: true });
+
+    const pluginCode1 = `
+      export default {
+        name: 'plugin-1',
+        version: '1.0.0',
+        cleanup: async () => {}
+      };
+    `;
+
+    const pluginCode2 = `
+      export default {
+        name: 'plugin-2',
+        version: '1.0.0'
+      };
+    `;
+
+    writeFileSync(join(plugin1Dir, 'index.mjs'), pluginCode1);
+    writeFileSync(
+      join(plugin1Dir, 'package.json'),
+      JSON.stringify({ name: 'plugin-1', version: '1.0.0', main: 'index.mjs', type: 'module' })
+    );
+
+    writeFileSync(join(plugin2Dir, 'index.mjs'), pluginCode2);
+    writeFileSync(
+      join(plugin2Dir, 'package.json'),
+      JSON.stringify({ name: 'plugin-2', version: '1.0.0', main: 'index.mjs', type: 'module' })
+    );
+
+    await discoverPlugins(config);
+    expect(getPluginCount()).toBe(2);
+
+    await clearPlugins();
+    expect(getPluginCount()).toBe(0);
+  });
+});
+
 describe('Plugin Discovery with Real Directory', () => {
   let testDir: string;
   let config: AgentStackConfig;
