@@ -6,7 +6,7 @@
 
 AgentStack provides three API surfaces:
 
-1. **MCP Tools** - 30+ tools exposed via Model Context Protocol for Claude Code
+1. **MCP Tools** - 30 tools exposed via Model Context Protocol for Claude Code
 2. **Programmatic API** - TypeScript/JavaScript library exports
 3. **CLI Commands** - Command-line interface
 

@@ -80,7 +80,7 @@ claude mcp add aistack -- npx @blackms/aistack mcp start
 
 - **7 Specialized Agents**: Coder, Tester, Reviewer, Researcher, Architect, Coordinator, Analyst
 - **Persistent Memory**: SQLite with FTS5 full-text search and optional vector embeddings
-- **30+ MCP Tools**: Complete Claude Code integration
+- **30 MCP Tools**: Complete Claude Code integration
 - **Plugin System**: Extend agents, tools, hooks, and providers
 - **Task Coordination**: Priority queue with hierarchical orchestration
 - **Workflow Engine**: Multi-phase workflows with adversarial validation

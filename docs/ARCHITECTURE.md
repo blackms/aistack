@@ -45,7 +45,7 @@ C4Container
     Person(developer, "Developer", "Uses Claude Code")
 
     System_Boundary(agentstack, "AgentStack") {
-        Container(mcp_server, "MCP Server", "TypeScript", "Exposes 30+ tools via MCP protocol")
+        Container(mcp_server, "MCP Server", "TypeScript", "Exposes 30 tools via MCP protocol")
         Container(agent_manager, "Agent Manager", "TypeScript", "Registry and spawner for 7 agent types")
         Container(memory_manager, "Memory Manager", "TypeScript", "Unified storage with FTS and vector search")
         Container(coordination, "Coordination Layer", "TypeScript", "Task queue and message bus")
@@ -252,7 +252,7 @@ src/
 │   └── vector-search.ts
 ├── mcp/               # MCP server and tools
 │   ├── server.ts
-│   └── tools/         # 30+ tool implementations
+│   └── tools/         # 30 tool implementations
 ├── coordination/      # Task and message management
 │   ├── task-queue.ts
 │   ├── message-bus.ts

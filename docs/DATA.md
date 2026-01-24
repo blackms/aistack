@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS memory (
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_memory_namespace ON memory(namespace);
 CREATE INDEX IF NOT EXISTS idx_memory_key ON memory(key);
-CREATE INDEX IF NOT EXISTS idx_memory_updated ON memory(updated_at);
+CREATE INDEX IF NOT EXISTS idx_memory_updated ON memory(updated_at DESC);
 ```
 
 ### FTS5 Virtual Table
@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   ended_at INTEGER,              -- Unix timestamp (ms), null if active
   metadata TEXT                  -- JSON-encoded metadata
 );
+
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 ```
 
 ### Tasks Table
@@ -106,6 +108,23 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at INTEGER NOT NULL,   -- Unix timestamp (ms)
   completed_at INTEGER,          -- Unix timestamp (ms)
   FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+```
+
+### Plugins Table
+
+Plugin state tracking.
+
+```sql
+CREATE TABLE IF NOT EXISTS plugins (
+  name TEXT PRIMARY KEY,         -- Plugin name (unique identifier)
+  version TEXT NOT NULL,         -- Plugin version
+  enabled INTEGER DEFAULT 1,     -- Enabled state (0 or 1)
+  config TEXT,                   -- JSON-encoded plugin configuration
+  loaded_at INTEGER NOT NULL     -- Unix timestamp (ms)
 );
 ```
 
