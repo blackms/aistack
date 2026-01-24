@@ -3,7 +3,7 @@
  */
 
 import type { SpawnedAgent, Task } from '../types.js';
-import { spawnAgent, listAgents, updateAgentStatus, stopAgent } from '../agents/spawner.js';
+import { spawnAgent, updateAgentStatus, stopAgent } from '../agents/spawner.js';
 import { TaskQueue } from './task-queue.js';
 import { getMessageBus, Message } from './message-bus.js';
 import { logger } from '../utils/logger.js';

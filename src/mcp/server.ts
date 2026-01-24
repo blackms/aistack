@@ -67,7 +67,7 @@ export class MCPServer {
     ];
 
     for (const toolSet of toolSets) {
-      for (const [_key, tool] of Object.entries(toolSet)) {
+      for (const tool of Object.values(toolSet)) {
         this.tools.set(tool.name, tool as MCPTool);
       }
     }
