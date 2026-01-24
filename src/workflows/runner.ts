@@ -10,7 +10,6 @@ import type {
   PhaseResult,
   WorkflowReport,
   Finding,
-  Verdict,
 } from './types.js';
 import { logger } from '../utils/logger.js';
 

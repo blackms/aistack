@@ -62,7 +62,7 @@ export function clearWorkflowTriggers(): void {
 export async function workflowHook(
   context: HookContext,
   memory: MemoryManager,
-  config: AgentStackConfig
+  _config: AgentStackConfig
 ): Promise<void> {
   const workflowId = context.data?.workflowId as string | undefined;
 

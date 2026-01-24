@@ -21,9 +21,8 @@ export function createWorkflowCommand(): Command {
     .option('-s, --source <path>', 'Source code directory', '.')
     .option('-v, --verbose', 'Verbose output')
     .action(async (workflow: string, options) => {
-      const { docs, source, verbose } = options as {
+      const { docs, verbose } = options as {
         docs: string;
-        source: string;
         verbose?: boolean;
       };
 

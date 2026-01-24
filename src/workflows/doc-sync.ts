@@ -294,7 +294,7 @@ export const syncPhase: PhaseExecutor = async (context: WorkflowContext): Promis
  * Phase 4: Consistency check
  * Ensure cross-document consistency
  */
-export const consistencyPhase: PhaseExecutor = async (context: WorkflowContext): Promise<PhaseResult> => {
+export const consistencyPhase: PhaseExecutor = async (_context: WorkflowContext): Promise<PhaseResult> => {
   const findings: Finding[] = [];
 
   // Check for terminology consistency
