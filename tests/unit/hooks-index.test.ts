@@ -259,4 +259,42 @@ describe('Hooks Index', () => {
       expect(getHookCount()).toBe(3);
     });
   });
+
+  describe('error handling', () => {
+    it('should handle and log errors from custom hooks', async () => {
+      const successHandler = vi.fn().mockResolvedValue(undefined);
+
+      registerHook('pre-task', async () => {
+        throw new Error('Custom hook error');
+      });
+      registerHook('pre-task', successHandler);
+
+      const context: HookContext = {
+        event: 'pre-task',
+        data: {},
+      };
+
+      // Should not throw and should continue to next handler
+      await executeHooks('pre-task', context, memory, config);
+
+      expect(successHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle multiple failing custom hooks', async () => {
+      registerHook('post-task', async () => {
+        throw new Error('First error');
+      });
+      registerHook('post-task', async () => {
+        throw new Error('Second error');
+      });
+
+      const context: HookContext = {
+        event: 'post-task',
+        data: {},
+      };
+
+      // Should complete without throwing
+      await expect(executeHooks('post-task', context, memory, config)).resolves.not.toThrow();
+    });
+  });
 });
