@@ -309,3 +309,26 @@ describe('SQLiteStore', () => {
     });
   });
 });
+
+describe('SQLiteStore directory creation', () => {
+  it('should create parent directory if it does not exist', () => {
+    const nestedDir = join(tmpdir(), `aistack-nested-${Date.now()}`, 'level1', 'level2');
+    const nestedPath = join(nestedDir, 'test.db');
+
+    // Directory should not exist
+    expect(existsSync(nestedDir)).toBe(false);
+
+    const nestedStore = new SQLiteStore(nestedPath);
+
+    // Store should be created and directory should exist now
+    expect(existsSync(nestedDir)).toBe(true);
+
+    nestedStore.close();
+
+    // Clean up
+    rmSync(join(tmpdir(), `aistack-nested-${Date.now().toString().slice(0, -3)}`), {
+      recursive: true,
+      force: true,
+    });
+  });
+});

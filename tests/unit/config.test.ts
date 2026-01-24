@@ -311,6 +311,7 @@ describe('Environment Variable Interpolation', () => {
 
     expect(config.memory.path).toBe('/custom/path/db.sqlite');
   });
+
 });
 
 describe('Config File Discovery', () => {
