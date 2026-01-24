@@ -2,18 +2,45 @@
  * Workflow hooks tests
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   registerWorkflowTrigger,
   unregisterWorkflowTrigger,
   getWorkflowTriggers,
   clearWorkflowTriggers,
   registerDefaultTriggers,
+  workflowHook,
   type WorkflowTrigger,
 } from '../../src/hooks/workflow.js';
+import { MemoryManager, resetMemoryManager } from '../../src/memory/index.js';
+import { existsSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import type { AgentStackConfig, HookContext } from '../../src/types.js';
+
+function createTestConfig(): AgentStackConfig {
+  return {
+    version: '1.0.0',
+    memory: {
+      path: join(tmpdir(), `aistack-workflow-hook-${Date.now()}.db`),
+      defaultNamespace: 'default',
+      vectorSearch: { enabled: false },
+    },
+    providers: { default: 'anthropic' },
+    agents: { maxConcurrent: 5, defaultTimeout: 300 },
+    github: { enabled: false },
+    plugins: { enabled: true, directory: './plugins' },
+    mcp: { transport: 'stdio' },
+    hooks: { sessionStart: true, sessionEnd: true, preTask: true, postTask: true },
+  };
+}
 
 describe('Workflow Triggers', () => {
   beforeEach(() => {
+    clearWorkflowTriggers();
+  });
+
+  afterEach(() => {
     clearWorkflowTriggers();
   });
 
@@ -248,5 +275,126 @@ describe('Workflow Triggers', () => {
         false
       );
     });
+  });
+});
+
+describe('workflowHook', () => {
+  let memory: MemoryManager;
+  let config: AgentStackConfig;
+  let dbPath: string;
+
+  beforeEach(() => {
+    clearWorkflowTriggers();
+    resetMemoryManager();
+    config = createTestConfig();
+    dbPath = config.memory.path;
+    memory = new MemoryManager(config);
+  });
+
+  afterEach(() => {
+    clearWorkflowTriggers();
+    memory.close();
+    resetMemoryManager();
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    if (existsSync(`${dbPath}-wal`)) unlinkSync(`${dbPath}-wal`);
+    if (existsSync(`${dbPath}-shm`)) unlinkSync(`${dbPath}-shm`);
+  });
+
+  it('should complete without throwing when no triggers registered', async () => {
+    const context: HookContext = {
+      event: 'workflow',
+      data: {},
+    };
+
+    await expect(workflowHook(context, memory, config)).resolves.not.toThrow();
+  });
+
+  it('should handle unknown workflowId gracefully', async () => {
+    const context: HookContext = {
+      event: 'workflow',
+      data: { workflowId: 'unknown-workflow' },
+    };
+
+    await expect(workflowHook(context, memory, config)).resolves.not.toThrow();
+  });
+
+  it('should not trigger when no conditions match', async () => {
+    const handler = vi.fn().mockReturnValue(false);
+
+    registerWorkflowTrigger({
+      id: 'no-match',
+      name: 'No Match',
+      condition: handler,
+      workflowId: 'test-workflow',
+    });
+
+    const context: HookContext = {
+      event: 'workflow',
+      data: { path: '/src/code.ts' },
+    };
+
+    await workflowHook(context, memory, config);
+
+    expect(handler).toHaveBeenCalled();
+  });
+
+  it('should pass context to trigger condition', async () => {
+    const conditionFn = vi.fn().mockReturnValue(false);
+
+    registerWorkflowTrigger({
+      id: 'ctx-check',
+      name: 'Context Check',
+      condition: conditionFn,
+      workflowId: 'test',
+    });
+
+    const context: HookContext = {
+      event: 'workflow',
+      taskId: 'task-123',
+      agentType: 'coder',
+      data: { key: 'value' },
+    };
+
+    await workflowHook(context, memory, config);
+
+    expect(conditionFn).toHaveBeenCalledWith(context);
+  });
+
+  it('should evaluate multiple triggers', async () => {
+    const condition1 = vi.fn().mockReturnValue(false);
+    const condition2 = vi.fn().mockReturnValue(false);
+    const condition3 = vi.fn().mockReturnValue(false);
+
+    registerWorkflowTrigger({
+      id: 't1',
+      name: 'T1',
+      condition: condition1,
+      workflowId: 'w1',
+    });
+
+    registerWorkflowTrigger({
+      id: 't2',
+      name: 'T2',
+      condition: condition2,
+      workflowId: 'w2',
+    });
+
+    registerWorkflowTrigger({
+      id: 't3',
+      name: 'T3',
+      condition: condition3,
+      workflowId: 'w3',
+    });
+
+    const context: HookContext = {
+      event: 'workflow',
+      data: {},
+    };
+
+    await workflowHook(context, memory, config);
+
+    expect(condition1).toHaveBeenCalled();
+    expect(condition2).toHaveBeenCalled();
+    expect(condition3).toHaveBeenCalled();
   });
 });
