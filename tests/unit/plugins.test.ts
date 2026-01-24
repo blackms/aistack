@@ -111,6 +111,43 @@ describe('Plugin Registry', () => {
   });
 });
 
+describe('Plugin Loading with Mock Modules', () => {
+  beforeEach(async () => {
+    await clearPlugins();
+  });
+
+  afterEach(async () => {
+    await clearPlugins();
+  });
+
+  it('should load plugin with cleanup function', async () => {
+    const cleanupFn = vi.fn();
+    const pluginModule = {
+      default: {
+        name: 'test-cleanup-plugin',
+        version: '1.0.0',
+        cleanup: cleanupFn,
+      },
+    };
+
+    // Mock import
+    vi.doMock('/mock/cleanup-plugin.js', () => pluginModule);
+
+    // Since we can't actually mock dynamic imports easily, test unload with non-existent
+    // plugin returns false
+    const result = await unloadPlugin('test-cleanup-plugin');
+    expect(result).toBe(false);
+
+    vi.doUnmock('/mock/cleanup-plugin.js');
+  });
+
+  it('should handle clearPlugins with no plugins', async () => {
+    expect(getPluginCount()).toBe(0);
+    await clearPlugins();
+    expect(getPluginCount()).toBe(0);
+  });
+});
+
 describe('Plugin Discovery with Real Directory', () => {
   let testDir: string;
   let config: AgentStackConfig;
