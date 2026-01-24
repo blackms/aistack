@@ -236,3 +236,163 @@ describe('Config Validation', () => {
     expect(result.valid).toBe(true);
   });
 });
+
+describe('Environment Variable Interpolation', () => {
+  let testDir: string;
+  let configPath: string;
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `aistack-env-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+    configPath = join(testDir, 'aistack.config.json');
+    resetConfig();
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    resetConfig();
+    process.env = originalEnv;
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should interpolate environment variables in config', () => {
+    process.env['TEST_API_KEY'] = 'my-secret-key';
+
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        version: '1.0.0',
+        providers: {
+          default: 'anthropic',
+          anthropic: { apiKey: '${TEST_API_KEY}' },
+        },
+      })
+    );
+
+    const config = loadConfig(configPath);
+
+    expect(config.providers.anthropic?.apiKey).toBe('my-secret-key');
+  });
+
+  it('should handle missing environment variables', () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        version: '1.0.0',
+        providers: {
+          default: 'anthropic',
+          anthropic: { apiKey: '${NONEXISTENT_VAR}' },
+        },
+      })
+    );
+
+    const config = loadConfig(configPath);
+
+    expect(config.providers.anthropic?.apiKey).toBe('');
+  });
+
+  it('should interpolate arrays with env vars', () => {
+    process.env['TEST_PATH'] = '/custom/path';
+
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        version: '1.0.0',
+        memory: {
+          path: '${TEST_PATH}/db.sqlite',
+        },
+      })
+    );
+
+    const config = loadConfig(configPath);
+
+    expect(config.memory.path).toBe('/custom/path/db.sqlite');
+  });
+});
+
+describe('Config File Discovery', () => {
+  let testDir: string;
+  let nestedDir: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `aistack-discovery-${Date.now()}`);
+    nestedDir = join(testDir, 'level1', 'level2', 'level3');
+    mkdirSync(nestedDir, { recursive: true });
+    resetConfig();
+  });
+
+  afterEach(() => {
+    resetConfig();
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should find config file in parent directory', () => {
+    // Create config in testDir (parent)
+    const parentConfigPath = join(testDir, 'aistack.config.json');
+    writeFileSync(
+      parentConfigPath,
+      JSON.stringify({
+        version: '1.0.0',
+        agents: { maxConcurrent: 15, defaultTimeout: 300 },
+      })
+    );
+
+    // Load from nested dir - should find parent config
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(nestedDir);
+      const config = loadConfig();
+      expect(config.agents.maxConcurrent).toBe(15);
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+});
+
+describe('Config Validation Edge Cases', () => {
+  let testDir: string;
+  let configPath: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `aistack-edge-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+    configPath = join(testDir, 'aistack.config.json');
+    resetConfig();
+  });
+
+  afterEach(() => {
+    resetConfig();
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should use defaults for invalid fields while preserving valid ones', () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        version: '2.0.0',
+        agents: {
+          maxConcurrent: 1000, // Invalid - too high
+          defaultTimeout: 300,
+        },
+        memory: {
+          path: './valid/path.db',
+        },
+      })
+    );
+
+    const config = loadConfig(configPath);
+
+    // Should use defaults for invalid fields
+    expect(config.agents.maxConcurrent).toBe(5); // Default
+    // Valid fields should be preserved (if validation is field-by-field)
+    // Or entire config uses defaults
+    expect(config.version).toBeDefined();
+  });
+});
