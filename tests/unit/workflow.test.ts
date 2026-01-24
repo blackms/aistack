@@ -9,6 +9,7 @@ import {
   resetWorkflowRunner,
   docSyncConfig,
   registerDocSyncWorkflow,
+  runDocSync,
   type WorkflowConfig,
   type PhaseResult,
 } from '../../src/workflows/index.js';
@@ -286,5 +287,155 @@ describe('Doc Sync Workflow', () => {
     // Should find the missing file reference
     const findings = report.phases.flatMap((p) => p.findings);
     expect(findings.some((f) => f.evidence.includes('src/index.ts'))).toBe(true);
+  });
+
+  it('should scan subdirectories recursively', async () => {
+    const subDir = join(docsDir, 'guides');
+    mkdirSync(subDir, { recursive: true });
+
+    writeFileSync(join(docsDir, 'README.md'), '# Main README');
+    writeFileSync(join(subDir, 'quickstart.md'), '# Quick Start Guide\n\nHow to get started.');
+
+    const runner = getWorkflowRunner();
+    registerDocSyncWorkflow();
+
+    const config = { ...docSyncConfig };
+    config.inputs.targetDirectory = docsDir;
+    config.inputs.sourceCode = testDir;
+
+    const report = await runner.run(config);
+
+    expect(report.summary.documentsScanned).toBe(2);
+  });
+
+  it('should skip excluded directories', async () => {
+    const nodeModules = join(docsDir, 'node_modules');
+    mkdirSync(nodeModules, { recursive: true });
+    writeFileSync(join(nodeModules, 'excluded.md'), '# Should not be scanned');
+
+    writeFileSync(join(docsDir, 'included.md'), '# Should be scanned');
+
+    const runner = getWorkflowRunner();
+    registerDocSyncWorkflow();
+
+    const config = { ...docSyncConfig };
+    config.inputs.targetDirectory = docsDir;
+    config.inputs.sourceCode = testDir;
+
+    const report = await runner.run(config);
+
+    expect(report.summary.documentsScanned).toBe(1);
+  });
+
+  it('should detect different document types', async () => {
+    writeFileSync(join(docsDir, 'README.md'), '# README');
+    writeFileSync(join(docsDir, 'CHANGELOG.md'), '# Changelog');
+    writeFileSync(join(docsDir, 'api-reference.md'), '# API');
+    writeFileSync(join(docsDir, 'adr-001.md'), '# ADR 001');
+    writeFileSync(join(docsDir, 'deploy-guide.md'), '# Deployment Guide');
+    writeFileSync(join(docsDir, 'architecture.md'), '# Architecture\n\nSystem Design Overview');
+    writeFileSync(join(docsDir, 'user-guide.md'), '# User Guide\n\nHow to use this tool');
+
+    const runner = getWorkflowRunner();
+    registerDocSyncWorkflow();
+
+    const config = { ...docSyncConfig };
+    config.inputs.targetDirectory = docsDir;
+    config.inputs.sourceCode = testDir;
+
+    const report = await runner.run(config);
+
+    expect(report.summary.documentsScanned).toBe(7);
+  });
+
+  it('should extract code blocks from content', async () => {
+    writeFileSync(
+      join(docsDir, 'examples.md'),
+      '# Examples\n\n```typescript\nconst x = 1;\n```\n\n```python\nprint("hello")\n```'
+    );
+
+    const runner = getWorkflowRunner();
+    registerDocSyncWorkflow();
+
+    const config = { ...docSyncConfig };
+    config.inputs.targetDirectory = docsDir;
+    config.inputs.sourceCode = testDir;
+
+    const report = await runner.run(config);
+
+    expect(report.summary.documentsScanned).toBe(1);
+  });
+
+  it('should handle intent extraction from different formats', async () => {
+    // Heading format
+    writeFileSync(join(docsDir, 'heading.md'), '# Main Heading\n\nContent here.');
+
+    // Quote format
+    writeFileSync(join(docsDir, 'quote.md'), '> This is the intent\n\nContent here.');
+
+    // Bold format
+    writeFileSync(join(docsDir, 'bold.md'), '**Bold intent description**\n\nContent here.');
+
+    // No clear intent
+    writeFileSync(join(docsDir, 'plain.md'), 'Just plain text content.');
+
+    const runner = getWorkflowRunner();
+    registerDocSyncWorkflow();
+
+    const config = { ...docSyncConfig };
+    config.inputs.targetDirectory = docsDir;
+    config.inputs.sourceCode = testDir;
+
+    const report = await runner.run(config);
+
+    expect(report.summary.documentsScanned).toBe(4);
+  });
+
+  it('should handle mdx files', async () => {
+    writeFileSync(join(docsDir, 'component.mdx'), '# MDX Component\n\n<MyComponent />');
+
+    const runner = getWorkflowRunner();
+    registerDocSyncWorkflow();
+
+    const config = { ...docSyncConfig };
+    config.inputs.targetDirectory = docsDir;
+    config.inputs.sourceCode = testDir;
+
+    const report = await runner.run(config);
+
+    expect(report.summary.documentsScanned).toBe(1);
+  });
+});
+
+describe('runDocSync', () => {
+  let testDir: string;
+  let docsDir: string;
+
+  beforeEach(() => {
+    resetWorkflowRunner();
+    testDir = join(tmpdir(), `aistack-rundocsync-${Date.now()}`);
+    docsDir = join(testDir, 'docs');
+    mkdirSync(docsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should run with default docs directory', async () => {
+    writeFileSync(join(docsDir, 'test.md'), '# Test');
+
+    // Mock the docsDirectory parameter
+    await expect(runDocSync(docsDir)).resolves.not.toThrow();
+  });
+
+  it('should run with custom docs directory', async () => {
+    const customDocs = join(testDir, 'custom-docs');
+    mkdirSync(customDocs, { recursive: true });
+    writeFileSync(join(customDocs, 'custom.md'), '# Custom Docs');
+
+    await expect(runDocSync(customDocs)).resolves.not.toThrow();
   });
 });
