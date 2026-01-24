@@ -266,4 +266,83 @@ describe('Hooks System', () => {
       expect(results).toEqual(['first', 'second']);
     });
   });
+
+  describe('Workflow Hook', () => {
+    it('should execute workflow hook', async () => {
+      const handler = vi.fn();
+      registerHook('workflow', handler);
+
+      await executeHooks(
+        'workflow',
+        { event: 'workflow', data: { workflowId: 'test-workflow' } },
+        memory,
+        config
+      );
+
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it('should handle workflow without trigger', async () => {
+      // Workflow hook should not throw when no trigger matches
+      await expect(
+        executeHooks(
+          'workflow',
+          { event: 'workflow', data: { workflowId: 'non-existent' } },
+          memory,
+          config
+        )
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('isHookEnabled', () => {
+    it('should return true for workflow events (always enabled)', async () => {
+      // Workflow events are always enabled regardless of config
+      const handler = vi.fn();
+      registerHook('workflow', handler);
+
+      const disabledConfig = {
+        ...config,
+        hooks: {
+          sessionStart: false,
+          sessionEnd: false,
+          preTask: false,
+          postTask: false,
+        },
+      };
+
+      await executeHooks(
+        'workflow',
+        { event: 'workflow', data: {} },
+        memory,
+        disabledConfig
+      );
+
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it('should check each hook type independently', async () => {
+      const startHandler = vi.fn();
+      const endHandler = vi.fn();
+
+      registerHook('session-start', startHandler);
+      registerHook('session-end', endHandler);
+
+      const partialConfig = {
+        ...config,
+        hooks: {
+          sessionStart: false,
+          sessionEnd: true,
+          preTask: true,
+          postTask: true,
+        },
+      };
+
+      await executeHooks('session-start', { event: 'session-start' }, memory, partialConfig);
+      await executeHooks('session-end', { event: 'session-end' }, memory, partialConfig);
+
+      expect(startHandler).not.toHaveBeenCalled();
+      expect(endHandler).toHaveBeenCalled();
+    });
+  });
 });
