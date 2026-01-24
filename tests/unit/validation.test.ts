@@ -8,6 +8,7 @@ import {
   MemoryStoreInputSchema,
   MemorySearchInputSchema,
   AgentSpawnInputSchema,
+  AgentStopInputSchema,
   VALID_AGENT_TYPES,
   isValidAgentType,
 } from '../../src/utils/validation.js';
@@ -113,6 +114,42 @@ describe('Validation', () => {
       });
 
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('AgentStopInputSchema', () => {
+    it('should validate with id', () => {
+      const result = validate(AgentStopInputSchema, {
+        id: '550e8400-e29b-41d4-a716-446655440000',
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should validate with name', () => {
+      const result = validate(AgentStopInputSchema, {
+        name: 'my-agent',
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should validate with both id and name', () => {
+      const result = validate(AgentStopInputSchema, {
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        name: 'my-agent',
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject when neither id nor name provided', () => {
+      const result = validate(AgentStopInputSchema, {});
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.errors.some(e => e.includes('Either id or name must be provided'))).toBe(true);
+      }
     });
   });
 
