@@ -179,6 +179,24 @@ describe('OpenAIProvider', () => {
       .rejects.toThrow('OpenAI API error: 429');
   });
 
+  it('should handle empty choices array', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [],
+        model: 'gpt-4o',
+        usage: { prompt_tokens: 10, completion_tokens: 0 },
+      }),
+    });
+
+    const provider = new OpenAIProvider('test-key');
+    const response = await provider.chat([
+      { role: 'user', content: 'Hi' },
+    ]);
+
+    expect(response.content).toBe('');
+  });
+
   it('should call embed API', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
