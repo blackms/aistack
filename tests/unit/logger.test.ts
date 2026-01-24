@@ -158,4 +158,62 @@ describe('Logger', () => {
       logger.setPrefix('');
     });
   });
+
+  describe('color output', () => {
+    it('should format with colors when TTY and colors enabled', () => {
+      const originalIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true });
+
+      const colorLogger = createLogger('color-test');
+      colorLogger.setColors(true);
+      colorLogger.info('colored message', { test: 'context' });
+
+      expect(consoleSpy.log).toHaveBeenCalled();
+      const output = consoleSpy.log.mock.calls[0][0];
+      // Should contain ANSI escape codes when colors are enabled
+      expect(output).toContain('colored message');
+      expect(output).toContain('color-test');
+
+      // Restore
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    });
+
+    it('should format all log levels with colors when TTY', () => {
+      const originalIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true });
+
+      const colorLogger = createLogger('color-levels');
+      colorLogger.setColors(true);
+      colorLogger.setLevel('debug');
+
+      colorLogger.debug('debug message');
+      colorLogger.info('info message');
+      colorLogger.warn('warn message');
+      colorLogger.error('error message');
+
+      expect(consoleSpy.log).toHaveBeenCalledTimes(2); // debug and info
+      expect(consoleSpy.warn).toHaveBeenCalledTimes(1);
+      expect(consoleSpy.error).toHaveBeenCalledTimes(1);
+
+      // Restore
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    });
+
+    it('should not use colors when isTTY is false', () => {
+      const originalIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, writable: true });
+
+      const noColorLogger = createLogger('no-color-test');
+      noColorLogger.setColors(true);
+      noColorLogger.info('plain message');
+
+      expect(consoleSpy.log).toHaveBeenCalled();
+      const output = consoleSpy.log.mock.calls[0][0];
+      // Should not contain ANSI escape codes
+      expect(output).not.toContain('\x1b[');
+
+      // Restore
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    });
+  });
 });

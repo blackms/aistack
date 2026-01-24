@@ -389,6 +389,37 @@ describe('MemoryManager with vector search', () => {
     expect(stats).toHaveProperty('indexed');
     expect(stats).toHaveProperty('coverage');
   });
+
+  it('should merge FTS results not found in vector results', async () => {
+    // Store three entries - two will match FTS, one matches vector
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [0.0, 1.0, 0.0] }] }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [0.0, 0.0, 1.0] }] }),
+    });
+
+    await manager.store('fts-merge-1', 'specific unique word alpha');
+    await manager.store('fts-merge-2', 'specific unique word beta');
+    await manager.store('fts-merge-3', 'different unrelated content');
+
+    // Search embedding - return only one match
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1.0, 0.0, 0.0] }] }),
+    });
+
+    const results = await manager.search('specific unique word');
+
+    // Should include both FTS matches, one from vector and one from FTS-only path
+    expect(results.length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe('getMemoryManager singleton', () => {

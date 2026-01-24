@@ -520,3 +520,76 @@ describe('workflowHook with doc-sync', () => {
     await expect(workflowHook(context, memory, config)).resolves.not.toThrow();
   });
 });
+
+describe('workflowHook with executeHooks error handling', () => {
+  let memory: MemoryManager;
+  let config: AgentStackConfig;
+  let dbPath: string;
+
+  beforeEach(() => {
+    clearWorkflowTriggers();
+    resetMemoryManager();
+    resetWorkflowRunner();
+
+    config = {
+      version: '1.0.0',
+      memory: {
+        path: join(tmpdir(), `aistack-workflow-error-${Date.now()}.db`),
+        defaultNamespace: 'default',
+        vectorSearch: { enabled: false },
+      },
+      providers: { default: 'anthropic' },
+      agents: { maxConcurrent: 5, defaultTimeout: 300 },
+      github: { enabled: false },
+      plugins: { enabled: true, directory: './plugins' },
+      mcp: { transport: 'stdio' },
+      hooks: { sessionStart: true, sessionEnd: true, preTask: true, postTask: true },
+    };
+
+    dbPath = config.memory.path;
+    memory = new MemoryManager(config);
+  });
+
+  afterEach(() => {
+    clearWorkflowTriggers();
+    resetWorkflowRunner();
+    memory.close();
+    resetMemoryManager();
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    if (existsSync(`${dbPath}-wal`)) unlinkSync(`${dbPath}-wal`);
+    if (existsSync(`${dbPath}-shm`)) unlinkSync(`${dbPath}-shm`);
+  });
+
+  it('should handle error via executeHooks gracefully', async () => {
+    const { executeHooks, registerHook, clearCustomHooks } = await import('../../src/hooks/index.js');
+
+    // Register a throwing custom hook for workflow event
+    registerHook('workflow', async () => {
+      throw new Error('Custom workflow hook error');
+    });
+
+    const context: HookContext = {
+      event: 'workflow',
+      data: {},
+    };
+
+    // executeHooks catches errors and logs them, doesn't throw
+    await expect(executeHooks('workflow', context, memory, config)).resolves.not.toThrow();
+
+    clearCustomHooks();
+  });
+
+  it('should log errors from built-in hooks without throwing', async () => {
+    const { executeHooks } = await import('../../src/hooks/index.js');
+
+    // Create a context that might cause issues in session-end hook
+    const context: HookContext = {
+      event: 'session-end',
+      sessionId: 'invalid-session-that-does-not-exist',
+      data: {},
+    };
+
+    // Should handle gracefully
+    await expect(executeHooks('session-end', context, memory, config)).resolves.not.toThrow();
+  });
+});
