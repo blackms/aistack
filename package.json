@@ -1,6 +1,6 @@
 {
   "name": "@blackms/aistack",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Clean agent orchestration for Claude Code",
   "type": "module",
   "main": "./dist/index.js",
