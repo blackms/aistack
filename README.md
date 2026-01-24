@@ -132,7 +132,7 @@ graph TB
 | **mcp** | MCP server exposing 30 tools via stdio transport |
 | **coordination** | Hierarchical coordinator, task queue, and message bus |
 | **providers** | Anthropic, OpenAI, and Ollama LLM integrations |
-| **hooks** | 4 lifecycle events: session-start, session-end, pre-task, post-task |
+| **hooks** | 5 lifecycle events: session-start, session-end, pre-task, post-task, workflow |
 | **plugins** | Runtime extensibility for agents, tools, and hooks |
 
 ---
@@ -145,9 +145,15 @@ graph TB
 | `agent spawn -t <type>` | Spawn an agent |
 | `agent list` | List active agents |
 | `agent stop -n <name>` | Stop an agent |
+| `agent status -n <name>` | Get agent status |
+| `agent types` | List available agent types |
 | `memory store -k <key> -c <content>` | Store key-value pair |
 | `memory search -q <query>` | Full-text search |
+| `memory list` | List memory entries |
+| `memory delete -k <key>` | Delete entry |
 | `mcp start` | Start MCP server |
+| `plugin list` | List loaded plugins |
+| `workflow run <name>` | Run a workflow |
 | `status` | System status |
 
 ---
@@ -291,7 +297,7 @@ const server = await startMCPServer(config);
 import { MemoryManager } from '@blackms/aistack/memory';
 
 // Agents only
-import { spawnAgent, getAgentRegistry } from '@blackms/aistack/agents';
+import { spawnAgent, listAgentTypes, getAgentDefinition } from '@blackms/aistack/agents';
 
 // MCP server only
 import { startMCPServer } from '@blackms/aistack/mcp';
