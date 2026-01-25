@@ -4,6 +4,7 @@
 
 ### Multi-Agent Orchestration for Claude Code
 
+[![GitHub stars](https://img.shields.io/github/stars/blackms/aistack?style=flat-square)](https://github.com/blackms/aistack/stargazers)
 [![CI](https://github.com/blackms/aistack/actions/workflows/ci.yml/badge.svg)](https://github.com/blackms/aistack/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/blackms/aistack/branch/main/graph/badge.svg)](https://codecov.io/gh/blackms/aistack)
 [![npm version](https://img.shields.io/npm/v/@blackms/aistack?style=flat-square&color=CB3837&logo=npm)](https://www.npmjs.com/package/@blackms/aistack)
@@ -12,11 +13,11 @@
 
 <br/>
 
-**Production-ready agent orchestration with persistent memory and MCP integration.**
+**Production-ready agent orchestration with persistent memory, MCP integration, and real-time web dashboard.**
 
 <br/>
 
-[Get Started](#-quick-start) · [Architecture](#-architecture) · [API Reference](#-mcp-tools) · [Documentation](./docs)
+[Get Started](#-quick-start) · [Architecture](#-architecture) · [Web Dashboard](#-web-dashboard) · [API Reference](#-mcp-tools) · [Documentation](./docs)
 
 <br/>
 
@@ -29,7 +30,7 @@
 Coordinate specialized AI agents through Claude Code with persistent context, hierarchical task management, and seamless extensibility.
 
 ```
-7 agents · 30 MCP tools · 3 LLM providers · SQLite + FTS5 · Plugin system
+7 agents · 30 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Plugin system
 ```
 
 ---
@@ -48,8 +49,14 @@ Coordinate specialized AI agents through Claude Code with persistent context, hi
 </td>
 <td align="center" width="96">
 <img src="https://cdn.simpleicons.org/sqlite/003B57" width="48" height="48" alt="SQLite" />
-<br/>SQLite
+<br/>SQLite + FTS5
 </td>
+<td align="center" width="96">
+<img src="https://cdn.simpleicons.org/react/61DAFB" width="48" height="48" alt="React" />
+<br/>React 18
+</td>
+</tr>
+<tr>
 <td align="center" width="96">
 <img src="https://cdn.simpleicons.org/anthropic/191919" width="48" height="48" alt="Anthropic" />
 <br/>Anthropic
@@ -61,6 +68,10 @@ Coordinate specialized AI agents through Claude Code with persistent context, hi
 <td align="center" width="96">
 <img src="https://cdn.simpleicons.org/ollama/000000" width="48" height="48" alt="Ollama" />
 <br/>Ollama
+</td>
+<td align="center" width="96">
+<img src="https://cdn.simpleicons.org/vite/646CFF" width="48" height="48" alt="Vite" />
+<br/>Vite
 </td>
 </tr>
 </table>
@@ -74,8 +85,10 @@ Coordinate specialized AI agents through Claude Code with persistent context, hi
 | **Specialized Agents** | 7 built-in agent types: coder, researcher, tester, reviewer, architect, coordinator, analyst |
 | **Persistent Memory** | SQLite with FTS5 full-text search and optional vector embeddings |
 | **MCP Integration** | 30 tools exposed via Model Context Protocol for Claude Code |
+| **Web Dashboard** | Real-time dashboard with 9 pages for visual management and monitoring |
+| **REST API + WebSocket** | 50+ HTTP endpoints with live WebSocket event streaming |
 | **Hierarchical Coordination** | Task queue, message bus, and coordinator pattern |
-| **Multi-Provider Support** | Anthropic, OpenAI, and Ollama with unified interface |
+| **Multi-Provider Support** | 3 API providers (Anthropic, OpenAI, Ollama) + 3 CLI providers (Claude, Gemini, Codex) |
 | **Plugin System** | Runtime extensibility for agents, tools, hooks, and providers |
 | **Workflow Engine** | Multi-phase workflows with adversarial validation |
 
@@ -102,6 +115,15 @@ claude mcp add aistack -- npx @blackms/aistack mcp start
 npx @blackms/aistack status
 ```
 
+### Start Web Dashboard
+
+```bash
+# Start backend + web dashboard
+npx @blackms/aistack web start
+
+# Open http://localhost:3001
+```
+
 ### Configuration
 
 Create `aistack.config.json`:
@@ -126,12 +148,16 @@ Create `aistack.config.json`:
 
 ```mermaid
 graph TB
-    subgraph "Claude Code"
+    subgraph Clients["Client Layer"]
         CC[Claude Code IDE]
+        CLI[CLI]
+        WEB[Web Dashboard]
     end
 
     subgraph "aistack"
         MCP["MCP Server<br/><small>stdio transport</small>"]
+        HTTP["HTTP Server<br/><small>REST API</small>"]
+        WS["WebSocket<br/><small>Real-time events</small>"]
 
         subgraph Core["Core Services"]
             AM[Agent Manager]
@@ -164,12 +190,49 @@ graph TB
         end
     end
 
-    CC <-->|"MCP Protocol"| MCP
-    MCP --> AM & MM
+    CC <-->|"MCP/stdio"| MCP
+    CLI <-->|"HTTP"| HTTP
+    WEB <-->|"HTTP + WS"| HTTP & WS
+
+    MCP & HTTP --> AM & MM
+    WS --> MB
     AM --> TQ --> MB
     MB --> A1 & A2 & A3 & A4 & A5 & A6 & A7
     MM --> SQL --> FTS & VEC
     AM -.-> ANT & OAI & OLL
+```
+
+### Deployment Overview
+
+```mermaid
+C4Deployment
+    title Deployment Diagram - Local Machine
+
+    Deployment_Node(local, "Local Machine", "Developer Workstation") {
+        Deployment_Node(npm, "npm", "Node.js 20+") {
+            Container(aistack, "aistack", "TypeScript", "MCP Server + HTTP Server + WebSocket")
+            ContainerDb(sqlite, "SQLite", "better-sqlite3", "Memory + FTS5 + Vector")
+        }
+        Deployment_Node(browser, "Browser", "Chrome/Firefox/Safari") {
+            Container(dashboard, "Web Dashboard", "React 18 + Vite", "Management UI")
+        }
+        Deployment_Node(ide, "IDE", "VS Code") {
+            Container(claude, "Claude Code", "Extension", "AI Assistant")
+        }
+    }
+
+    Deployment_Node(cloud, "Cloud Services", "External") {
+        Container(anthropic, "Anthropic API", "HTTPS", "Claude models")
+        Container(openai, "OpenAI API", "HTTPS", "GPT models")
+        Container(ollama_remote, "Ollama", "Local/Remote", "Local LLMs")
+    }
+
+    Rel(claude, aistack, "MCP/stdio")
+    Rel(dashboard, aistack, "HTTP + WebSocket")
+    Rel(aistack, sqlite, "SQL")
+    Rel(aistack, anthropic, "HTTPS")
+    Rel(aistack, openai, "HTTPS")
+    Rel(aistack, ollama_remote, "HTTP")
 ```
 
 ### Request Flow
@@ -200,6 +263,66 @@ sequenceDiagram
     DB-->>MM: Results
     MM-->>MCP: SearchResults
     MCP-->>CC: { results }
+```
+
+---
+
+## Web Dashboard
+
+The built-in web dashboard provides visual management and real-time monitoring of your agent orchestration.
+
+### Starting the Dashboard
+
+```bash
+# Start the web server (includes dashboard)
+npx @blackms/aistack web start
+
+# Open in browser
+open http://localhost:3001
+```
+
+### Dashboard Pages
+
+| Page | Description |
+|------|-------------|
+| **Dashboard** | System overview with agent status, memory stats, and recent activity |
+| **Agents** | Spawn, monitor, and manage agents in real-time |
+| **Memory** | Browse, search, and manage memory entries with FTS5 |
+| **Tasks** | View task queue, status, and completion history |
+| **Projects** | Project management with task workflows |
+| **Project Detail** | Deep dive into project tasks and specifications |
+| **Task Detail** | Task lifecycle with phase transitions |
+| **Workflows** | Define and run multi-phase workflows |
+| **Chat** | Interactive agent chat interface |
+
+### Web Dashboard Flow
+
+```mermaid
+sequenceDiagram
+    participant User as Browser
+    participant WS as WebSocket
+    participant HTTP as HTTP Server
+    participant Core as Core Services
+    participant DB as SQLite
+
+    User->>HTTP: GET /api/system/status
+    HTTP->>Core: getSystemStatus()
+    Core-->>HTTP: SystemStatus
+    HTTP-->>User: { agents, memory, tasks }
+
+    User->>WS: Connect ws://localhost:3001
+    WS-->>User: Connected
+
+    User->>HTTP: POST /api/agents
+    HTTP->>Core: spawnAgent("coder")
+    Core->>WS: emit("agent:spawned")
+    WS-->>User: { event: "agent:spawned", data }
+    HTTP-->>User: { agent }
+
+    Note over User,WS: Real-time updates via WebSocket
+
+    Core->>WS: emit("task:completed")
+    WS-->>User: { event: "task:completed", data }
 ```
 
 ---
@@ -376,6 +499,7 @@ export default {
 | `memory delete -k <key>` | Delete entry |
 | `mcp start` | Start MCP server |
 | `mcp tools` | List MCP tools |
+| `web start` | Start web dashboard server |
 | `workflow run <name>` | Run workflow |
 | `workflow list` | List workflows |
 | `status` | System status |
@@ -406,7 +530,7 @@ CLI providers enable agent execution through external CLI tools, useful for inte
 
 ```
 src/
-├── agents/         # Agent registry, spawner, definitions
+├── agents/         # Agent registry, spawner, definitions (7 types)
 ├── cli/            # CLI commands
 ├── coordination/   # Task queue, message bus, topology
 ├── github/         # GitHub integration
@@ -414,9 +538,18 @@ src/
 ├── mcp/            # MCP server and 30 tools
 ├── memory/         # SQLite, FTS5, vector search
 ├── plugins/        # Plugin loader and registry
-├── providers/      # LLM provider implementations
+├── providers/      # LLM provider implementations (6 providers)
+├── web/            # REST API routes + WebSocket
 ├── workflows/      # Workflow engine
 └── utils/          # Config, logger, validation
+
+web/
+├── src/
+│   ├── pages/      # 9 dashboard pages
+│   ├── components/ # React components
+│   ├── hooks/      # Custom React hooks
+│   └── stores/     # Zustand state management
+└── public/         # Static assets
 ```
 
 ---
@@ -430,6 +563,10 @@ npm test             # Run tests
 npm run test:coverage # With coverage
 npm run typecheck    # Type check
 npm run lint         # Lint
+
+# Web dashboard development
+npm run dev:web      # Start Vite dev server for web UI
+npm run build:web    # Build web UI for production
 ```
 
 ---
@@ -442,7 +579,7 @@ npm run lint         # Lint
 | **P1** | Streaming responses |
 | **P2** | Agent state persistence |
 | **P2** | Built-in workflow templates |
-| **P3** | Web dashboard |
+| **P3** | Enhanced dashboard analytics |
 | **P3** | Metrics and observability |
 
 <sub>Roadmap items are planned features, not current capabilities.</sub>
@@ -472,5 +609,9 @@ All PRs must pass CI (tests, lint, typecheck, build).
 **[Documentation](./docs)** · **[Issues](https://github.com/blackms/aistack/issues)** · **[Discussions](https://github.com/blackms/aistack/discussions)**
 
 <sub>Built with TypeScript · Made for Claude Code</sub>
+
+---
+
+<sub>README verified against codebase v1.2.0. All features documented are backed by implemented code.</sub>
 
 </div>
