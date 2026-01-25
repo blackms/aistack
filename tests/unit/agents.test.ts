@@ -24,10 +24,11 @@ describe('Agent Registry', () => {
     expect(types).toContain('researcher');
     expect(types).toContain('tester');
     expect(types).toContain('reviewer');
+    expect(types).toContain('adversarial');
     expect(types).toContain('architect');
     expect(types).toContain('coordinator');
     expect(types).toContain('analyst');
-    expect(types.length).toBe(7);
+    expect(types.length).toBe(8);
   });
 
   it('should get agent definition by type', () => {

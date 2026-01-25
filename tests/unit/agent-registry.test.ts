@@ -197,9 +197,9 @@ describe('Agent Registry', () => {
     it('should count core agents', () => {
       const count = getAgentCount();
 
-      expect(count.core).toBe(7);
+      expect(count.core).toBe(8);
       expect(count.custom).toBe(0);
-      expect(count.total).toBe(7);
+      expect(count.total).toBe(8);
     });
 
     it('should count custom agents', () => {
@@ -208,9 +208,9 @@ describe('Agent Registry', () => {
 
       const count = getAgentCount();
 
-      expect(count.core).toBe(7);
+      expect(count.core).toBe(8);
       expect(count.custom).toBe(2);
-      expect(count.total).toBe(9);
+      expect(count.total).toBe(10);
     });
   });
 
