@@ -5,7 +5,7 @@
 import type { AgentStackConfig } from '../../types.js';
 import { PHASE_TRANSITIONS, type TaskPhase } from '../../types.js';
 import type { Router } from '../router.js';
-import { sendJson, sendPaginated } from '../router.js';
+import { sendJson } from '../router.js';
 import { badRequest, notFound } from '../middleware/error.js';
 import { getMemoryManager } from '../../memory/index.js';
 import { agentEvents } from '../websocket/event-bridge.js';
