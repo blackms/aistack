@@ -9,7 +9,6 @@ import { randomUUID } from 'node:crypto';
 import type {
   AgentStackConfig,
   ReviewLoopState,
-  ReviewLoopStatus,
   ReviewResult,
   ReviewIssue,
   ReviewVerdict,

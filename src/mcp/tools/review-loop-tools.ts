@@ -4,7 +4,6 @@
 
 import { z } from 'zod';
 import {
-  ReviewLoopCoordinator,
   createReviewLoop,
   getReviewLoop,
   listReviewLoops,
