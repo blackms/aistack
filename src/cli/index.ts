@@ -13,6 +13,7 @@ import {
   createPluginCommand,
   createStatusCommand,
   createWorkflowCommand,
+  createWebCommand,
 } from './commands/index.js';
 
 // Read version from package.json would be ideal, but for now hardcode
@@ -45,6 +46,7 @@ async function main(): Promise<void> {
   program.addCommand(createPluginCommand());
   program.addCommand(createStatusCommand());
   program.addCommand(createWorkflowCommand());
+  program.addCommand(createWebCommand());
 
   // Parse arguments
   await program.parseAsync(process.argv);

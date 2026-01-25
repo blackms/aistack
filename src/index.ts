@@ -152,3 +152,15 @@ export {
   registerDocSyncWorkflow,
   runDocSync,
 } from './workflows/index.js';
+
+// Web Server
+export {
+  WebServer,
+  startWebServer,
+  stopWebServer,
+  getWebServer,
+  defaultWebConfig,
+  agentEvents,
+  getEventBridge,
+  type WebConfig,
+} from './web/index.js';
