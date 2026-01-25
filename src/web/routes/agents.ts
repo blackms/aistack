@@ -13,7 +13,6 @@ import {
   stopAgent,
   updateAgentStatus,
   executeAgent,
-  listAgentTypes,
   listAgentDefinitions,
 } from '../../agents/index.js';
 import { agentEvents } from '../websocket/event-bridge.js';
@@ -33,7 +32,6 @@ export function registerAgentRoutes(router: Router, config: AgentStackConfig): v
 
   // GET /api/v1/agents/types - List available agent types
   router.get('/api/v1/agents/types', (_req, res) => {
-    const types = listAgentTypes();
     const definitions = listAgentDefinitions();
 
     sendJson(res, definitions.map(def => ({

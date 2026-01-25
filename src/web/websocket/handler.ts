@@ -6,7 +6,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { randomUUID, createHash } from 'node:crypto';
 import { logger } from '../../utils/logger.js';
-import { getEventBridge, type EventName } from './event-bridge.js';
+import { getEventBridge } from './event-bridge.js';
 import type { WSClientInfo, WSMessage } from '../types.js';
 
 const log = logger.child('web:websocket');
@@ -24,7 +24,7 @@ const clients: Map<string, {
 export function handleWebSocketUpgrade(
   req: IncomingMessage,
   socket: Duplex,
-  head: Buffer
+  _head: Buffer
 ): void {
   // Verify WebSocket upgrade request
   const upgradeHeader = req.headers.upgrade?.toLowerCase();
@@ -282,7 +282,7 @@ function handleClientMessage(clientId: string, message: string): void {
         timestamp: new Date().toISOString(),
       });
     }
-  } catch (error) {
+  } catch {
     log.warn('Failed to parse client message', { clientId, message });
   }
 }

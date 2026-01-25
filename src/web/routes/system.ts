@@ -5,7 +5,7 @@
 import type { AgentStackConfig } from '../../types.js';
 import type { Router } from '../router.js';
 import { sendJson } from '../router.js';
-import { listAgents, getAgentsByStatus } from '../../agents/index.js';
+import { listAgents } from '../../agents/index.js';
 import { getMemoryManager } from '../../memory/index.js';
 import type { SystemStatus, HealthCheck } from '../types.js';
 
@@ -75,7 +75,7 @@ export function registerSystemRoutes(router: Router, config: AgentStackConfig): 
   router.get('/api/v1/system/health', (_req, res) => {
     let databaseOk = false;
     let memoryOk = false;
-    let providersOk = true; // Assume OK for now
+    const providersOk = true; // Assume OK for now
 
     try {
       const manager = getMemoryManager(config);
@@ -99,7 +99,6 @@ export function registerSystemRoutes(router: Router, config: AgentStackConfig): 
       },
     };
 
-    const statusCode = allOk ? 200 : someOk ? 200 : 503;
     sendJson(res, health);
   });
 

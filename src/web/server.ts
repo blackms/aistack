@@ -217,7 +217,7 @@ export class WebServer {
       res.writeHead(200, { 'Content-Type': contentType });
       res.end(content);
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
