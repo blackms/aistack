@@ -7,6 +7,9 @@ import MemoryPage from './pages/MemoryPage';
 import TasksPage from './pages/TasksPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import ChatPage from './pages/ChatPage';
+import ProjectsPage from './pages/ProjectsPage';
+import ProjectDetailPage from './pages/ProjectDetailPage';
+import TaskDetailPage from './pages/TaskDetailPage';
 import { useWebSocket } from './hooks/useWebSocket';
 
 function App() {
@@ -27,6 +30,9 @@ function App() {
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/workflows" element={<WorkflowsPage />} />
         <Route path="/chat" element={<ChatPage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+        <Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailPage />} />
       </Routes>
     </Layout>
   );

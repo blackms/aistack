@@ -67,11 +67,57 @@ export interface MessageReceivedEvent {
   content: string;
 }
 
+// Project events
+export interface ProjectCreatedEvent {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface ProjectUpdatedEvent {
+  id: string;
+  changes: Record<string, unknown>;
+}
+
+export interface ProjectTaskCreatedEvent {
+  projectId: string;
+  taskId: string;
+  title: string;
+}
+
+export interface ProjectTaskPhaseEvent {
+  projectId: string;
+  taskId: string;
+  fromPhase: string;
+  toPhase: string;
+}
+
+export interface SpecCreatedEvent {
+  id: string;
+  taskId: string;
+  type: string;
+  title: string;
+}
+
+export interface SpecStatusEvent {
+  id: string;
+  status: string;
+  reviewedBy?: string;
+}
+
+export interface AgentProgressEvent {
+  agentId: string;
+  taskId: string;
+  progress: number;
+  message?: string;
+}
+
 // Event names
 export type EventName =
   | 'agent:spawned'
   | 'agent:stopped'
   | 'agent:status'
+  | 'agent:progress'
   | 'task:created'
   | 'task:assigned'
   | 'task:completed'
@@ -80,7 +126,13 @@ export type EventName =
   | 'workflow:complete'
   | 'workflow:error'
   | 'workflow:finding'
-  | 'message:received';
+  | 'message:received'
+  | 'project:created'
+  | 'project:updated'
+  | 'project:task:created'
+  | 'project:task:phase'
+  | 'spec:created'
+  | 'spec:status';
 
 // Event bridge class for managing WebSocket subscriptions
 export class EventBridge {
@@ -92,6 +144,7 @@ export class EventBridge {
       'agent:spawned',
       'agent:stopped',
       'agent:status',
+      'agent:progress',
       'task:created',
       'task:assigned',
       'task:completed',
@@ -101,6 +154,12 @@ export class EventBridge {
       'workflow:error',
       'workflow:finding',
       'message:received',
+      'project:created',
+      'project:updated',
+      'project:task:created',
+      'project:task:phase',
+      'spec:created',
+      'spec:status',
     ];
 
     for (const event of events) {

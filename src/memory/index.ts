@@ -10,6 +10,13 @@ import type {
   AgentStackConfig,
   Session,
   Task,
+  Project,
+  ProjectTask,
+  Specification,
+  TaskPhase,
+  SpecificationType,
+  SpecificationStatus,
+  ReviewComment,
 } from '../types.js';
 import { SQLiteStore } from './sqlite-store.js';
 import { FTSSearch } from './fts-search.js';
@@ -201,6 +208,114 @@ export class MemoryManager {
 
   listTasks(sessionId?: string, status?: Task['status']): Task[] {
     return this.sqliteStore.listTasks(sessionId, status);
+  }
+
+  // ==================== Project Operations ====================
+
+  createProject(
+    name: string,
+    path: string,
+    description?: string,
+    metadata?: Record<string, unknown>
+  ): Project {
+    return this.sqliteStore.createProject(name, path, description, metadata);
+  }
+
+  getProject(id: string): Project | null {
+    return this.sqliteStore.getProject(id);
+  }
+
+  updateProject(
+    id: string,
+    updates: Partial<Pick<Project, 'name' | 'description' | 'status' | 'metadata'>>
+  ): boolean {
+    return this.sqliteStore.updateProject(id, updates);
+  }
+
+  listProjects(status?: Project['status']): Project[] {
+    return this.sqliteStore.listProjects(status);
+  }
+
+  deleteProject(id: string): boolean {
+    return this.sqliteStore.deleteProject(id);
+  }
+
+  // ==================== Project Task Operations ====================
+
+  createProjectTask(
+    projectId: string,
+    title: string,
+    options?: {
+      description?: string;
+      priority?: number;
+      assignedAgents?: string[];
+      sessionId?: string;
+    }
+  ): ProjectTask {
+    return this.sqliteStore.createProjectTask(projectId, title, options);
+  }
+
+  getProjectTask(id: string): ProjectTask | null {
+    return this.sqliteStore.getProjectTask(id);
+  }
+
+  updateProjectTask(
+    id: string,
+    updates: Partial<Pick<ProjectTask, 'title' | 'description' | 'priority' | 'assignedAgents' | 'sessionId'>>
+  ): boolean {
+    return this.sqliteStore.updateProjectTask(id, updates);
+  }
+
+  updateProjectTaskPhase(id: string, phase: TaskPhase): boolean {
+    return this.sqliteStore.updateProjectTaskPhase(id, phase);
+  }
+
+  listProjectTasks(projectId: string, phase?: TaskPhase): ProjectTask[] {
+    return this.sqliteStore.listProjectTasks(projectId, phase);
+  }
+
+  deleteProjectTask(id: string): boolean {
+    return this.sqliteStore.deleteProjectTask(id);
+  }
+
+  // ==================== Specification Operations ====================
+
+  createSpecification(
+    projectTaskId: string,
+    type: SpecificationType,
+    title: string,
+    content: string,
+    createdBy: string
+  ): Specification {
+    return this.sqliteStore.createSpecification(projectTaskId, type, title, content, createdBy);
+  }
+
+  getSpecification(id: string): Specification | null {
+    return this.sqliteStore.getSpecification(id);
+  }
+
+  updateSpecification(
+    id: string,
+    updates: Partial<Pick<Specification, 'title' | 'content' | 'type'>>
+  ): boolean {
+    return this.sqliteStore.updateSpecification(id, updates);
+  }
+
+  updateSpecificationStatus(
+    id: string,
+    status: SpecificationStatus,
+    reviewedBy?: string,
+    comments?: ReviewComment[]
+  ): boolean {
+    return this.sqliteStore.updateSpecificationStatus(id, status, reviewedBy, comments);
+  }
+
+  listSpecifications(projectTaskId: string, status?: SpecificationStatus): Specification[] {
+    return this.sqliteStore.listSpecifications(projectTaskId, status);
+  }
+
+  deleteSpecification(id: string): boolean {
+    return this.sqliteStore.deleteSpecification(id);
   }
 
   // ==================== Vector Search ====================

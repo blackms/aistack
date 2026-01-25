@@ -11,6 +11,9 @@ import { registerTaskRoutes } from '../../../src/web/routes/tasks.js';
 import { registerSessionRoutes } from '../../../src/web/routes/sessions.js';
 import { registerWorkflowRoutes } from '../../../src/web/routes/workflows.js';
 import { registerSystemRoutes } from '../../../src/web/routes/system.js';
+import { registerProjectRoutes } from '../../../src/web/routes/projects.js';
+import { registerSpecificationRoutes } from '../../../src/web/routes/specifications.js';
+import { registerFilesystemRoutes } from '../../../src/web/routes/filesystem.js';
 import { clearAgents, spawnAgent } from '../../../src/agents/index.js';
 import { resetMemoryManager, getMemoryManager } from '../../../src/memory/index.js';
 import type { AgentStackConfig } from '../../../src/types.js';
@@ -1185,6 +1188,837 @@ describe('System Routes', () => {
       expect(body.data).toHaveProperty('memory');
       expect(body.data).toHaveProperty('cpu');
       expect(body.data).toHaveProperty('node');
+    });
+  });
+});
+
+describe('Project Routes', () => {
+  let router: Router;
+
+  beforeEach(() => {
+    resetMemoryManager();
+    router = new Router();
+    registerProjectRoutes(router, mockConfig);
+  });
+
+  afterEach(() => {
+    resetMemoryManager();
+  });
+
+  describe('GET /api/v1/projects', () => {
+    it('should return empty list when no projects', async () => {
+      const req = createMockRequest('GET', '/api/v1/projects');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data).toEqual([]);
+    });
+
+    it('should return list of projects', async () => {
+      const manager = getMemoryManager(mockConfig);
+      manager.createProject('Test Project', '/tmp/test');
+
+      const req = createMockRequest('GET', '/api/v1/projects');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data).toHaveLength(1);
+      expect(body.data[0].name).toBe('Test Project');
+    });
+
+    it('should filter by status', async () => {
+      const manager = getMemoryManager(mockConfig);
+      manager.createProject('Active Project', '/tmp/active');
+      const archived = manager.createProject('Archived Project', '/tmp/archived');
+      manager.updateProject(archived.id, { status: 'archived' });
+
+      const req = createMockRequest('GET', '/api/v1/projects?status=active');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data).toHaveLength(1);
+      expect(body.data[0].name).toBe('Active Project');
+    });
+  });
+
+  describe('POST /api/v1/projects', () => {
+    it('should create new project', async () => {
+      const req = createMockRequest('POST', '/api/v1/projects', {
+        name: 'New Project',
+        description: 'A test project',
+        path: '/tmp/new-project',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.name).toBe('New Project');
+      expect(body.data.description).toBe('A test project');
+      expect(body.data.path).toBe('/tmp/new-project');
+      expect(body.data.status).toBe('active');
+      expect(res.writeHead).toHaveBeenCalledWith(201, expect.any(Object));
+    });
+
+    it('should return error for missing name', async () => {
+      const req = createMockRequest('POST', '/api/v1/projects', {
+        path: '/tmp/test',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+
+    it('should return error for missing path', async () => {
+      const req = createMockRequest('POST', '/api/v1/projects', {
+        name: 'Test',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+  });
+
+  describe('GET /api/v1/projects/:id', () => {
+    it('should return project by id', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Get Test', '/tmp/get');
+
+      const req = createMockRequest('GET', `/api/v1/projects/${project.id}`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.id).toBe(project.id);
+      expect(body.data.name).toBe('Get Test');
+    });
+
+    it('should return 404 for unknown project', async () => {
+      const req = createMockRequest('GET', '/api/v1/projects/unknown-id');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+    });
+  });
+
+  describe('PUT /api/v1/projects/:id', () => {
+    it('should update project', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Update Test', '/tmp/update');
+
+      const req = createMockRequest('PUT', `/api/v1/projects/${project.id}`, {
+        name: 'Updated Name',
+        description: 'New description',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.name).toBe('Updated Name');
+      expect(body.data.description).toBe('New description');
+    });
+
+    it('should return 404 for unknown project', async () => {
+      const req = createMockRequest('PUT', '/api/v1/projects/unknown-id', {
+        name: 'Test',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+    });
+  });
+
+  describe('DELETE /api/v1/projects/:id', () => {
+    it('should delete project', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Delete Test', '/tmp/delete');
+
+      const req = createMockRequest('DELETE', `/api/v1/projects/${project.id}`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.deleted).toBe(true);
+    });
+
+    it('should return 404 for unknown project', async () => {
+      const req = createMockRequest('DELETE', '/api/v1/projects/unknown-id');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+    });
+  });
+
+  describe('GET /api/v1/projects/:id/tasks', () => {
+    it('should return empty list when no tasks', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Tasks Test', '/tmp/tasks');
+
+      const req = createMockRequest('GET', `/api/v1/projects/${project.id}/tasks`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data).toEqual([]);
+    });
+
+    it('should return list of tasks', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Tasks Test', '/tmp/tasks');
+      manager.createProjectTask(project.id, 'Task 1');
+      manager.createProjectTask(project.id, 'Task 2');
+
+      const req = createMockRequest('GET', `/api/v1/projects/${project.id}/tasks`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data).toHaveLength(2);
+    });
+
+    it('should filter by phase', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Phase Test', '/tmp/phase');
+      manager.createProjectTask(project.id, 'Draft Task');
+      const task2 = manager.createProjectTask(project.id, 'Spec Task');
+      manager.updateProjectTaskPhase(task2.id, 'specification');
+
+      const req = createMockRequest('GET', `/api/v1/projects/${project.id}/tasks?phase=draft`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data).toHaveLength(1);
+      expect(body.data[0].title).toBe('Draft Task');
+    });
+  });
+
+  describe('POST /api/v1/projects/:id/tasks', () => {
+    it('should create new task', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Create Task Test', '/tmp/create-task');
+
+      const req = createMockRequest('POST', `/api/v1/projects/${project.id}/tasks`, {
+        title: 'New Task',
+        description: 'Task description',
+        priority: 3,
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.title).toBe('New Task');
+      expect(body.data.description).toBe('Task description');
+      expect(body.data.priority).toBe(3);
+      expect(body.data.phase).toBe('draft');
+      expect(res.writeHead).toHaveBeenCalledWith(201, expect.any(Object));
+    });
+
+    it('should return error for missing title', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Task Test', '/tmp/task');
+
+      const req = createMockRequest('POST', `/api/v1/projects/${project.id}/tasks`, {});
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+  });
+
+  describe('GET /api/v1/projects/:projectId/tasks/:taskId', () => {
+    it('should return task by id', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Get Task Test', '/tmp/get-task');
+      const task = manager.createProjectTask(project.id, 'Test Task');
+
+      const req = createMockRequest('GET', `/api/v1/projects/${project.id}/tasks/${task.id}`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.id).toBe(task.id);
+      expect(body.data.title).toBe('Test Task');
+    });
+
+    it('should return 404 for unknown task', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Get Task Test', '/tmp/get-task');
+
+      const req = createMockRequest('GET', `/api/v1/projects/${project.id}/tasks/unknown-id`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+    });
+  });
+
+  describe('PUT /api/v1/projects/:projectId/tasks/:taskId', () => {
+    it('should update task', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Update Task Test', '/tmp/update-task');
+      const task = manager.createProjectTask(project.id, 'Original Title');
+
+      const req = createMockRequest('PUT', `/api/v1/projects/${project.id}/tasks/${task.id}`, {
+        title: 'Updated Title',
+        description: 'New desc',
+        priority: 1,
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.title).toBe('Updated Title');
+      expect(body.data.description).toBe('New desc');
+      expect(body.data.priority).toBe(1);
+    });
+  });
+
+  describe('DELETE /api/v1/projects/:projectId/tasks/:taskId', () => {
+    it('should delete task', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Delete Task Test', '/tmp/delete-task');
+      const task = manager.createProjectTask(project.id, 'Delete Me');
+
+      const req = createMockRequest('DELETE', `/api/v1/projects/${project.id}/tasks/${task.id}`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.deleted).toBe(true);
+    });
+  });
+
+  describe('PUT /api/v1/projects/:projectId/tasks/:taskId/phase', () => {
+    it('should transition task phase', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Phase Test', '/tmp/phase');
+      const task = manager.createProjectTask(project.id, 'Phase Task');
+
+      const req = createMockRequest('PUT', `/api/v1/projects/${project.id}/tasks/${task.id}/phase`, {
+        phase: 'specification',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.phase).toBe('specification');
+    });
+
+    it('should reject invalid phase transition', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Invalid Phase Test', '/tmp/invalid-phase');
+      const task = manager.createProjectTask(project.id, 'Phase Task');
+
+      // Try to transition from draft directly to development (invalid)
+      const req = createMockRequest('PUT', `/api/v1/projects/${project.id}/tasks/${task.id}/phase`, {
+        phase: 'development',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+
+    it('should return error for missing phase', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Missing Phase Test', '/tmp/missing-phase');
+      const task = manager.createProjectTask(project.id, 'Phase Task');
+
+      const req = createMockRequest('PUT', `/api/v1/projects/${project.id}/tasks/${task.id}/phase`, {});
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+  });
+
+  describe('PUT /api/v1/projects/:projectId/tasks/:taskId/assign', () => {
+    it('should assign agents to task', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Assign Test', '/tmp/assign');
+      const task = manager.createProjectTask(project.id, 'Assign Task');
+
+      const req = createMockRequest('PUT', `/api/v1/projects/${project.id}/tasks/${task.id}/assign`, {
+        agents: ['architect', 'coder'],
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.assignedAgents).toEqual(['architect', 'coder']);
+    });
+
+    it('should return error for missing agents', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const project = manager.createProject('Assign Test', '/tmp/assign');
+      const task = manager.createProjectTask(project.id, 'Assign Task');
+
+      const req = createMockRequest('PUT', `/api/v1/projects/${project.id}/tasks/${task.id}/assign`, {});
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+  });
+});
+
+describe('Specification Routes', () => {
+  let router: Router;
+  let taskId: string;
+
+  beforeEach(() => {
+    resetMemoryManager();
+    router = new Router();
+    registerSpecificationRoutes(router, mockConfig);
+
+    // Create project and task for specs
+    const manager = getMemoryManager(mockConfig);
+    const project = manager.createProject('Spec Project', '/tmp/spec');
+    const task = manager.createProjectTask(project.id, 'Spec Task');
+    taskId = task.id;
+  });
+
+  afterEach(() => {
+    resetMemoryManager();
+  });
+
+  describe('GET /api/v1/tasks/:taskId/specs', () => {
+    it('should return empty list when no specs', async () => {
+      const req = createMockRequest('GET', `/api/v1/tasks/${taskId}/specs`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data).toEqual([]);
+    });
+
+    it('should return list of specs', async () => {
+      const manager = getMemoryManager(mockConfig);
+      manager.createSpecification(taskId, 'architecture', 'Spec 1', 'Content 1', 'agent');
+      manager.createSpecification(taskId, 'requirements', 'Spec 2', 'Content 2', 'agent');
+
+      const req = createMockRequest('GET', `/api/v1/tasks/${taskId}/specs`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data).toHaveLength(2);
+    });
+
+    it('should filter by status', async () => {
+      const manager = getMemoryManager(mockConfig);
+      manager.createSpecification(taskId, 'architecture', 'Draft Spec', 'Content', 'agent');
+      const spec2 = manager.createSpecification(taskId, 'requirements', 'Review Spec', 'Content', 'agent');
+      manager.updateSpecificationStatus(spec2.id, 'pending_review');
+
+      const req = createMockRequest('GET', `/api/v1/tasks/${taskId}/specs?status=draft`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data).toHaveLength(1);
+      expect(body.data[0].title).toBe('Draft Spec');
+    });
+  });
+
+  describe('POST /api/v1/tasks/:taskId/specs', () => {
+    it('should create new specification', async () => {
+      const req = createMockRequest('POST', `/api/v1/tasks/${taskId}/specs`, {
+        type: 'architecture',
+        title: 'System Architecture',
+        content: '# Architecture\n\nDoc content here.',
+        createdBy: 'architect-agent',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.title).toBe('System Architecture');
+      expect(body.data.type).toBe('architecture');
+      expect(body.data.status).toBe('draft');
+      expect(body.data.version).toBe(1);
+      expect(body.data.createdBy).toBe('architect-agent');
+      expect(res.writeHead).toHaveBeenCalledWith(201, expect.any(Object));
+    });
+
+    it('should return error for missing required fields', async () => {
+      const req = createMockRequest('POST', `/api/v1/tasks/${taskId}/specs`, {
+        title: 'Incomplete Spec',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+  });
+
+  describe('GET /api/v1/specs/:specId', () => {
+    it('should return specification by id', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const spec = manager.createSpecification(taskId, 'architecture', 'Get Test Spec', 'Content', 'agent');
+
+      const req = createMockRequest('GET', `/api/v1/specs/${spec.id}`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.id).toBe(spec.id);
+      expect(body.data.title).toBe('Get Test Spec');
+    });
+
+    it('should return 404 for unknown spec', async () => {
+      const req = createMockRequest('GET', '/api/v1/specs/unknown-id');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+    });
+  });
+
+  describe('PUT /api/v1/specs/:specId', () => {
+    it('should update specification', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const spec = manager.createSpecification(taskId, 'architecture', 'Original Title', 'Original content', 'agent');
+
+      const req = createMockRequest('PUT', `/api/v1/specs/${spec.id}`, {
+        title: 'Updated Title',
+        content: 'Updated content',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.title).toBe('Updated Title');
+      expect(body.data.content).toBe('Updated content');
+    });
+
+    it('should return 404 for unknown spec', async () => {
+      const req = createMockRequest('PUT', '/api/v1/specs/unknown-id', {
+        title: 'Test',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+    });
+  });
+
+  describe('DELETE /api/v1/specs/:specId', () => {
+    it('should delete specification', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const spec = manager.createSpecification(taskId, 'architecture', 'Delete Me', 'Content', 'agent');
+
+      const req = createMockRequest('DELETE', `/api/v1/specs/${spec.id}`);
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.deleted).toBe(true);
+    });
+
+    it('should return 404 for unknown spec', async () => {
+      const req = createMockRequest('DELETE', '/api/v1/specs/unknown-id');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+    });
+  });
+
+  describe('PUT /api/v1/specs/:specId/submit', () => {
+    it('should submit spec for review', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const spec = manager.createSpecification(taskId, 'architecture', 'Submit Test', 'Content', 'agent');
+
+      const req = createMockRequest('PUT', `/api/v1/specs/${spec.id}/submit`, {});
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('pending_review');
+    });
+  });
+
+  describe('PUT /api/v1/specs/:specId/approve', () => {
+    it('should approve specification', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const spec = manager.createSpecification(taskId, 'architecture', 'Approve Test', 'Content', 'agent');
+      manager.updateSpecificationStatus(spec.id, 'pending_review');
+
+      const req = createMockRequest('PUT', `/api/v1/specs/${spec.id}/approve`, {
+        reviewedBy: 'user',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('approved');
+      expect(body.data.reviewedBy).toBe('user');
+    });
+
+    it('should fail to approve draft spec', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const spec = manager.createSpecification(taskId, 'architecture', 'Not Submitted', 'Content', 'agent');
+
+      const req = createMockRequest('PUT', `/api/v1/specs/${spec.id}/approve`, {
+        reviewedBy: 'user',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+
+    it('should return error for missing reviewedBy', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const spec = manager.createSpecification(taskId, 'architecture', 'Test', 'Content', 'agent');
+      manager.updateSpecificationStatus(spec.id, 'pending_review');
+
+      const req = createMockRequest('PUT', `/api/v1/specs/${spec.id}/approve`, {});
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+  });
+
+  describe('PUT /api/v1/specs/:specId/reject', () => {
+    it('should reject specification', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const spec = manager.createSpecification(taskId, 'architecture', 'Reject Test', 'Content', 'agent');
+      manager.updateSpecificationStatus(spec.id, 'pending_review');
+
+      const req = createMockRequest('PUT', `/api/v1/specs/${spec.id}/reject`, {
+        reviewedBy: 'user',
+        comments: [{ id: '1', author: 'user', content: 'Needs work', createdAt: new Date().toISOString(), resolved: false }],
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.status).toBe('rejected');
+      expect(body.data.reviewedBy).toBe('user');
+    });
+
+    it('should fail to reject draft spec', async () => {
+      const manager = getMemoryManager(mockConfig);
+      const spec = manager.createSpecification(taskId, 'architecture', 'Not Submitted', 'Content', 'agent');
+
+      const req = createMockRequest('PUT', `/api/v1/specs/${spec.id}/reject`, {
+        reviewedBy: 'user',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+  });
+});
+
+describe('Filesystem Routes', () => {
+  let router: Router;
+
+  beforeEach(() => {
+    router = new Router();
+    registerFilesystemRoutes(router, mockConfig);
+  });
+
+  describe('GET /api/v1/filesystem/roots', () => {
+    it('should return filesystem roots', async () => {
+      const req = createMockRequest('GET', '/api/v1/filesystem/roots');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(Array.isArray(body.data)).toBe(true);
+      expect(body.data.length).toBeGreaterThan(0);
+      // Should contain home directory
+      expect(body.data.some((e: { type: string }) => e.type === 'directory')).toBe(true);
+    });
+  });
+
+  describe('GET /api/v1/filesystem/browse', () => {
+    it('should browse home directory by default', async () => {
+      const req = createMockRequest('GET', '/api/v1/filesystem/browse');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.path).toBeDefined();
+      expect(Array.isArray(body.data.entries)).toBe(true);
+    });
+
+    it('should browse specified path', async () => {
+      const req = createMockRequest('GET', '/api/v1/filesystem/browse?path=/tmp');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      // Path may be resolved differently on various platforms
+      expect(body.data.path).toMatch(/\/tmp$/);
+    });
+
+    it('should return 400 for non-existent path', async () => {
+      const req = createMockRequest('GET', '/api/v1/filesystem/browse?path=/nonexistent-path-12345');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      // Non-existent paths return 400 (badRequest), not 404
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+
+    it('should filter hidden files when showHidden is false', async () => {
+      const req = createMockRequest('GET', '/api/v1/filesystem/browse?showHidden=false');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      // Should not contain entries starting with dot
+      const hasHidden = body.data.entries.some((e: { name: string }) => e.name.startsWith('.'));
+      expect(hasHidden).toBe(false);
+    });
+  });
+
+  describe('POST /api/v1/filesystem/validate', () => {
+    it('should validate existing directory path', async () => {
+      const req = createMockRequest('POST', '/api/v1/filesystem/validate', {
+        path: '/tmp',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.exists).toBe(true);
+      expect(body.data.isDirectory).toBe(true);
+      expect(body.data.readable).toBe(true);
+    });
+
+    it('should return invalid for non-existent path', async () => {
+      const req = createMockRequest('POST', '/api/v1/filesystem/validate', {
+        path: '/nonexistent-path-12345',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.valid).toBe(false);
+      expect(body.data.exists).toBe(false);
+      expect(body.data.errors.length).toBeGreaterThan(0);
+    });
+
+    it('should return error without path', async () => {
+      const req = createMockRequest('POST', '/api/v1/filesystem/validate', {});
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+
+    it('should detect file vs directory (file is invalid for validation)', async () => {
+      const req = createMockRequest('POST', '/api/v1/filesystem/validate', {
+        path: '/etc/passwd',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(true);
+      expect(body.data.exists).toBe(true);
+      expect(body.data.isDirectory).toBe(false);
+      // validate endpoint is for directories, so files are invalid
+      expect(body.data.valid).toBe(false);
     });
   });
 });

@@ -19,6 +19,22 @@ import type {
   LaunchWorkflowRequest,
   SystemStatus,
   HealthCheck,
+  Project,
+  CreateProjectRequest,
+  UpdateProjectRequest,
+  ProjectTask,
+  CreateProjectTaskRequest,
+  UpdateProjectTaskRequest,
+  TaskPhase,
+  Specification,
+  CreateSpecificationRequest,
+  UpdateSpecificationRequest,
+  ApproveSpecificationRequest,
+  RejectSpecificationRequest,
+  SpecificationStatus,
+  FileSystemEntry,
+  BrowseResult,
+  PathValidation,
 } from './types';
 
 const API_BASE = '/api/v1';
@@ -267,6 +283,138 @@ export const systemApi = {
   getConfig: () => request<Record<string, unknown>>('/system/config'),
 
   getMetrics: () => request<Record<string, unknown>>('/system/metrics'),
+};
+
+// Project API
+export const projectApi = {
+  list: (status?: 'active' | 'archived') =>
+    request<Project[]>(`/projects${status ? `?status=${status}` : ''}`),
+
+  create: (data: CreateProjectRequest) =>
+    request<Project>('/projects', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  get: (id: string) => request<Project>(`/projects/${id}`),
+
+  update: (id: string, data: UpdateProjectRequest) =>
+    request<Project>(`/projects/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: string) =>
+    request<{ deleted: boolean }>(`/projects/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // Project Tasks
+  listTasks: (projectId: string, phase?: TaskPhase) =>
+    request<ProjectTask[]>(
+      `/projects/${projectId}/tasks${phase ? `?phase=${phase}` : ''}`
+    ),
+
+  createTask: (projectId: string, data: CreateProjectTaskRequest) =>
+    request<ProjectTask>(`/projects/${projectId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getTask: (projectId: string, taskId: string) =>
+    request<ProjectTask>(`/projects/${projectId}/tasks/${taskId}`),
+
+  updateTask: (projectId: string, taskId: string, data: UpdateProjectTaskRequest) =>
+    request<ProjectTask>(`/projects/${projectId}/tasks/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteTask: (projectId: string, taskId: string) =>
+    request<{ deleted: boolean }>(`/projects/${projectId}/tasks/${taskId}`, {
+      method: 'DELETE',
+    }),
+
+  transitionPhase: (projectId: string, taskId: string, phase: TaskPhase) =>
+    request<ProjectTask>(`/projects/${projectId}/tasks/${taskId}/phase`, {
+      method: 'PUT',
+      body: JSON.stringify({ phase }),
+    }),
+
+  assignAgents: (projectId: string, taskId: string, agents: string[]) =>
+    request<ProjectTask>(`/projects/${projectId}/tasks/${taskId}/assign`, {
+      method: 'PUT',
+      body: JSON.stringify({ agents }),
+    }),
+};
+
+// Specification API
+export const specificationApi = {
+  list: (taskId: string, status?: SpecificationStatus) =>
+    request<Specification[]>(
+      `/tasks/${taskId}/specs${status ? `?status=${status}` : ''}`
+    ),
+
+  create: (taskId: string, data: CreateSpecificationRequest) =>
+    request<Specification>(`/tasks/${taskId}/specs`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  get: (specId: string) => request<Specification>(`/specs/${specId}`),
+
+  update: (specId: string, data: UpdateSpecificationRequest) =>
+    request<Specification>(`/specs/${specId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (specId: string) =>
+    request<{ deleted: boolean }>(`/specs/${specId}`, {
+      method: 'DELETE',
+    }),
+
+  submit: (specId: string) =>
+    request<Specification>(`/specs/${specId}/submit`, {
+      method: 'PUT',
+    }),
+
+  approve: (specId: string, data: ApproveSpecificationRequest) =>
+    request<Specification>(`/specs/${specId}/approve`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  reject: (specId: string, data: RejectSpecificationRequest) =>
+    request<Specification>(`/specs/${specId}/reject`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+};
+
+// Filesystem API
+export const filesystemApi = {
+  getRoots: () => request<FileSystemEntry[]>('/filesystem/roots'),
+
+  browse: (options?: { path?: string; showHidden?: boolean; showFiles?: boolean }) => {
+    const params = new URLSearchParams();
+    if (options?.path) params.set('path', options.path);
+    if (options?.showHidden) params.set('showHidden', 'true');
+    if (options?.showFiles !== undefined) params.set('showFiles', options.showFiles.toString());
+    const query = params.toString();
+    return request<BrowseResult>(`/filesystem/browse${query ? `?${query}` : ''}`);
+  },
+
+  validate: (path: string) =>
+    request<PathValidation>('/filesystem/validate', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+
+  getParent: (path: string) =>
+    request<{ path: string; parent: string | null; isRoot: boolean }>(
+      `/filesystem/parent?path=${encodeURIComponent(path)}`
+    ),
 };
 
 export { ApiError };

@@ -4,3 +4,6 @@ export { default as MemoryPage } from './MemoryPage';
 export { default as TasksPage } from './TasksPage';
 export { default as WorkflowsPage } from './WorkflowsPage';
 export { default as ChatPage } from './ChatPage';
+export { default as ProjectsPage } from './ProjectsPage';
+export { default as ProjectDetailPage } from './ProjectDetailPage';
+export { default as TaskDetailPage } from './TaskDetailPage';

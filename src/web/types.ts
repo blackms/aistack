@@ -118,6 +118,84 @@ export interface CreateSessionRequest {
   metadata?: Record<string, unknown>;
 }
 
+// Project request types
+export interface CreateProjectRequest {
+  name: string;
+  path: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateProjectRequest {
+  name?: string;
+  description?: string;
+  status?: 'active' | 'archived';
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateProjectTaskRequest {
+  title: string;
+  description?: string;
+  priority?: number;
+  assignedAgents?: string[];
+}
+
+export interface UpdateProjectTaskRequest {
+  title?: string;
+  description?: string;
+  priority?: number;
+  assignedAgents?: string[];
+}
+
+export interface TransitionPhaseRequest {
+  phase: string;
+}
+
+export interface AssignAgentsRequest {
+  agents: string[];
+}
+
+// Specification request types
+export interface CreateSpecificationRequest {
+  type: 'architecture' | 'requirements' | 'design' | 'api' | 'other';
+  title: string;
+  content: string;
+  createdBy: string;
+}
+
+export interface UpdateSpecificationRequest {
+  title?: string;
+  content?: string;
+  type?: 'architecture' | 'requirements' | 'design' | 'api' | 'other';
+}
+
+export interface ApproveSpecificationRequest {
+  reviewedBy: string;
+  comments?: Array<{
+    id: string;
+    author: string;
+    content: string;
+    createdAt: string;
+    resolved?: boolean;
+  }>;
+}
+
+export interface RejectSpecificationRequest {
+  reviewedBy: string;
+  comments: Array<{
+    id: string;
+    author: string;
+    content: string;
+    createdAt: string;
+    resolved?: boolean;
+  }>;
+}
+
+// Filesystem request types
+export interface ValidatePathRequest {
+  path: string;
+}
+
 // System status types
 export interface SystemStatus {
   version: string;

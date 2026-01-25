@@ -6,7 +6,19 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { MemoryEntry, MemoryStoreOptions, Session, Task } from '../types.js';
+import type {
+  MemoryEntry,
+  MemoryStoreOptions,
+  Session,
+  Task,
+  Project,
+  ProjectTask,
+  Specification,
+  TaskPhase,
+  SpecificationType,
+  SpecificationStatus,
+  ReviewComment,
+} from '../types.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('sqlite');
@@ -90,6 +102,62 @@ CREATE TABLE IF NOT EXISTS plugins (
   config TEXT,
   installed_at INTEGER NOT NULL
 );
+
+-- Projects table
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  path TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  metadata TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC);
+
+-- Project Tasks table
+CREATE TABLE IF NOT EXISTS project_tasks (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  session_id TEXT,
+  title TEXT NOT NULL,
+  description TEXT,
+  phase TEXT NOT NULL DEFAULT 'draft',
+  priority INTEGER DEFAULT 5,
+  assigned_agents TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_tasks_phase ON project_tasks(phase);
+CREATE INDEX IF NOT EXISTS idx_project_tasks_updated ON project_tasks(updated_at DESC);
+
+-- Specifications table
+CREATE TABLE IF NOT EXISTS specifications (
+  id TEXT PRIMARY KEY,
+  project_task_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  version INTEGER DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'draft',
+  created_by TEXT NOT NULL,
+  reviewed_by TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  approved_at INTEGER,
+  comments TEXT,
+  FOREIGN KEY (project_task_id) REFERENCES project_tasks(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_specifications_task ON specifications(project_task_id);
+CREATE INDEX IF NOT EXISTS idx_specifications_status ON specifications(status);
 `;
 
 export class SQLiteStore {
@@ -437,6 +505,412 @@ export class SQLiteStore {
     };
   }
 
+  // ==================== Project Operations ====================
+
+  createProject(
+    name: string,
+    path: string,
+    description?: string,
+    metadata?: Record<string, unknown>
+  ): Project {
+    const id = randomUUID();
+    const now = Date.now();
+    const metadataJson = metadata ? JSON.stringify(metadata) : null;
+
+    this.db
+      .prepare(`
+        INSERT INTO projects (id, name, description, path, status, created_at, updated_at, metadata)
+        VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+      `)
+      .run(id, name, description ?? null, path, now, now, metadataJson);
+
+    return {
+      id,
+      name,
+      description,
+      path,
+      status: 'active',
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+      metadata,
+    };
+  }
+
+  getProject(id: string): Project | null {
+    const row = this.db
+      .prepare('SELECT * FROM projects WHERE id = ?')
+      .get(id) as ProjectRow | undefined;
+
+    return row ? this.rowToProject(row) : null;
+  }
+
+  updateProject(
+    id: string,
+    updates: Partial<Pick<Project, 'name' | 'description' | 'status' | 'metadata'>>
+  ): boolean {
+    const project = this.getProject(id);
+    if (!project) return false;
+
+    const now = Date.now();
+    const fields: string[] = ['updated_at = ?'];
+    const params: (string | number | null)[] = [now];
+
+    if (updates.name !== undefined) {
+      fields.push('name = ?');
+      params.push(updates.name);
+    }
+    if (updates.description !== undefined) {
+      fields.push('description = ?');
+      params.push(updates.description ?? null);
+    }
+    if (updates.status !== undefined) {
+      fields.push('status = ?');
+      params.push(updates.status);
+    }
+    if (updates.metadata !== undefined) {
+      fields.push('metadata = ?');
+      params.push(updates.metadata ? JSON.stringify(updates.metadata) : null);
+    }
+
+    params.push(id);
+
+    const result = this.db
+      .prepare(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`)
+      .run(...params);
+
+    return result.changes > 0;
+  }
+
+  listProjects(status?: Project['status']): Project[] {
+    let query = 'SELECT * FROM projects';
+    const params: string[] = [];
+
+    if (status) {
+      query += ' WHERE status = ?';
+      params.push(status);
+    }
+
+    query += ' ORDER BY updated_at DESC';
+
+    const rows = this.db.prepare(query).all(...params) as ProjectRow[];
+    return rows.map(row => this.rowToProject(row));
+  }
+
+  deleteProject(id: string): boolean {
+    // First delete related project tasks and specifications
+    const tasks = this.listProjectTasks(id);
+    for (const task of tasks) {
+      this.deleteProjectTask(task.id);
+    }
+
+    const result = this.db
+      .prepare('DELETE FROM projects WHERE id = ?')
+      .run(id);
+
+    return result.changes > 0;
+  }
+
+  private rowToProject(row: ProjectRow): Project {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description ?? undefined,
+      path: row.path,
+      status: row.status as Project['status'],
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+      metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined,
+    };
+  }
+
+  // ==================== Project Task Operations ====================
+
+  createProjectTask(
+    projectId: string,
+    title: string,
+    options?: {
+      description?: string;
+      priority?: number;
+      assignedAgents?: string[];
+      sessionId?: string;
+    }
+  ): ProjectTask {
+    const id = randomUUID();
+    const now = Date.now();
+
+    this.db
+      .prepare(`
+        INSERT INTO project_tasks (id, project_id, session_id, title, description, phase, priority, assigned_agents, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+      `)
+      .run(
+        id,
+        projectId,
+        options?.sessionId ?? null,
+        title,
+        options?.description ?? null,
+        options?.priority ?? 5,
+        options?.assignedAgents ? JSON.stringify(options.assignedAgents) : null,
+        now,
+        now
+      );
+
+    return {
+      id,
+      projectId,
+      sessionId: options?.sessionId,
+      title,
+      description: options?.description,
+      phase: 'draft',
+      priority: options?.priority ?? 5,
+      assignedAgents: options?.assignedAgents ?? [],
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    };
+  }
+
+  getProjectTask(id: string): ProjectTask | null {
+    const row = this.db
+      .prepare('SELECT * FROM project_tasks WHERE id = ?')
+      .get(id) as ProjectTaskRow | undefined;
+
+    return row ? this.rowToProjectTask(row) : null;
+  }
+
+  updateProjectTask(
+    id: string,
+    updates: Partial<Pick<ProjectTask, 'title' | 'description' | 'priority' | 'assignedAgents' | 'sessionId'>>
+  ): boolean {
+    const task = this.getProjectTask(id);
+    if (!task) return false;
+
+    const now = Date.now();
+    const fields: string[] = ['updated_at = ?'];
+    const params: (string | number | null)[] = [now];
+
+    if (updates.title !== undefined) {
+      fields.push('title = ?');
+      params.push(updates.title);
+    }
+    if (updates.description !== undefined) {
+      fields.push('description = ?');
+      params.push(updates.description ?? null);
+    }
+    if (updates.priority !== undefined) {
+      fields.push('priority = ?');
+      params.push(updates.priority);
+    }
+    if (updates.assignedAgents !== undefined) {
+      fields.push('assigned_agents = ?');
+      params.push(updates.assignedAgents.length > 0 ? JSON.stringify(updates.assignedAgents) : null);
+    }
+    if (updates.sessionId !== undefined) {
+      fields.push('session_id = ?');
+      params.push(updates.sessionId ?? null);
+    }
+
+    params.push(id);
+
+    const result = this.db
+      .prepare(`UPDATE project_tasks SET ${fields.join(', ')} WHERE id = ?`)
+      .run(...params);
+
+    return result.changes > 0;
+  }
+
+  updateProjectTaskPhase(id: string, phase: TaskPhase): boolean {
+    const now = Date.now();
+    const completedAt = phase === 'completed' || phase === 'cancelled' ? now : null;
+
+    const result = this.db
+      .prepare(`
+        UPDATE project_tasks
+        SET phase = ?, updated_at = ?, completed_at = ?
+        WHERE id = ?
+      `)
+      .run(phase, now, completedAt, id);
+
+    return result.changes > 0;
+  }
+
+  listProjectTasks(projectId: string, phase?: TaskPhase): ProjectTask[] {
+    let query = 'SELECT * FROM project_tasks WHERE project_id = ?';
+    const params: string[] = [projectId];
+
+    if (phase) {
+      query += ' AND phase = ?';
+      params.push(phase);
+    }
+
+    query += ' ORDER BY priority ASC, updated_at DESC';
+
+    const rows = this.db.prepare(query).all(...params) as ProjectTaskRow[];
+    return rows.map(row => this.rowToProjectTask(row));
+  }
+
+  deleteProjectTask(id: string): boolean {
+    // First delete related specifications
+    this.db.prepare('DELETE FROM specifications WHERE project_task_id = ?').run(id);
+
+    const result = this.db
+      .prepare('DELETE FROM project_tasks WHERE id = ?')
+      .run(id);
+
+    return result.changes > 0;
+  }
+
+  private rowToProjectTask(row: ProjectTaskRow): ProjectTask {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      sessionId: row.session_id ?? undefined,
+      title: row.title,
+      description: row.description ?? undefined,
+      phase: row.phase as TaskPhase,
+      priority: row.priority,
+      assignedAgents: row.assigned_agents ? JSON.parse(row.assigned_agents) as string[] : [],
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+      completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+    };
+  }
+
+  // ==================== Specification Operations ====================
+
+  createSpecification(
+    projectTaskId: string,
+    type: SpecificationType,
+    title: string,
+    content: string,
+    createdBy: string
+  ): Specification {
+    const id = randomUUID();
+    const now = Date.now();
+
+    this.db
+      .prepare(`
+        INSERT INTO specifications (id, project_task_id, type, title, content, version, status, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 1, 'draft', ?, ?, ?)
+      `)
+      .run(id, projectTaskId, type, title, content, createdBy, now, now);
+
+    return {
+      id,
+      projectTaskId,
+      type,
+      title,
+      content,
+      version: 1,
+      status: 'draft',
+      createdBy,
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    };
+  }
+
+  getSpecification(id: string): Specification | null {
+    const row = this.db
+      .prepare('SELECT * FROM specifications WHERE id = ?')
+      .get(id) as SpecificationRow | undefined;
+
+    return row ? this.rowToSpecification(row) : null;
+  }
+
+  updateSpecification(
+    id: string,
+    updates: Partial<Pick<Specification, 'title' | 'content' | 'type'>>
+  ): boolean {
+    const spec = this.getSpecification(id);
+    if (!spec) return false;
+
+    const now = Date.now();
+    const fields: string[] = ['updated_at = ?', 'version = version + 1'];
+    const params: (string | number | null)[] = [now];
+
+    if (updates.title !== undefined) {
+      fields.push('title = ?');
+      params.push(updates.title);
+    }
+    if (updates.content !== undefined) {
+      fields.push('content = ?');
+      params.push(updates.content);
+    }
+    if (updates.type !== undefined) {
+      fields.push('type = ?');
+      params.push(updates.type);
+    }
+
+    params.push(id);
+
+    const result = this.db
+      .prepare(`UPDATE specifications SET ${fields.join(', ')} WHERE id = ?`)
+      .run(...params);
+
+    return result.changes > 0;
+  }
+
+  updateSpecificationStatus(
+    id: string,
+    status: SpecificationStatus,
+    reviewedBy?: string,
+    comments?: ReviewComment[]
+  ): boolean {
+    const now = Date.now();
+    const approvedAt = status === 'approved' ? now : null;
+    const commentsJson = comments ? JSON.stringify(comments) : null;
+
+    const result = this.db
+      .prepare(`
+        UPDATE specifications
+        SET status = ?, reviewed_by = ?, approved_at = ?, comments = ?, updated_at = ?
+        WHERE id = ?
+      `)
+      .run(status, reviewedBy ?? null, approvedAt, commentsJson, now, id);
+
+    return result.changes > 0;
+  }
+
+  listSpecifications(projectTaskId: string, status?: SpecificationStatus): Specification[] {
+    let query = 'SELECT * FROM specifications WHERE project_task_id = ?';
+    const params: string[] = [projectTaskId];
+
+    if (status) {
+      query += ' AND status = ?';
+      params.push(status);
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const rows = this.db.prepare(query).all(...params) as SpecificationRow[];
+    return rows.map(row => this.rowToSpecification(row));
+  }
+
+  deleteSpecification(id: string): boolean {
+    const result = this.db
+      .prepare('DELETE FROM specifications WHERE id = ?')
+      .run(id);
+
+    return result.changes > 0;
+  }
+
+  private rowToSpecification(row: SpecificationRow): Specification {
+    return {
+      id: row.id,
+      projectTaskId: row.project_task_id,
+      type: row.type as SpecificationType,
+      title: row.title,
+      content: row.content,
+      version: row.version,
+      status: row.status as SpecificationStatus,
+      createdBy: row.created_by,
+      reviewedBy: row.reviewed_by ?? undefined,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+      approvedAt: row.approved_at ? new Date(row.approved_at) : undefined,
+      comments: row.comments ? JSON.parse(row.comments) as ReviewComment[] : undefined,
+    };
+  }
+
   // ==================== Cleanup ====================
 
   close(): void {
@@ -479,4 +953,45 @@ interface TaskRow {
   output: string | null;
   created_at: number;
   completed_at: number | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name: string;
+  description: string | null;
+  path: string;
+  status: string;
+  created_at: number;
+  updated_at: number;
+  metadata: string | null;
+}
+
+interface ProjectTaskRow {
+  id: string;
+  project_id: string;
+  session_id: string | null;
+  title: string;
+  description: string | null;
+  phase: string;
+  priority: number;
+  assigned_agents: string | null;
+  created_at: number;
+  updated_at: number;
+  completed_at: number | null;
+}
+
+interface SpecificationRow {
+  id: string;
+  project_task_id: string;
+  type: string;
+  title: string;
+  content: string;
+  version: number;
+  status: string;
+  created_by: string;
+  reviewed_by: string | null;
+  created_at: number;
+  updated_at: number;
+  approved_at: number | null;
+  comments: string | null;
 }

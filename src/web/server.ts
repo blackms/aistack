@@ -19,6 +19,9 @@ import {
   registerSessionRoutes,
   registerWorkflowRoutes,
   registerSystemRoutes,
+  registerProjectRoutes,
+  registerSpecificationRoutes,
+  registerFilesystemRoutes,
 } from './routes/index.js';
 import type { WebConfig } from './types.js';
 
@@ -58,6 +61,9 @@ export class WebServer {
     registerSessionRoutes(this.router, this.config);
     registerWorkflowRoutes(this.router, this.config);
     registerSystemRoutes(this.router, this.config);
+    registerProjectRoutes(this.router, this.config);
+    registerSpecificationRoutes(this.router, this.config);
+    registerFilesystemRoutes(this.router, this.config);
 
     // Root endpoint
     this.router.get('/api/v1', (_req, res) => {
@@ -71,6 +77,9 @@ export class WebServer {
           '/api/v1/sessions',
           '/api/v1/workflows',
           '/api/v1/system',
+          '/api/v1/projects',
+          '/api/v1/specs',
+          '/api/v1/filesystem',
         ],
       });
     });

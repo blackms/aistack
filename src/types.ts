@@ -88,6 +88,83 @@ export interface Task {
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
+// Project types
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  path: string;
+  status: ProjectStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  metadata?: Record<string, unknown>;
+}
+
+export type ProjectStatus = 'active' | 'archived';
+
+// Project Task types
+export interface ProjectTask {
+  id: string;
+  projectId: string;
+  sessionId?: string;
+  title: string;
+  description?: string;
+  phase: TaskPhase;
+  priority: number;
+  assignedAgents: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  completedAt?: Date;
+}
+
+export type TaskPhase = 'draft' | 'specification' | 'review' | 'development' | 'completed' | 'cancelled';
+
+// Specification types
+export interface Specification {
+  id: string;
+  projectTaskId: string;
+  type: SpecificationType;
+  title: string;
+  content: string;
+  version: number;
+  status: SpecificationStatus;
+  createdBy: string;
+  reviewedBy?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  approvedAt?: Date;
+  comments?: ReviewComment[];
+}
+
+export type SpecificationType = 'architecture' | 'requirements' | 'design' | 'api' | 'other';
+export type SpecificationStatus = 'draft' | 'pending_review' | 'approved' | 'rejected';
+
+export interface ReviewComment {
+  id: string;
+  author: string;
+  content: string;
+  createdAt: Date;
+  resolved?: boolean;
+}
+
+// Filesystem types
+export interface FileSystemEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: FileSystemEntry[];
+}
+
+// Phase transition rules
+export const PHASE_TRANSITIONS: Record<TaskPhase, TaskPhase[]> = {
+  draft: ['specification', 'cancelled'],
+  specification: ['review', 'cancelled'],
+  review: ['specification', 'development', 'cancelled'],
+  development: ['completed', 'cancelled'],
+  completed: [],
+  cancelled: [],
+};
+
 // Provider types
 export interface LLMProvider {
   name: string;

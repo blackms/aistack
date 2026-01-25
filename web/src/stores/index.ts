@@ -2,3 +2,7 @@ export { useAgentStore } from './agentStore';
 export { useSystemStore } from './systemStore';
 export { useMemoryStore } from './memoryStore';
 export { useTaskStore } from './taskStore';
+export { useProjectStore } from './projectStore';
+export { useProjectTaskStore } from './projectTaskStore';
+export { useSpecificationStore } from './specificationStore';
+export { useFilesystemStore } from './filesystemStore';

@@ -24,6 +24,7 @@ import {
   AccountTree as WorkflowIcon,
   Chat as ChatIcon,
   Circle as CircleIcon,
+  Folder as FolderIcon,
 } from '@mui/icons-material';
 import { useWebSocketStore } from '../../hooks/useWebSocket';
 
@@ -35,6 +36,7 @@ interface LayoutProps {
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+  { path: '/projects', label: 'Projects', icon: <FolderIcon /> },
   { path: '/agents', label: 'Agents', icon: <AgentIcon /> },
   { path: '/memory', label: 'Memory', icon: <MemoryIcon /> },
   { path: '/tasks', label: 'Tasks', icon: <TaskIcon /> },
@@ -64,7 +66,7 @@ export default function Layout({ children }: LayoutProps) {
         {navItems.map((item) => (
           <ListItem key={item.path} disablePadding>
             <ListItemButton
-              selected={location.pathname === item.path}
+              selected={location.pathname === item.path || location.pathname.startsWith(item.path + '/')}
               onClick={() => {
                 navigate(item.path);
                 setMobileOpen(false);
@@ -78,7 +80,7 @@ export default function Layout({ children }: LayoutProps) {
                 },
               }}
             >
-              <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'text.secondary' }}>
+              <ListItemIcon sx={{ color: (location.pathname === item.path || location.pathname.startsWith(item.path + '/')) ? 'primary.main' : 'text.secondary' }}>
                 {item.icon}
               </ListItemIcon>
               <ListItemText primary={item.label} />
