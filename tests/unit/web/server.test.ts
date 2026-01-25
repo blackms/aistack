@@ -13,8 +13,20 @@ import {
 } from '../../../src/web/server.js';
 import type { AgentStackConfig } from '../../../src/types.js';
 
-// Helper to make HTTP request
-function makeRequest(
+// Helper to wait for server to be ready
+async function waitForServer(port: number, maxAttempts = 10): Promise<void> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await makeRequestOnce(port, '/api/v1/system/health');
+      return;
+    } catch {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}
+
+// Single HTTP request attempt
+function makeRequestOnce(
   port: number,
   path: string,
   options: http.RequestOptions = {}
@@ -26,6 +38,7 @@ function makeRequest(
       path,
       method: options.method || 'GET',
       headers: options.headers,
+      timeout: 5000,
     }, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
@@ -46,11 +59,33 @@ function makeRequest(
       });
     });
     req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
     if (options.method === 'POST' || options.method === 'PUT') {
       req.write(JSON.stringify({}));
     }
     req.end();
   });
+}
+
+// Helper to make HTTP request with retry
+async function makeRequest(
+  port: number,
+  path: string,
+  options: http.RequestOptions = {},
+  retries = 3
+): Promise<{ status: number; body: unknown; headers: http.IncomingHttpHeaders }> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await makeRequestOnce(port, path, options);
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error('All retries failed');
 }
 
 // Mock config
@@ -209,10 +244,14 @@ describe('HTTP Requests', () => {
   beforeEach(async () => {
     server = new WebServer(mockConfig, { port: testPort });
     await server.start();
+    // Wait for server to be fully ready
+    await waitForServer(testPort);
   });
 
   afterEach(async () => {
     await server.stop();
+    // Give time for cleanup
+    await new Promise(resolve => setTimeout(resolve, 50));
   });
 
   describe('API Routes', () => {
