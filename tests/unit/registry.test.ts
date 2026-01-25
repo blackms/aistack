@@ -273,9 +273,9 @@ describe('Agent Registry', () => {
     it('should return correct counts', () => {
       const counts = getAgentCount();
 
-      expect(counts.core).toBe(7);
+      expect(counts.core).toBe(8);
       expect(counts.custom).toBe(0);
-      expect(counts.total).toBe(7);
+      expect(counts.total).toBe(8);
     });
 
     it('should include custom agents in count', () => {
@@ -297,9 +297,9 @@ describe('Agent Registry', () => {
 
       const counts = getAgentCount();
 
-      expect(counts.core).toBe(7);
+      expect(counts.core).toBe(8);
       expect(counts.custom).toBe(2);
-      expect(counts.total).toBe(9);
+      expect(counts.total).toBe(10);
     });
   });
 
@@ -333,7 +333,7 @@ describe('Agent Registry', () => {
 
       expect(hasAgentType('coder')).toBe(true);
       expect(hasAgentType('tester')).toBe(true);
-      expect(getAgentCount().core).toBe(7);
+      expect(getAgentCount().core).toBe(8);
     });
   });
 });

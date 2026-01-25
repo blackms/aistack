@@ -8,6 +8,7 @@ export type AgentType =
   | 'researcher'
   | 'tester'
   | 'reviewer'
+  | 'adversarial'
   | 'architect'
   | 'coordinator'
   | 'analyst';
@@ -329,3 +330,50 @@ export function ok<T>(value: T): Result<T> {
 export function err<E = Error>(error: E): Result<never, E> {
   return { ok: false, error };
 }
+
+// Review Loop types
+export type ReviewVerdict = 'APPROVE' | 'REJECT';
+export type IssueSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface ReviewIssue {
+  id: string;
+  severity: IssueSeverity;
+  title: string;
+  location?: string;
+  attackVector?: string;
+  impact?: string;
+  requiredFix: string;
+}
+
+export interface ReviewResult {
+  reviewId: string;
+  verdict: ReviewVerdict;
+  issues: ReviewIssue[];
+  summary: string;
+  timestamp: Date;
+}
+
+export interface ReviewLoopState {
+  id: string;
+  sessionId?: string;
+  coderId: string;
+  adversarialId: string;
+  iteration: number;
+  maxIterations: number;
+  status: ReviewLoopStatus;
+  codeInput: string;
+  currentCode?: string;
+  reviews: ReviewResult[];
+  finalVerdict?: ReviewVerdict;
+  startedAt: Date;
+  completedAt?: Date;
+}
+
+export type ReviewLoopStatus =
+  | 'pending'
+  | 'coding'
+  | 'reviewing'
+  | 'fixing'
+  | 'approved'
+  | 'max_iterations_reached'
+  | 'failed';
