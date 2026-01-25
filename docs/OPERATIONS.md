@@ -150,6 +150,28 @@ Or manually edit Claude Code settings:
 | `OPENAI_API_KEY` | OpenAI API key | If using OpenAI/embeddings |
 | `GITHUB_TOKEN` | GitHub token | If not using gh CLI |
 
+## CLI Providers
+
+AgentStack supports CLI-based providers for agent execution:
+
+| Provider | CLI Tool | Installation |
+|----------|----------|--------------|
+| Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` |
+| Gemini CLI | `gemini` | `pip install google-generativeai` |
+| Codex | `codex` | Install from Codex repository |
+
+Verify CLI provider availability:
+```bash
+# Check Claude Code
+claude --version
+
+# Check Gemini CLI
+gemini --version
+
+# Check Codex
+codex --version
+```
+
 ## Monitoring
 
 ### System Status

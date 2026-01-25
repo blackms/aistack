@@ -611,12 +611,13 @@ async function executeHooks(
 interface WorkflowTrigger {
   id: string;
   name: string;
-  event: HookEvent;
   condition: (context: HookContext) => boolean;
-  workflow: string;
-  config?: Partial<WorkflowConfig>;
+  workflowId: string;
+  options?: Record<string, unknown>;
 }
 ```
+
+> **Note**: Triggers are evaluated within the 'workflow' hook event context. The `condition` function determines if the workflow should be triggered based on the hook context.
 
 ## 8. Providers Module (`src/providers/`)
 
@@ -648,6 +649,60 @@ interface LLMProvider {
 - Features: chat, embeddings (local)
 
 > **Note**: For vector search embeddings, use OpenAI or Ollama providers. AnthropicProvider does not implement the `embed()` method.
+
+### 8.3 CLI-Based Providers (`cli-providers.ts`)
+
+AgentStack includes three CLI-based providers for executing tasks through external CLI tools:
+
+**ClaudeCodeProvider**:
+- Name: `'claude-code'`
+- Default model: `'sonnet'`
+- CLI command: `claude --print`
+- Requires: `npm install -g @anthropic-ai/claude-code`
+- Features: chat only (no embeddings)
+
+**GeminiCLIProvider**:
+- Name: `'gemini-cli'`
+- Default model: `'gemini-2.0-flash'`
+- CLI command: `gemini`
+- Requires: `pip install google-generativeai`
+- Features: chat only (no embeddings)
+
+**CodexProvider**:
+- Name: `'codex'`
+- CLI command: `codex exec`
+- Requires: Codex CLI installed
+- Features: chat only (no embeddings)
+
+**Configuration**:
+```json
+{
+  "providers": {
+    "default": "claude-code",
+    "claude_code": {
+      "command": "claude",
+      "model": "sonnet",
+      "timeout": 300000
+    },
+    "gemini_cli": {
+      "command": "gemini",
+      "model": "gemini-2.0-flash",
+      "timeout": 120000
+    },
+    "codex": {
+      "command": "codex",
+      "timeout": 300000
+    }
+  }
+}
+```
+
+**Helper Function**:
+```typescript
+// Check availability of CLI providers
+const availability = checkCLIProviders();
+// Returns: { 'claude-code': boolean, 'gemini-cli': boolean, 'codex': boolean }
+```
 
 ## 9. Utils Module (`src/utils/`)
 

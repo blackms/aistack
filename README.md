@@ -367,22 +367,38 @@ export default {
 | `agent list` | List active agents |
 | `agent stop -n <name>` | Stop agent |
 | `agent types` | Show available types |
+| `agent status -n <name>` | Get agent status |
+| `agent run -t <type> -p <prompt>` | Spawn and execute task |
+| `agent exec -n <name> -p <prompt>` | Execute task with existing agent |
 | `memory store -k <key> -c <content>` | Store entry |
 | `memory search -q <query>` | Search memory |
 | `memory list` | List entries |
+| `memory delete -k <key>` | Delete entry |
 | `mcp start` | Start MCP server |
+| `mcp tools` | List MCP tools |
 | `workflow run <name>` | Run workflow |
+| `workflow list` | List workflows |
 | `status` | System status |
 
 ---
 
 ## LLM Providers
 
+### API Providers
 | Provider | Default Model | Embeddings |
 |----------|---------------|------------|
 | **Anthropic** | claude-sonnet-4-20250514 | - |
 | **OpenAI** | gpt-4o | text-embedding-3-small |
 | **Ollama** | llama3.2 | nomic-embed-text |
+
+### CLI Providers
+| Provider | CLI Tool | Default Model |
+|----------|----------|---------------|
+| **Claude Code** | `claude` | sonnet |
+| **Gemini CLI** | `gemini` | gemini-2.0-flash |
+| **Codex** | `codex` | - |
+
+CLI providers enable agent execution through external CLI tools, useful for interactive workflows.
 
 ---
 

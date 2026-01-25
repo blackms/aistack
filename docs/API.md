@@ -23,7 +23,7 @@ Create a new agent instance.
 {
   "type": "object",
   "properties": {
-    "agentType": {
+    "type": {
       "type": "string",
       "description": "Type of agent to spawn",
       "enum": ["coder", "researcher", "tester", "reviewer", "architect", "coordinator", "analyst"]
@@ -41,7 +41,7 @@ Create a new agent instance.
       "description": "Optional metadata"
     }
   },
-  "required": ["agentType"]
+  "required": ["type"]
 }
 ```
 
@@ -107,7 +107,7 @@ Stop an agent.
 {
   "type": "object",
   "properties": {
-    "agentId": {
+    "id": {
       "type": "string",
       "description": "Agent ID to stop"
     },
@@ -138,7 +138,7 @@ Get agent details and capabilities.
 {
   "type": "object",
   "properties": {
-    "agentId": {
+    "id": {
       "type": "string",
       "description": "Agent ID"
     },
@@ -198,7 +198,7 @@ Update an agent's status.
 {
   "type": "object",
   "properties": {
-    "agentId": {
+    "id": {
       "type": "string"
     },
     "status": {
@@ -206,7 +206,7 @@ Update an agent's status.
       "enum": ["idle", "running", "completed", "failed", "stopped"]
     }
   },
-  "required": ["agentId", "status"]
+  "required": ["id", "status"]
 }
 ```
 
@@ -982,21 +982,19 @@ const plugin = getPlugin('my-plugin');
 import { registerHook, executeHooks, registerWorkflowTrigger } from '@blackms/aistack';
 
 // Register custom hook
-registerHook({
-  name: 'my-hook',
-  event: 'post-task',
-  handler: async (context) => {
-    console.log('Task completed:', context.taskId);
-  }
+// Note: handler receives three parameters: context, memory, and config
+registerHook('post-task', async (context, memory, config) => {
+  console.log('Task completed:', context.taskId);
+  // Access memory manager and config as needed
 });
 
 // Register workflow trigger
 registerWorkflowTrigger({
   id: 'auto-docs',
   name: 'Auto Docs Sync',
-  event: 'session-end',
   condition: (context) => context.data?.docsChanged === true,
-  workflow: 'doc-sync'
+  workflowId: 'doc-sync',
+  options: { maxIterations: 3 }
 });
 
 // Execute hooks (internal use)
@@ -1056,7 +1054,33 @@ npx aistack agent list --session session-1
 # Stop agent
 npx aistack agent stop -i <agent-id>
 npx aistack agent stop -n my-coder
+
+# Get agent status
+npx aistack agent status -i <agent-id>
+npx aistack agent status -n my-coder
+
+# List available agent types
+npx aistack agent types
+
+# Run a task with a new agent (spawn + execute)
+npx aistack agent run -t coder -p "Write a function to parse JSON"
+npx aistack agent run -t reviewer -p @task.txt --context @code.ts --provider claude-code
+npx aistack agent run -t architect -p "Design API" --provider gemini-cli --model gemini-2.0-flash
+
+# Execute a task with an existing agent
+npx aistack agent exec -i <agent-id> -p "Refactor this function"
+npx aistack agent exec -n my-coder -p @task.txt --context @code.ts --provider anthropic
 ```
+
+**Agent run/exec options**:
+- `-t, --type <type>`: Agent type (required for `run`)
+- `-p, --prompt <prompt>`: Task prompt (use `@file` to read from file)
+- `-n, --name <name>`: Agent name
+- `-i, --id <id>`: Agent ID (for `exec`)
+- `--provider <provider>`: LLM provider (anthropic, openai, ollama, claude-code, gemini-cli, codex)
+- `--model <model>`: Model to use
+- `--context <context>`: Additional context (use `@file` to read from file)
+- `--show-prompt`: Display agent system prompt before execution
 
 ### `aistack memory`
 

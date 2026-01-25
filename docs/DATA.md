@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS plugins (
   version TEXT NOT NULL,         -- Plugin version
   enabled INTEGER DEFAULT 1,     -- Enabled state (0 or 1)
   config TEXT,                   -- JSON-encoded plugin configuration
-  loaded_at INTEGER NOT NULL     -- Unix timestamp (ms)
+  installed_at INTEGER NOT NULL  -- Unix timestamp (ms)
 );
 ```
 
@@ -304,8 +304,10 @@ FTS5 uses BM25 for relevance ranking. Scores are normalized:
 
 ```typescript
 // Raw BM25 scores are negative (better matches are more negative)
-// Normalize to 0-1 range
-const normalizedScore = Math.max(0, Math.min(1, 1 - (rawBm25 / -10)));
+// Normalize to 0-1 range with 3 decimal precision
+const normalizedScore = Math.round(
+  Math.min(1, Math.max(0, 1 + bm25Score / 25)) * 1000
+) / 1000;
 ```
 
 ### Snippet Generation

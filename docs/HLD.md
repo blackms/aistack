@@ -269,12 +269,21 @@ interface LLMProvider {
 }
 ```
 
-**Embedding Support**:
+**API Providers**:
 | Provider | Embeddings | Model |
 |----------|------------|-------|
-| Anthropic | No | - |
-| OpenAI | Yes | text-embedding-3-small/large |
-| Ollama | Yes | nomic-embed-text |
+| Anthropic | No | claude-sonnet-4-20250514 |
+| OpenAI | Yes | gpt-4o / text-embedding-3-small |
+| Ollama | Yes | llama3.2 / nomic-embed-text |
+
+**CLI Providers**:
+| Provider | CLI Tool | Default Model |
+|----------|----------|---------------|
+| Claude Code | `claude` | sonnet |
+| Gemini CLI | `gemini` | gemini-2.0-flash |
+| Codex | `codex` | - |
+
+CLI providers execute tasks through external command-line tools and are useful for interactive agent workflows or when using pre-authenticated CLI sessions.
 
 ### 5.3 Plugin Interface
 

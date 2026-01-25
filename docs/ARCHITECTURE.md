@@ -9,7 +9,7 @@ AgentStack solves the core problem of coordinating multiple AI agents with speci
 - **Agent Coordination**: Managing agents with different specializations and routing tasks efficiently
 - **Persistent Memory**: Maintaining state and context using SQLite with full-text and vector search
 - **MCP Integration**: Seamless Model Context Protocol server via stdio transport
-- **LLM Abstraction**: Supporting Anthropic Claude, OpenAI, and Ollama with a unified interface
+- **LLM Abstraction**: Supporting 6 providers (Anthropic, OpenAI, Ollama, Claude Code CLI, Gemini CLI, Codex) with a unified interface
 - **Runtime Extensibility**: Plugin system for extending functionality without modifying core
 
 ## C4 Context Diagram
