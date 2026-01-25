@@ -1,6 +1,6 @@
 {
   "name": "@blackms/aistack",
-  "version": "1.0.13",
+  "version": "1.1.0",
   "description": "Clean agent orchestration for Claude Code",
   "type": "module",
   "main": "./dist/index.js",
@@ -43,7 +43,11 @@
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "web": "node dist/cli/index.js web start",
+    "web:dev": "npm run build && npm run web",
+    "dev:web": "cd web && npm run dev",
+    "build:web": "cd web && npm run build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
