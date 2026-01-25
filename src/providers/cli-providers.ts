@@ -222,7 +222,10 @@ export class CodexProvider implements LLMProvider {
     log.debug('Executing Codex CLI', { promptLength: prompt.length });
 
     try {
-      const command = `echo '${escapeShell(prompt)}' | ${this.command}`;
+      // Use codex exec for non-interactive execution with --json for structured output
+      // and -o to capture the last message
+      const tempFile = `/tmp/codex-output-${Date.now()}.txt`;
+      const command = `${this.command} exec -o ${tempFile} '${escapeShell(prompt)}'`;
 
       const { stdout, stderr } = await execAsync(command, {
         timeout: this.timeout,
@@ -233,8 +236,20 @@ export class CodexProvider implements LLMProvider {
         log.warn('Codex CLI stderr', { stderr });
       }
 
+      // Try to read the output file, fall back to stdout
+      let content = stdout.trim();
+      try {
+        const fs = await import('node:fs');
+        if (fs.existsSync(tempFile)) {
+          content = fs.readFileSync(tempFile, 'utf-8').trim();
+          fs.unlinkSync(tempFile);
+        }
+      } catch {
+        // Ignore file read errors, use stdout
+      }
+
       return {
-        content: stdout.trim(),
+        content,
         model: 'codex-cli',
       };
     } catch (error) {
