@@ -3,8 +3,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { SpawnedAgent, AgentStatus, AgentStackConfig } from '../types.js';
+import type { SpawnedAgent, AgentStatus, AgentStackConfig, ChatMessage } from '../types.js';
 import { getAgentDefinition, hasAgentType } from './registry.js';
+import { getProvider } from '../providers/index.js';
+import { ClaudeCodeProvider, GeminiCLIProvider, CodexProvider } from '../providers/cli-providers.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('spawner');
@@ -204,4 +206,114 @@ export function getAgentCapabilities(type: string): string[] | null {
   const definition = getAgentDefinition(type);
   if (!definition) return null;
   return definition.capabilities;
+}
+
+export interface ExecuteOptions {
+  provider?: string;
+  model?: string;
+  context?: string;
+}
+
+export interface ExecuteResult {
+  agentId: string;
+  response: string;
+  model: string;
+  duration: number;
+}
+
+/**
+ * Execute a task with an agent using a CLI provider
+ */
+export async function executeAgent(
+  agentId: string,
+  task: string,
+  config: AgentStackConfig,
+  options: ExecuteOptions = {}
+): Promise<ExecuteResult> {
+  const agent = activeAgents.get(agentId);
+  if (!agent) {
+    throw new Error(`Agent not found: ${agentId}`);
+  }
+
+  const definition = getAgentDefinition(agent.type);
+  if (!definition) {
+    throw new Error(`Agent definition not found: ${agent.type}`);
+  }
+
+  // Get the provider
+  const providerName = options.provider ?? config.providers.default;
+  const provider = getProvider(providerName, config);
+
+  if (!provider) {
+    throw new Error(`Provider '${providerName}' is not configured`);
+  }
+
+  // Check if CLI provider is available
+  if (provider instanceof ClaudeCodeProvider || provider instanceof GeminiCLIProvider || provider instanceof CodexProvider) {
+    if (!provider.isAvailable()) {
+      throw new Error(`Provider '${providerName}' CLI is not installed or not available`);
+    }
+  }
+
+  // Build messages
+  const messages: ChatMessage[] = [
+    { role: 'system', content: definition.systemPrompt },
+  ];
+
+  // Add context if provided
+  if (options.context) {
+    messages.push({ role: 'user', content: `Context:\n${options.context}` });
+    messages.push({ role: 'assistant', content: 'I understand the context. What would you like me to do?' });
+  }
+
+  // Add the task
+  messages.push({ role: 'user', content: task });
+
+  // Update agent status
+  updateAgentStatus(agentId, 'running');
+  const startTime = Date.now();
+
+  try {
+    log.info('Executing agent task', { agentId, type: agent.type, provider: providerName });
+
+    const response = await provider.chat(messages, { model: options.model });
+
+    const duration = Date.now() - startTime;
+    updateAgentStatus(agentId, 'idle');
+
+    log.info('Agent task completed', { agentId, duration, model: response.model });
+
+    return {
+      agentId,
+      response: response.content,
+      model: response.model,
+      duration,
+    };
+  } catch (error) {
+    updateAgentStatus(agentId, 'failed');
+    log.error('Agent task failed', {
+      agentId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
+}
+
+/**
+ * Spawn and execute in one step (convenience function)
+ */
+export async function runAgent(
+  type: string,
+  task: string,
+  config: AgentStackConfig,
+  options: SpawnOptions & ExecuteOptions = {}
+): Promise<ExecuteResult> {
+  const agent = spawnAgent(type, options, config);
+
+  try {
+    return await executeAgent(agent.id, task, config, options);
+  } finally {
+    // Optionally stop agent after execution
+    // stopAgent(agent.id);
+  }
 }

@@ -11,9 +11,12 @@ import {
   stopAgent,
   stopAgentByName,
   getAgentPrompt,
+  runAgent,
+  executeAgent,
 } from '../../agents/spawner.js';
 import { listAgentTypes, getAgentDefinition } from '../../agents/registry.js';
 import { getConfig } from '../../utils/config.js';
+import { readFileSync, existsSync } from 'node:fs';
 
 export function createAgentCommand(): Command {
   const command = new Command('agent')
@@ -172,6 +175,187 @@ export function createAgentCommand(): Command {
       for (const type of types) {
         const def = getAgentDefinition(type);
         console.log(`${type.padEnd(14)}${def?.description ?? ''}`);
+      }
+    });
+
+  // run subcommand - execute a task with an agent
+  command
+    .command('run')
+    .description('Run a task with an agent using a CLI provider')
+    .requiredOption('-t, --type <type>', 'Agent type (coder, researcher, tester, reviewer, architect, coordinator, analyst)')
+    .requiredOption('-p, --prompt <prompt>', 'Task prompt or @file to read from file')
+    .option('-n, --name <name>', 'Agent name')
+    .option('--provider <provider>', 'Provider to use (claude-code, gemini-cli, codex, anthropic, openai, ollama)')
+    .option('--model <model>', 'Model to use')
+    .option('--context <context>', 'Additional context or @file to read from file')
+    .option('--show-prompt', 'Show the agent system prompt before running')
+    .action(async (options) => {
+      const {
+        type,
+        prompt: rawPrompt,
+        name,
+        provider,
+        model,
+        context: rawContext,
+        showPrompt,
+      } = options as {
+        type: string;
+        prompt: string;
+        name?: string;
+        provider?: string;
+        model?: string;
+        context?: string;
+        showPrompt?: boolean;
+      };
+
+      try {
+        const config = getConfig();
+
+        // Read prompt from file if it starts with @
+        let prompt = rawPrompt;
+        if (rawPrompt.startsWith('@')) {
+          const filePath = rawPrompt.slice(1);
+          if (!existsSync(filePath)) {
+            console.error(`Error: File not found: ${filePath}`);
+            process.exit(1);
+          }
+          prompt = readFileSync(filePath, 'utf-8');
+        }
+
+        // Read context from file if it starts with @
+        let context = rawContext;
+        if (rawContext?.startsWith('@')) {
+          const filePath = rawContext.slice(1);
+          if (!existsSync(filePath)) {
+            console.error(`Error: Context file not found: ${filePath}`);
+            process.exit(1);
+          }
+          context = readFileSync(filePath, 'utf-8');
+        }
+
+        // Show system prompt if requested
+        if (showPrompt) {
+          const systemPrompt = getAgentPrompt(type);
+          if (systemPrompt) {
+            console.log('System Prompt:');
+            console.log('─'.repeat(60));
+            console.log(systemPrompt);
+            console.log('─'.repeat(60));
+            console.log('');
+          }
+        }
+
+        console.log(`Running ${type} agent with ${provider ?? config.providers.default} provider...\n`);
+
+        const result = await runAgent(type, prompt, config, {
+          name,
+          provider,
+          model,
+          context,
+        });
+
+        console.log('─'.repeat(60));
+        console.log('Response:');
+        console.log('─'.repeat(60));
+        console.log(result.response);
+        console.log('─'.repeat(60));
+        console.log(`\nAgent: ${result.agentId}`);
+        console.log(`Model: ${result.model}`);
+        console.log(`Duration: ${(result.duration / 1000).toFixed(2)}s`);
+      } catch (error) {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
+    });
+
+  // exec subcommand - execute a task with an existing agent
+  command
+    .command('exec')
+    .description('Execute a task with an existing agent')
+    .requiredOption('-p, --prompt <prompt>', 'Task prompt or @file to read from file')
+    .option('-i, --id <id>', 'Agent ID')
+    .option('-n, --name <name>', 'Agent name')
+    .option('--provider <provider>', 'Provider to use')
+    .option('--model <model>', 'Model to use')
+    .option('--context <context>', 'Additional context or @file to read from file')
+    .action(async (options) => {
+      const {
+        prompt: rawPrompt,
+        id,
+        name,
+        provider,
+        model,
+        context: rawContext,
+      } = options as {
+        prompt: string;
+        id?: string;
+        name?: string;
+        provider?: string;
+        model?: string;
+        context?: string;
+      };
+
+      if (!id && !name) {
+        console.error('Error: Either --id or --name is required');
+        process.exit(1);
+      }
+
+      try {
+        const config = getConfig();
+
+        // Find agent
+        let agent = null;
+        if (id) {
+          agent = getAgent(id);
+        } else if (name) {
+          agent = getAgentByName(name);
+        }
+
+        if (!agent) {
+          console.error('Error: Agent not found');
+          process.exit(1);
+        }
+
+        // Read prompt from file if it starts with @
+        let prompt = rawPrompt;
+        if (rawPrompt.startsWith('@')) {
+          const filePath = rawPrompt.slice(1);
+          if (!existsSync(filePath)) {
+            console.error(`Error: File not found: ${filePath}`);
+            process.exit(1);
+          }
+          prompt = readFileSync(filePath, 'utf-8');
+        }
+
+        // Read context from file if it starts with @
+        let context = rawContext;
+        if (rawContext?.startsWith('@')) {
+          const filePath = rawContext.slice(1);
+          if (!existsSync(filePath)) {
+            console.error(`Error: Context file not found: ${filePath}`);
+            process.exit(1);
+          }
+          context = readFileSync(filePath, 'utf-8');
+        }
+
+        console.log(`Executing task with ${agent.type} agent (${agent.name})...\n`);
+
+        const result = await executeAgent(agent.id, prompt, config, {
+          provider,
+          model,
+          context,
+        });
+
+        console.log('─'.repeat(60));
+        console.log('Response:');
+        console.log('─'.repeat(60));
+        console.log(result.response);
+        console.log('─'.repeat(60));
+        console.log(`\nModel: ${result.model}`);
+        console.log(`Duration: ${(result.duration / 1000).toFixed(2)}s`);
+      } catch (error) {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
       }
     });
 

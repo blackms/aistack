@@ -27,7 +27,11 @@ export {
   clearAgents,
   getAgentPrompt,
   getAgentCapabilities,
+  executeAgent,
+  runAgent,
   type SpawnOptions,
+  type ExecuteOptions,
+  type ExecuteResult,
 } from './spawner.js';
 
 export * from './definitions/index.js';
