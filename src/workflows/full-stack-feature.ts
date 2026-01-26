@@ -25,7 +25,7 @@ export type FeaturePhase =
   | 'review'
   | 'documentation';
 
-export interface FeatureWorkflowConfig extends Omit<WorkflowConfig, 'phases'> {
+export interface FeatureWorkflowConfig extends Omit<WorkflowConfig, 'inputs' | 'phases'> {
   phases: FeaturePhase[];
   inputs: {
     featureDescription: string;

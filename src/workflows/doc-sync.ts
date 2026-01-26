@@ -230,6 +230,7 @@ export const analysisPhase: PhaseExecutor = async (context: WorkflowContext): Pr
     // Check if referenced code files exist
     for (const ref of doc.codeReferences) {
       if (ref.startsWith('[code:')) continue;
+      if (!context.config.inputs.sourceCode) continue;
 
       const fullPath = join(context.config.inputs.sourceCode, ref);
       if (!existsSync(fullPath)) {
@@ -331,6 +332,7 @@ export const adversarialPhase: PhaseExecutor = async (context: WorkflowContext):
   for (const doc of context.inventory) {
     for (const ref of doc.codeReferences) {
       if (ref.startsWith('[code:')) continue;
+      if (!context.config.inputs.sourceCode) continue;
 
       const fullPath = join(context.config.inputs.sourceCode, ref);
       if (!existsSync(fullPath)) {

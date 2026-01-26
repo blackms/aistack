@@ -47,7 +47,7 @@ export class WorkflowRunner extends EventEmitter {
   async run(config: WorkflowConfig): Promise<WorkflowReport> {
     const context: WorkflowContext = {
       config,
-      currentPhase: config.phases[0],
+      currentPhase: config.phases[0] as WorkflowPhase,
       iteration: 0,
       results: [],
       inventory: [],
@@ -60,8 +60,8 @@ export class WorkflowRunner extends EventEmitter {
     try {
       // Execute each phase
       for (const phase of config.phases) {
-        context.currentPhase = phase;
-        const result = await this.executePhase(phase, context);
+        context.currentPhase = phase as WorkflowPhase;
+        const result = await this.executePhase(phase as WorkflowPhase, context);
         context.results.push(result);
 
         // Check for adversarial failure and reconciliation loop

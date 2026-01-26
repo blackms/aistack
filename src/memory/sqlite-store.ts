@@ -21,6 +21,8 @@ import type {
   SpawnedAgent,
   AgentStatus,
   ReviewLoopState,
+  MemoryVersion,
+  MemoryRelationship,
 } from '../types.js';
 import { logger } from '../utils/logger.js';
 
