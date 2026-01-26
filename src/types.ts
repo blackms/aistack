@@ -11,7 +11,10 @@ export type AgentType =
   | 'adversarial'
   | 'architect'
   | 'coordinator'
-  | 'analyst';
+  | 'analyst'
+  | 'devops'
+  | 'documentation'
+  | 'security-auditor';
 
 export interface AgentDefinition {
   type: AgentType | string;
