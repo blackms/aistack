@@ -8,6 +8,8 @@ import { sendJson } from '../router.js';
 import { listAgents } from '../../agents/index.js';
 import { getMemoryManager } from '../../memory/index.js';
 import type { SystemStatus, HealthCheck } from '../types.js';
+import { getMetricsCollector } from '../../monitoring/metrics.js';
+import { getHealthMonitor } from '../../monitoring/health.js';
 
 // Server start time for uptime calculation
 const serverStartTime = Date.now();
@@ -134,32 +136,45 @@ export function registerSystemRoutes(router: Router, config: AgentStackConfig): 
     sendJson(res, sanitizedConfig);
   });
 
-  // GET /api/v1/system/metrics - Get system metrics
+  // GET /api/v1/system/metrics - Get system metrics (JSON format)
   router.get('/api/v1/system/metrics', (_req, res) => {
-    const memUsage = process.memoryUsage();
-    const cpuUsage = process.cpuUsage();
-
-    const metrics = {
-      timestamp: new Date().toISOString(),
-      uptime: Math.floor((Date.now() - serverStartTime) / 1000),
-      memory: {
-        rss: memUsage.rss,
-        heapTotal: memUsage.heapTotal,
-        heapUsed: memUsage.heapUsed,
-        external: memUsage.external,
-        arrayBuffers: memUsage.arrayBuffers,
-      },
-      cpu: {
-        user: cpuUsage.user,
-        system: cpuUsage.system,
-      },
-      node: {
-        version: process.version,
-        platform: process.platform,
-        arch: process.arch,
-      },
-    };
-
+    const collector = getMetricsCollector();
+    const metrics = collector.getAllMetrics();
     sendJson(res, metrics);
+  });
+
+  // GET /metrics - Prometheus metrics endpoint
+  router.get('/metrics', (_req, res) => {
+    const collector = getMetricsCollector();
+    const prometheusFormat = collector.exportPrometheus();
+
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; version=0.0.4',
+    });
+    res.end(prometheusFormat);
+  });
+
+  // GET /api/v1/system/health/detailed - Enhanced health check
+  router.get('/api/v1/system/health/detailed', async (_req, res) => {
+    const monitor = getHealthMonitor(config);
+    const healthResult = await monitor.performHealthCheck();
+    sendJson(res, healthResult);
+  });
+
+  // GET /api/v1/system/health/live - Liveness probe (Kubernetes)
+  router.get('/api/v1/system/health/live', (_req, res) => {
+    const monitor = getHealthMonitor(config);
+    const result = monitor.livenessCheck();
+    sendJson(res, result);
+  });
+
+  // GET /api/v1/system/health/ready - Readiness probe (Kubernetes)
+  router.get('/api/v1/system/health/ready', async (_req, res) => {
+    const monitor = getHealthMonitor(config);
+    const result = await monitor.readinessCheck();
+
+    const statusCode = result.status === 'ready' ? 200 : 503;
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
   });
 }

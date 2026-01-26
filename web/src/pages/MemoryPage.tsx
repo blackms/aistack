@@ -211,6 +211,7 @@ export default function MemoryPage() {
                 <TableCell>Key</TableCell>
                 <TableCell>Namespace</TableCell>
                 <TableCell>Content Preview</TableCell>
+                <TableCell>Tags</TableCell>
                 {searchResults.length > 0 && <TableCell>Score</TableCell>}
                 <TableCell>Updated</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -219,13 +220,13 @@ export default function MemoryPage() {
             <TableBody>
               {loading && displayData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={searchResults.length > 0 ? 6 : 5} align="center">
+                  <TableCell colSpan={searchResults.length > 0 ? 7 : 6} align="center">
                     <CircularProgress size={24} />
                   </TableCell>
                 </TableRow>
               ) : displayData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={searchResults.length > 0 ? 6 : 5} align="center">
+                  <TableCell colSpan={searchResults.length > 0 ? 7 : 6} align="center">
                     <Typography color="text.secondary">No entries found</Typography>
                   </TableCell>
                 </TableRow>
@@ -247,6 +248,28 @@ export default function MemoryPage() {
                           {entry.content.slice(0, 100)}
                           {entry.content.length > 100 && '...'}
                         </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {entry.tags && entry.tags.length > 0 ? (
+                            entry.tags.map((tag) => (
+                              <Chip
+                                key={tag}
+                                label={tag}
+                                size="small"
+                                sx={{
+                                  backgroundColor: 'primary.light',
+                                  color: 'primary.contrastText',
+                                  fontSize: '0.7rem',
+                                }}
+                              />
+                            ))
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">
+                              No tags
+                            </Typography>
+                          )}
+                        </Box>
                       </TableCell>
                       {searchResults.length > 0 && (
                         <TableCell>

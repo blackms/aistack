@@ -113,7 +113,7 @@ describe('Agent Registry', () => {
     it('should return all agent definitions', () => {
       const definitions = listAgentDefinitions();
 
-      expect(definitions.length).toBeGreaterThanOrEqual(7);
+      expect(definitions.length).toBeGreaterThanOrEqual(11);
       expect(definitions.some((d) => d.type === 'coder')).toBe(true);
     });
 
@@ -197,9 +197,9 @@ describe('Agent Registry', () => {
     it('should count core agents', () => {
       const count = getAgentCount();
 
-      expect(count.core).toBe(8);
+      expect(count.core).toBe(11);
       expect(count.custom).toBe(0);
-      expect(count.total).toBe(8);
+      expect(count.total).toBe(11);
     });
 
     it('should count custom agents', () => {
@@ -208,9 +208,9 @@ describe('Agent Registry', () => {
 
       const count = getAgentCount();
 
-      expect(count.core).toBe(8);
+      expect(count.core).toBe(11);
       expect(count.custom).toBe(2);
-      expect(count.total).toBe(10);
+      expect(count.total).toBe(13);
     });
   });
 

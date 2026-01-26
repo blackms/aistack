@@ -10,7 +10,15 @@ export type WorkflowPhase =
   | 'sync'
   | 'consistency'
   | 'adversarial'
-  | 'reconciliation';
+  | 'reconciliation'
+  | 'requirements'
+  | 'architecture'
+  | 'research'
+  | 'backend'
+  | 'frontend'
+  | 'testing'
+  | 'review'
+  | 'documentation';
 
 export type Severity = 'low' | 'medium' | 'high';
 export type Verdict = 'PASS' | 'FAIL';
@@ -32,7 +40,7 @@ export interface Finding {
 }
 
 export interface PhaseResult {
-  phase: WorkflowPhase;
+  phase: WorkflowPhase | string;
   success: boolean;
   findings: Finding[];
   artifacts: Record<string, unknown>;
@@ -49,11 +57,12 @@ export interface WorkflowConfig {
   };
   inputs: {
     targetDirectory: string;
-    sourceCode: string;
+    sourceCode?: string;
     includes?: string[];
     excludes?: string[];
+    [key: string]: unknown;
   };
-  phases: WorkflowPhase[];
+  phases: WorkflowPhase[] | string[];
   constraints: string[];
   maxIterations?: number;
 }

@@ -10,3 +10,6 @@ export { adversarialAgent } from './adversarial.js';
 export { architectAgent } from './architect.js';
 export { coordinatorAgent } from './coordinator.js';
 export { analystAgent } from './analyst.js';
+export { devopsAgent } from './devops.js';
+export { documentationAgent } from './documentation.js';
+export { securityAuditorAgent } from './security-auditor.js';

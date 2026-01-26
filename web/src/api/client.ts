@@ -17,6 +17,10 @@ import type {
   Workflow,
   RunningWorkflow,
   LaunchWorkflowRequest,
+  ReviewLoop,
+  ReviewLoopDetails,
+  LaunchReviewLoopRequest,
+  LaunchReviewLoopResponse,
   SystemStatus,
   HealthCheck,
   Project,
@@ -195,6 +199,26 @@ export const memoryApi = {
       `/memory/reindex${namespace ? `?namespace=${namespace}` : ''}`,
       { method: 'POST' }
     ),
+
+  getAllTags: () =>
+    request<Array<{ name: string; count: number }>>('/memory/tags'),
+
+  addTag: (entryId: string, tag: string) =>
+    request<{ success: boolean }>(`/memory/${entryId}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ tag }),
+    }),
+
+  removeTag: (entryId: string, tagName: string) =>
+    request<{ success: boolean }>(`/memory/${entryId}/tags/${encodeURIComponent(tagName)}`, {
+      method: 'DELETE',
+    }),
+
+  searchByTags: (tags: string[], namespace?: string) => {
+    const params = new URLSearchParams({ tags: tags.join(',') });
+    if (namespace) params.set('namespace', namespace);
+    return request<MemoryEntry[]>(`/memory/search/tags?${params.toString()}`);
+  },
 };
 
 // Task API
@@ -240,6 +264,15 @@ export const taskApi = {
 
 // Session API
 export const sessionApi = {
+  list: (options?: { status?: 'active' | 'ended'; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.status) params.set('status', options.status);
+    if (options?.limit) params.set('limit', options.limit.toString());
+    if (options?.offset) params.set('offset', options.offset.toString());
+    const query = params.toString();
+    return request<Session[]>(`/sessions${query ? `?${query}` : ''}`);
+  },
+
   getActive: () => request<Session | null>('/sessions/active'),
 
   create: (metadata?: Record<string, unknown>) =>
@@ -272,6 +305,24 @@ export const workflowApi = {
   getRunning: () => request<RunningWorkflow[]>('/workflows/running'),
 
   get: (id: string) => request<RunningWorkflow>(`/workflows/${id}`),
+};
+
+// Review Loop API
+export const reviewLoopApi = {
+  list: () => request<ReviewLoop[]>('/review-loops'),
+
+  launch: (data: LaunchReviewLoopRequest) =>
+    request<LaunchReviewLoopResponse>('/review-loops', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  get: (id: string) => request<ReviewLoopDetails>(`/review-loops/${id}`),
+
+  abort: (id: string) =>
+    request<{ loopId: string; status: string }>(`/review-loops/${id}/abort`, {
+      method: 'POST',
+    }),
 };
 
 // System API

@@ -44,6 +44,7 @@ export function useWebSocket() {
 
     const wsUrl = import.meta.env.VITE_WS_URL ||
       `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+    console.log('WebSocket connecting to:', wsUrl);
 
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;

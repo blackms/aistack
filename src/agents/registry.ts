@@ -12,6 +12,9 @@ import {
   architectAgent,
   coordinatorAgent,
   analystAgent,
+  devopsAgent,
+  documentationAgent,
+  securityAuditorAgent,
 } from './definitions/index.js';
 import { logger } from '../utils/logger.js';
 
@@ -27,6 +30,9 @@ const CORE_AGENTS: Map<AgentType, AgentDefinition> = new Map([
   ['architect', architectAgent],
   ['coordinator', coordinatorAgent],
   ['analyst', analystAgent],
+  ['devops', devopsAgent],
+  ['documentation', documentationAgent],
+  ['security-auditor', securityAuditorAgent],
 ]);
 
 // Custom agents from plugins

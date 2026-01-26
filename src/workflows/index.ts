@@ -43,3 +43,19 @@ export {
   registerDocSyncWorkflow,
   runDocSync,
 } from './doc-sync.js';
+
+// Full-Stack Feature Pipeline Workflow
+export {
+  fullStackFeatureConfig,
+  requirementsPhase,
+  architecturePhase,
+  researchPhase,
+  backendPhase,
+  frontendPhase,
+  testingPhase,
+  reviewPhase,
+  documentationPhase,
+  phaseExecutors,
+  type FeaturePhase,
+  type FeatureWorkflowConfig,
+} from './full-stack-feature.js';

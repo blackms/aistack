@@ -26,6 +26,7 @@ import {
 import { useSystemStore, useAgentStore, useTaskStore } from '../stores';
 import { useWebSocketEvent } from '../hooks/useWebSocket';
 import type { WSMessage } from '../api/types';
+import AgentTimeline from '../components/dashboard/AgentTimeline';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -185,6 +186,21 @@ export default function DashboardPage() {
             icon={<SpeedIcon />}
             color="#f59e0b"
           />
+        </Grid>
+
+        {/* Agent Activity Timeline */}
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Agent Activity Timeline
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Visual timeline of agent spawning and execution over the last hour
+              </Typography>
+              <AgentTimeline agents={agents} timeWindowHours={1} />
+            </CardContent>
+          </Card>
         </Grid>
 
         {/* Memory Progress */}

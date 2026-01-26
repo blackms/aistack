@@ -72,6 +72,18 @@ const HooksConfigSchema = z.object({
   postTask: z.boolean().default(true),
 });
 
+const SlackConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  webhookUrl: z.string().optional(),
+  channel: z.string().optional(),
+  username: z.string().optional(),
+  iconEmoji: z.string().optional(),
+  notifyOnAgentSpawn: z.boolean().default(false),
+  notifyOnWorkflowComplete: z.boolean().default(true),
+  notifyOnErrors: z.boolean().default(true),
+  notifyOnReviewLoop: z.boolean().default(true),
+});
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -81,6 +93,7 @@ const ConfigSchema = z.object({
   plugins: PluginsConfigSchema.default({}),
   mcp: MCPConfigSchema.default({}),
   hooks: HooksConfigSchema.default({}),
+  slack: SlackConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';

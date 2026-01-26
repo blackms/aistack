@@ -161,6 +161,244 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
     sendJson(res, { deleted: true });
   });
 
+  // GET /api/v1/memory/tags - Get all tags with usage counts
+  router.get('/api/v1/memory/tags', (_req, res) => {
+    const manager = getManager();
+    const tags = manager.getAllTags();
+    sendJson(res, tags);
+  });
+
+  // POST /api/v1/memory/:id/tags - Add tag to entry
+  router.post('/api/v1/memory/:id/tags', (_req, res, params) => {
+    const id = params.path[0];
+    const body = params.body as { tag: string } | undefined;
+
+    if (!id) {
+      throw badRequest('Entry ID is required');
+    }
+    if (!body?.tag) {
+      throw badRequest('Tag is required');
+    }
+
+    const manager = getManager();
+    try {
+      manager.addTag(id, body.tag);
+      sendJson(res, { success: true }, 201);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('not found')) {
+        throw notFound('Memory entry');
+      }
+      throw err;
+    }
+  });
+
+  // DELETE /api/v1/memory/:id/tags/:tagName - Remove tag from entry
+  router.delete('/api/v1/memory/:id/tags/:tagName', (_req, res, params) => {
+    const id = params.path[0];
+    const tagName = decodeURIComponent(params.path[1] || '');
+
+    if (!id) {
+      throw badRequest('Entry ID is required');
+    }
+    if (!tagName) {
+      throw badRequest('Tag name is required');
+    }
+
+    const manager = getManager();
+    const removed = manager.removeTag(id, tagName);
+
+    if (!removed) {
+      throw notFound('Tag not found on entry');
+    }
+
+    sendJson(res, { success: true });
+  });
+
+  // GET /api/v1/memory/search/tags - Search by tags
+  router.get('/api/v1/memory/search/tags', (_req, res, params) => {
+    const tagsParam = params.query.tags;
+    if (!tagsParam) {
+      throw badRequest('Tags parameter is required');
+    }
+
+    const tags = tagsParam.split(',').map((t: string) => t.trim());
+    const namespace = params.query.namespace;
+
+    const manager = getManager();
+    const entries = manager.searchByTags(tags, namespace);
+
+    sendJson(res, entries.map(entry => ({
+      ...entry,
+      createdAt: entry.createdAt.toISOString(),
+      updatedAt: entry.updatedAt.toISOString(),
+      embedding: undefined,
+    })));
+  });
+
+  // POST /api/v1/memory/:id/relationships - Create relationship
+  router.post('/api/v1/memory/:id/relationships', (_req, res, params) => {
+    const fromId = params.path[0];
+    const body = params.body as {
+      toId: string;
+      relationshipType: string;
+      metadata?: Record<string, unknown>;
+    } | undefined;
+
+    if (!fromId) {
+      throw badRequest('Entry ID is required');
+    }
+    if (!body?.toId) {
+      throw badRequest('Target entry ID (toId) is required');
+    }
+    if (!body?.relationshipType) {
+      throw badRequest('Relationship type is required');
+    }
+
+    const manager = getManager();
+    try {
+      const relationshipId = manager.createRelationship(
+        fromId,
+        body.toId,
+        body.relationshipType,
+        body.metadata
+      );
+      sendJson(res, { id: relationshipId }, 201);
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.message.includes('not found')) {
+          throw notFound(err.message);
+        }
+        if (err.message.includes('already exists')) {
+          throw badRequest('Relationship already exists');
+        }
+      }
+      throw err;
+    }
+  });
+
+  // GET /api/v1/memory/:id/relationships - Get relationships for entry
+  router.get('/api/v1/memory/:id/relationships', (_req, res, params) => {
+    const entryId = params.path[0];
+    const direction = (params.query.direction as 'outgoing' | 'incoming' | 'both') || 'both';
+
+    if (!entryId) {
+      throw badRequest('Entry ID is required');
+    }
+
+    const manager = getManager();
+    const relationships = manager.getRelationships(entryId, direction);
+
+    sendJson(res, relationships.map(rel => ({
+      ...rel,
+      createdAt: rel.createdAt.toISOString(),
+    })));
+  });
+
+  // GET /api/v1/memory/:id/related - Get related entries
+  router.get('/api/v1/memory/:id/related', (_req, res, params) => {
+    const entryId = params.path[0];
+    const relationshipType = params.query.type;
+
+    if (!entryId) {
+      throw badRequest('Entry ID is required');
+    }
+
+    const manager = getManager();
+    const related = manager.getRelatedEntries(entryId, relationshipType);
+
+    sendJson(res, related.map(item => ({
+      entry: {
+        ...item.entry,
+        createdAt: item.entry.createdAt.toISOString(),
+        updatedAt: item.entry.updatedAt.toISOString(),
+        embedding: undefined,
+      },
+      relationship: item.relationship,
+    })));
+  });
+
+  // DELETE /api/v1/memory/relationships/:relationshipId - Delete relationship
+  router.delete('/api/v1/memory/relationships/:relationshipId', (_req, res, params) => {
+    const relationshipId = params.path[0];
+
+    if (!relationshipId) {
+      throw badRequest('Relationship ID is required');
+    }
+
+    const manager = getManager();
+    const deleted = manager.deleteRelationship(relationshipId);
+
+    if (!deleted) {
+      throw notFound('Relationship');
+    }
+
+    sendJson(res, { deleted: true });
+  });
+
+  // GET /api/v1/memory/:id/versions - Get version history
+  router.get('/api/v1/memory/:id/versions', (_req, res, params) => {
+    const entryId = params.path[0];
+
+    if (!entryId) {
+      throw badRequest('Entry ID is required');
+    }
+
+    const manager = getManager();
+    const versions = manager.getVersionHistory(entryId);
+
+    sendJson(res, versions.map(v => ({
+      ...v,
+      createdAt: v.createdAt.toISOString(),
+    })));
+  });
+
+  // GET /api/v1/memory/:id/versions/:version - Get specific version
+  router.get('/api/v1/memory/:id/versions/:version', (_req, res, params) => {
+    const entryId = params.path[0];
+    const version = parseInt(params.path[1] || '', 10);
+
+    if (!entryId) {
+      throw badRequest('Entry ID is required');
+    }
+    if (isNaN(version)) {
+      throw badRequest('Version must be a number');
+    }
+
+    const manager = getManager();
+    const versionEntry = manager.getVersion(entryId, version);
+
+    if (!versionEntry) {
+      throw notFound('Version');
+    }
+
+    sendJson(res, {
+      ...versionEntry,
+      createdAt: versionEntry.createdAt.toISOString(),
+    });
+  });
+
+  // POST /api/v1/memory/:id/versions/:version/restore - Restore a version
+  router.post('/api/v1/memory/:id/versions/:version/restore', (_req, res, params) => {
+    const entryId = params.path[0];
+    const version = parseInt(params.path[1] || '', 10);
+
+    if (!entryId) {
+      throw badRequest('Entry ID is required');
+    }
+    if (isNaN(version)) {
+      throw badRequest('Version must be a number');
+    }
+
+    const manager = getManager();
+    const restored = manager.restoreVersion(entryId, version);
+
+    if (!restored) {
+      throw notFound('Version or entry');
+    }
+
+    sendJson(res, { restored: true });
+  });
+
   // GET /api/v1/memory/stats/vector - Get vector search stats
   router.get('/api/v1/memory/stats/vector', (_req, res, params) => {
     const namespace = params.query.namespace;

@@ -11,7 +11,10 @@ export type AgentType =
   | 'adversarial'
   | 'architect'
   | 'coordinator'
-  | 'analyst';
+  | 'analyst'
+  | 'devops'
+  | 'documentation'
+  | 'security-auditor';
 
 export interface AgentDefinition {
   type: AgentType | string;
@@ -34,6 +37,35 @@ export interface SpawnedAgent {
 export type AgentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'stopped';
 
 // Memory types
+export type MemoryRelationshipType =
+  | 'related_to'
+  | 'derived_from'
+  | 'references'
+  | 'depends_on'
+  | 'supersedes'
+  | 'conflicts_with'
+  | 'validates';
+
+export interface MemoryRelationship {
+  id: string;
+  fromId: string;
+  toId: string;
+  relationshipType: MemoryRelationshipType;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface MemoryVersion {
+  id: string;
+  memoryId: string;
+  version: number;
+  key: string;
+  namespace: string;
+  content: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+}
+
 export interface MemoryEntry {
   id: string;
   key: string;
@@ -41,6 +73,9 @@ export interface MemoryEntry {
   content: string;
   embedding?: Float32Array;
   metadata?: Record<string, unknown>;
+  tags?: string[];
+  relationships?: MemoryRelationship[];
+  version?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -245,6 +280,7 @@ export interface AgentStackConfig {
   plugins: PluginsConfig;
   mcp: MCPConfig;
   hooks: HooksConfig;
+  slack: SlackConfig;
 }
 
 export interface MemoryConfig {
@@ -314,6 +350,18 @@ export interface HooksConfig {
   sessionEnd: boolean;
   preTask: boolean;
   postTask: boolean;
+}
+
+export interface SlackConfig {
+  enabled: boolean;
+  webhookUrl?: string;
+  channel?: string;
+  username?: string;
+  iconEmoji?: string;
+  notifyOnAgentSpawn?: boolean;
+  notifyOnWorkflowComplete?: boolean;
+  notifyOnErrors?: boolean;
+  notifyOnReviewLoop?: boolean;
 }
 
 // Result types

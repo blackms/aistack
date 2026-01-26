@@ -16,8 +16,14 @@ import type {
 } from '../types.js';
 import { spawnAgent, executeAgent, stopAgent, updateAgentStatus } from '../agents/spawner.js';
 import { logger } from '../utils/logger.js';
+import { getMemoryManager } from '../memory/index.js';
+import { Semaphore } from '../utils/semaphore.js';
 
 const log = logger.child('review-loop');
+
+// Concurrency control for review loops
+// Max 5 concurrent review loops (each loop spawns 2 agents = 10 agents max)
+const reviewLoopSemaphore = new Semaphore('review-loops', 5);
 
 export interface ReviewLoopOptions {
   maxIterations?: number;
@@ -76,12 +82,30 @@ export class ReviewLoopCoordinator extends EventEmitter {
     // Register this loop
     activeLoops.set(this.state.id, this);
 
+    // Persist initial state
+    this.persistState();
+
     log.info('Review loop created', {
       id: this.state.id,
       coderId: this.state.coderId,
       adversarialId: this.state.adversarialId,
       maxIterations: this.state.maxIterations,
     });
+  }
+
+  /**
+   * Persist state to database
+   */
+  private persistState(): void {
+    try {
+      const memoryManager = getMemoryManager(this.config);
+      memoryManager.getStore().saveReviewLoop(this.state.id, this.state);
+    } catch (error) {
+      log.warn('Failed to persist review loop state', {
+        id: this.state.id,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
   }
 
   /**
@@ -95,26 +119,30 @@ export class ReviewLoopCoordinator extends EventEmitter {
    * Start the review loop
    */
   async start(): Promise<ReviewLoopState> {
-    try {
-      this.emit('loop:start', this.state);
-      log.info('Starting review loop', { id: this.state.id });
+    // Use semaphore to limit concurrent review loops
+    return reviewLoopSemaphore.execute(async () => {
+      try {
+        this.emit('loop:start', this.state);
+        log.info('Starting review loop', { id: this.state.id });
 
-      // Initial code generation
-      await this.generateInitialCode();
+        // Initial code generation
+        await this.generateInitialCode();
 
-      // Run review iterations
-      await this.runLoop();
+        // Run review iterations
+        await this.runLoop();
 
-      return this.state;
-    } catch (error) {
-      this.state.status = 'failed';
-      this.emit('loop:error', error as Error, this.state);
-      log.error('Review loop failed', {
-        id: this.state.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+        return this.state;
+      } catch (error) {
+        this.state.status = 'failed';
+        this.persistState();
+        this.emit('loop:error', error as Error, this.state);
+        log.error('Review loop failed', {
+          id: this.state.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    });
   }
 
   /**
@@ -122,12 +150,14 @@ export class ReviewLoopCoordinator extends EventEmitter {
    */
   private async generateInitialCode(): Promise<void> {
     this.state.status = 'coding';
+    this.persistState();
     updateAgentStatus(this.state.coderId, 'running');
 
     const task = `Generate code for the following requirements:\n\n${this.state.codeInput}\n\nProvide clean, well-structured code that addresses all requirements.`;
 
     const result = await executeAgent(this.state.coderId, task, this.config);
     this.state.currentCode = result.response;
+    this.persistState();
 
     updateAgentStatus(this.state.coderId, 'idle');
     log.debug('Initial code generated', { id: this.state.id });
@@ -150,6 +180,7 @@ export class ReviewLoopCoordinator extends EventEmitter {
       // Perform adversarial review
       const reviewResult = await this.performReview();
       this.state.reviews.push(reviewResult);
+      this.persistState();
       this.emit('loop:review', reviewResult, this.state);
 
       // Check verdict
@@ -157,6 +188,7 @@ export class ReviewLoopCoordinator extends EventEmitter {
         this.state.status = 'approved';
         this.state.finalVerdict = 'APPROVE';
         this.state.completedAt = new Date();
+        this.persistState();
         this.emit('loop:approved', this.state);
         log.info('Code approved', { id: this.state.id, iteration: this.state.iteration });
         break;
@@ -174,6 +206,7 @@ export class ReviewLoopCoordinator extends EventEmitter {
       this.state.status = 'max_iterations_reached';
       this.state.finalVerdict = 'REJECT';
       this.state.completedAt = new Date();
+      this.persistState();
       log.warn('Max iterations reached without approval', {
         id: this.state.id,
         iterations: this.state.iteration,
@@ -188,6 +221,7 @@ export class ReviewLoopCoordinator extends EventEmitter {
    */
   private async performReview(): Promise<ReviewResult> {
     this.state.status = 'reviewing';
+    this.persistState();
     updateAgentStatus(this.state.adversarialId, 'running');
 
     const task = `Review the following code critically. Try to break it with edge cases, find security issues, and identify bugs.
@@ -281,6 +315,7 @@ Provide your analysis in this format:
    */
   private async fixCode(issues: ReviewIssue[]): Promise<void> {
     this.state.status = 'fixing';
+    this.persistState();
     updateAgentStatus(this.state.coderId, 'running');
 
     const issuesList = issues
@@ -304,6 +339,7 @@ Provide the corrected code that addresses all the identified issues.`;
 
     const result = await executeAgent(this.state.coderId, task, this.config);
     this.state.currentCode = result.response;
+    this.persistState();
 
     updateAgentStatus(this.state.coderId, 'idle');
     log.debug('Code fixed', { id: this.state.id, issueCount: issues.length });
@@ -315,6 +351,7 @@ Provide the corrected code that addresses all the identified issues.`;
   abort(): void {
     this.state.status = 'failed';
     this.state.completedAt = new Date();
+    this.persistState();
 
     // Stop agents
     stopAgent(this.state.coderId);

@@ -145,17 +145,14 @@ describe('Logger', () => {
     });
   });
 
-  describe('setPrefix', () => {
-    it('should set logger prefix', () => {
-      logger.setPrefix('my-prefix');
-      logger.info('message');
+  describe('child logger', () => {
+    it('should create child logger with module prefix', () => {
+      const childLogger = logger.child('my-module');
+      childLogger.info('message');
 
       expect(consoleSpy.log).toHaveBeenCalled();
       const output = consoleSpy.log.mock.calls[0][0];
-      expect(output).toContain('my-prefix');
-
-      // Reset prefix
-      logger.setPrefix('');
+      expect(output).toContain('my-module');
     });
   });
 

@@ -11,19 +11,24 @@ import { logger } from '../utils/logger.js';
 import { Router, sendJson, sendError } from './router.js';
 import { createCorsMiddleware } from './middleware/cors.js';
 import { handleError } from './middleware/error.js';
-import { handleWebSocketUpgrade, closeAllConnections, getClientCount } from './websocket/handler.js';
+import { handleWebSocketUpgrade, closeAllConnections, getClientCount, setAuthService } from './websocket/handler.js';
 import {
   registerAgentRoutes,
   registerMemoryRoutes,
   registerTaskRoutes,
   registerSessionRoutes,
   registerWorkflowRoutes,
+  registerReviewLoopRoutes,
   registerSystemRoutes,
   registerProjectRoutes,
   registerSpecificationRoutes,
   registerFilesystemRoutes,
+  createAuthRoutes,
 } from './routes/index.js';
 import type { WebConfig } from './types.js';
+import { AuthService } from '../auth/service.js';
+import { initAuth } from './middleware/auth.js';
+import { getMemoryManager } from '../memory/index.js';
 
 const log = logger.child('web:server');
 
@@ -43,6 +48,7 @@ export class WebServer {
   private config: AgentStackConfig;
   private webConfig: WebConfig;
   private corsMiddleware: ReturnType<typeof createCorsMiddleware>;
+  private authService: AuthService;
 
   constructor(config: AgentStackConfig, webConfig: Partial<WebConfig> = {}) {
     this.config = config;
@@ -50,16 +56,40 @@ export class WebServer {
     this.router = new Router();
     this.corsMiddleware = createCorsMiddleware(this.webConfig);
 
+    // Initialize authentication
+    const memoryManager = getMemoryManager(config);
+    const db = memoryManager.getStore().getDatabase();
+    this.authService = new AuthService(db);
+    initAuth(this.authService);
+    setAuthService(this.authService);
+
     this.setupRoutes();
   }
 
   private setupRoutes(): void {
+    // Auth routes (no auth required for these)
+    const authRoutes = createAuthRoutes({ authService: this.authService });
+    this.router.post('/api/v1/auth/register', authRoutes.register.bind(authRoutes));
+    this.router.post('/api/v1/auth/login', authRoutes.login.bind(authRoutes));
+    this.router.post('/api/v1/auth/refresh', authRoutes.refresh.bind(authRoutes));
+    this.router.post('/api/v1/auth/logout', authRoutes.logout.bind(authRoutes));
+    this.router.get('/api/v1/auth/me', authRoutes.me.bind(authRoutes));
+    this.router.post('/api/v1/auth/change-password', authRoutes.changePassword.bind(authRoutes));
+    this.router.get('/api/v1/auth/users', authRoutes.listUsers.bind(authRoutes));
+    this.router.put('/api/v1/auth/users/:userId/role', (req, res, params) => {
+      authRoutes.updateUserRole(req, res, params.path[0]!);
+    });
+    this.router.delete('/api/v1/auth/users/:userId', (req, res, params) => {
+      authRoutes.deleteUser(req, res, params.path[0]!);
+    });
+
     // API routes
     registerAgentRoutes(this.router, this.config);
     registerMemoryRoutes(this.router, this.config);
     registerTaskRoutes(this.router, this.config);
     registerSessionRoutes(this.router, this.config);
     registerWorkflowRoutes(this.router, this.config);
+    registerReviewLoopRoutes(this.router, this.config);
     registerSystemRoutes(this.router, this.config);
     registerProjectRoutes(this.router, this.config);
     registerSpecificationRoutes(this.router, this.config);
@@ -71,11 +101,13 @@ export class WebServer {
         name: 'AgentStack Web API',
         version: '1.0.0',
         endpoints: [
+          '/api/v1/auth',
           '/api/v1/agents',
           '/api/v1/memory',
           '/api/v1/tasks',
           '/api/v1/sessions',
           '/api/v1/workflows',
+          '/api/v1/review-loops',
           '/api/v1/system',
           '/api/v1/projects',
           '/api/v1/specs',
