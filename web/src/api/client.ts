@@ -199,6 +199,26 @@ export const memoryApi = {
       `/memory/reindex${namespace ? `?namespace=${namespace}` : ''}`,
       { method: 'POST' }
     ),
+
+  getAllTags: () =>
+    request<Array<{ name: string; count: number }>>('/memory/tags'),
+
+  addTag: (entryId: string, tag: string) =>
+    request<{ success: boolean }>(`/memory/${entryId}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ tag }),
+    }),
+
+  removeTag: (entryId: string, tagName: string) =>
+    request<{ success: boolean }>(`/memory/${entryId}/tags/${encodeURIComponent(tagName)}`, {
+      method: 'DELETE',
+    }),
+
+  searchByTags: (tags: string[], namespace?: string) => {
+    const params = new URLSearchParams({ tags: tags.join(',') });
+    if (namespace) params.set('namespace', namespace);
+    return request<MemoryEntry[]>(`/memory/search/tags?${params.toString()}`);
+  },
 };
 
 // Task API

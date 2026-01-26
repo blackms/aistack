@@ -45,6 +45,62 @@ CREATE INDEX IF NOT EXISTS idx_memory_namespace ON memory(namespace);
 CREATE INDEX IF NOT EXISTS idx_memory_key ON memory(key);
 CREATE INDEX IF NOT EXISTS idx_memory_updated ON memory(updated_at DESC);
 
+-- Tags table
+CREATE TABLE IF NOT EXISTS tags (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
+
+-- Memory-Tags junction table
+CREATE TABLE IF NOT EXISTS memory_tags (
+  memory_id TEXT NOT NULL,
+  tag_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (memory_id, tag_id),
+  FOREIGN KEY (memory_id) REFERENCES memory(id) ON DELETE CASCADE,
+  FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_tags_memory ON memory_tags(memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag_id);
+
+-- Memory relationships table
+CREATE TABLE IF NOT EXISTS memory_relationships (
+  id TEXT PRIMARY KEY,
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  relationship_type TEXT NOT NULL,
+  metadata TEXT,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (from_id) REFERENCES memory(id) ON DELETE CASCADE,
+  FOREIGN KEY (to_id) REFERENCES memory(id) ON DELETE CASCADE,
+  UNIQUE(from_id, to_id, relationship_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_relationships_from ON memory_relationships(from_id);
+CREATE INDEX IF NOT EXISTS idx_memory_relationships_to ON memory_relationships(to_id);
+CREATE INDEX IF NOT EXISTS idx_memory_relationships_type ON memory_relationships(relationship_type);
+
+-- Memory versions table (for version history)
+CREATE TABLE IF NOT EXISTS memory_versions (
+  id TEXT PRIMARY KEY,
+  memory_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  content TEXT NOT NULL,
+  metadata TEXT,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (memory_id) REFERENCES memory(id) ON DELETE CASCADE,
+  UNIQUE(memory_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_versions_memory ON memory_versions(memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_versions_created ON memory_versions(created_at DESC);
+
 -- Full-text search table
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
   key, content, namespace,
@@ -246,6 +302,12 @@ export class SQLiteStore {
     const metadataJson = options.metadata ? JSON.stringify(options.metadata) : null;
 
     if (existing) {
+      // Save current version before updating
+      const currentEntry = this.getById(id);
+      if (currentEntry) {
+        this.saveVersion(currentEntry);
+      }
+
       // Update existing entry
       this.db
         .prepare(`
@@ -381,7 +443,424 @@ export class SQLiteStore {
     }));
   }
 
+  // ==================== Tag Operations ====================
+
+  // Get tags for a specific memory entry
+  getEntryTags(entryId: string): string[] {
+    const rows = this.db
+      .prepare(`
+        SELECT t.name
+        FROM tags t
+        INNER JOIN memory_tags mt ON t.id = mt.tag_id
+        WHERE mt.memory_id = ?
+        ORDER BY t.name
+      `)
+      .all(entryId) as Array<{ name: string }>;
+
+    return rows.map(row => row.name);
+  }
+
+  // Add a tag to a memory entry (creates tag if it doesn't exist)
+  addTag(entryId: string, tagName: string): void {
+    const normalizedTag = tagName.trim().toLowerCase();
+    if (!normalizedTag) {
+      throw new Error('Tag name cannot be empty');
+    }
+
+    // Check if entry exists
+    const entry = this.get(entryId);
+    if (!entry) {
+      throw new Error(`Memory entry not found: ${entryId}`);
+    }
+
+    // Get or create tag
+    let tagRow = this.db
+      .prepare('SELECT id FROM tags WHERE name = ?')
+      .get(normalizedTag) as { id: string } | undefined;
+
+    if (!tagRow) {
+      const tagId = randomUUID();
+      this.db
+        .prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)')
+        .run(tagId, normalizedTag, Date.now());
+      tagRow = { id: tagId };
+    }
+
+    // Add tag to entry (ignore if already exists)
+    try {
+      this.db
+        .prepare('INSERT INTO memory_tags (memory_id, tag_id, created_at) VALUES (?, ?, ?)')
+        .run(entryId, tagRow.id, Date.now());
+    } catch (err) {
+      // Ignore duplicate key errors
+      if (!(err instanceof Error) || !err.message.includes('UNIQUE constraint failed')) {
+        throw err;
+      }
+    }
+
+    log.debug(`Tag "${normalizedTag}" added to entry ${entryId}`);
+  }
+
+  // Remove a tag from a memory entry
+  removeTag(entryId: string, tagName: string): boolean {
+    const normalizedTag = tagName.trim().toLowerCase();
+
+    const result = this.db
+      .prepare(`
+        DELETE FROM memory_tags
+        WHERE memory_id = ?
+        AND tag_id = (SELECT id FROM tags WHERE name = ?)
+      `)
+      .run(entryId, normalizedTag);
+
+    log.debug(`Tag "${normalizedTag}" removed from entry ${entryId}`);
+    return result.changes > 0;
+  }
+
+  // Get all unique tags with usage counts
+  getAllTags(): Array<{ name: string; count: number }> {
+    const rows = this.db
+      .prepare(`
+        SELECT t.name, COUNT(mt.memory_id) as count
+        FROM tags t
+        LEFT JOIN memory_tags mt ON t.id = mt.tag_id
+        GROUP BY t.id, t.name
+        ORDER BY count DESC, t.name
+      `)
+      .all() as Array<{ name: string; count: number }>;
+
+    return rows;
+  }
+
+  // Search entries by tags (AND logic - entry must have all specified tags)
+  searchByTags(tags: string[], namespace?: string): MemoryEntry[] {
+    if (tags.length === 0) {
+      return [];
+    }
+
+    const normalizedTags = tags.map(t => t.trim().toLowerCase());
+    const placeholders = normalizedTags.map(() => '?').join(',');
+
+    let query = `
+      SELECT m.*
+      FROM memory m
+      WHERE m.id IN (
+        SELECT mt.memory_id
+        FROM memory_tags mt
+        INNER JOIN tags t ON mt.tag_id = t.id
+        WHERE t.name IN (${placeholders})
+        GROUP BY mt.memory_id
+        HAVING COUNT(DISTINCT t.name) = ?
+      )
+    `;
+
+    const params: unknown[] = [...normalizedTags, normalizedTags.length];
+
+    if (namespace) {
+      query += ' AND m.namespace = ?';
+      params.push(namespace);
+    }
+
+    query += ' ORDER BY m.updated_at DESC';
+
+    const rows = this.db.prepare(query).all(...params) as MemoryRow[];
+    return rows.map(row => this.rowToEntry(row));
+  }
+
+  // ==================== Relationship Operations ====================
+
+  // Create a relationship between two memory entries
+  createRelationship(
+    fromId: string,
+    toId: string,
+    relationshipType: string,
+    metadata?: Record<string, unknown>
+  ): string {
+    // Validate that both entries exist
+    const fromEntry = this.getById(fromId);
+    const toEntry = this.getById(toId);
+
+    if (!fromEntry) {
+      throw new Error(`Source entry not found: ${fromId}`);
+    }
+    if (!toEntry) {
+      throw new Error(`Target entry not found: ${toId}`);
+    }
+    if (fromId === toId) {
+      throw new Error('Cannot create relationship to self');
+    }
+
+    const id = randomUUID();
+    const metadataJson = metadata ? JSON.stringify(metadata) : null;
+
+    try {
+      this.db
+        .prepare(`
+          INSERT INTO memory_relationships (id, from_id, to_id, relationship_type, metadata, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `)
+        .run(id, fromId, toId, relationshipType, metadataJson, Date.now());
+
+      log.debug(`Relationship created: ${fromId} --[${relationshipType}]--> ${toId}`);
+      return id;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
+        throw new Error('Relationship already exists');
+      }
+      throw err;
+    }
+  }
+
+  // Get relationships for an entry
+  getRelationships(entryId: string, direction: 'outgoing' | 'incoming' | 'both' = 'both'): Array<{
+    id: string;
+    fromId: string;
+    toId: string;
+    relationshipType: string;
+    metadata?: Record<string, unknown>;
+    createdAt: Date;
+  }> {
+    let query = 'SELECT * FROM memory_relationships WHERE ';
+    const params: string[] = [];
+
+    if (direction === 'outgoing') {
+      query += 'from_id = ?';
+      params.push(entryId);
+    } else if (direction === 'incoming') {
+      query += 'to_id = ?';
+      params.push(entryId);
+    } else {
+      query += '(from_id = ? OR to_id = ?)';
+      params.push(entryId, entryId);
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const rows = this.db.prepare(query).all(...params) as Array<{
+      id: string;
+      from_id: string;
+      to_id: string;
+      relationship_type: string;
+      metadata: string | null;
+      created_at: number;
+    }>;
+
+    return rows.map(row => ({
+      id: row.id,
+      fromId: row.from_id,
+      toId: row.to_id,
+      relationshipType: row.relationship_type,
+      metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined,
+      createdAt: new Date(row.created_at),
+    }));
+  }
+
+  // Get related entries (follows relationships and fetches the connected entries)
+  getRelatedEntries(entryId: string, relationshipType?: string): Array<{
+    entry: MemoryEntry;
+    relationship: {
+      id: string;
+      type: string;
+      direction: 'outgoing' | 'incoming';
+    };
+  }> {
+    let query = `
+      SELECT m.*, r.id as rel_id, r.relationship_type, r.from_id, r.to_id
+      FROM memory_relationships r
+      INNER JOIN memory m ON (
+        CASE
+          WHEN r.from_id = ? THEN m.id = r.to_id
+          WHEN r.to_id = ? THEN m.id = r.from_id
+        END
+      )
+      WHERE (r.from_id = ? OR r.to_id = ?)
+    `;
+
+    const params: unknown[] = [entryId, entryId, entryId, entryId];
+
+    if (relationshipType) {
+      query += ' AND r.relationship_type = ?';
+      params.push(relationshipType);
+    }
+
+    query += ' ORDER BY r.created_at DESC';
+
+    const rows = this.db.prepare(query).all(...params) as Array<MemoryRow & {
+      rel_id: string;
+      relationship_type: string;
+      from_id: string;
+      to_id: string;
+    }>;
+
+    return rows.map(row => ({
+      entry: this.rowToEntry(row),
+      relationship: {
+        id: row.rel_id,
+        type: row.relationship_type,
+        direction: row.from_id === entryId ? 'outgoing' : 'incoming',
+      },
+    }));
+  }
+
+  // Delete a relationship
+  deleteRelationship(relationshipId: string): boolean {
+    const result = this.db
+      .prepare('DELETE FROM memory_relationships WHERE id = ?')
+      .run(relationshipId);
+
+    log.debug(`Relationship deleted: ${relationshipId}`);
+    return result.changes > 0;
+  }
+
+  // Delete all relationships for an entry
+  deleteAllRelationships(entryId: string): number {
+    const result = this.db
+      .prepare('DELETE FROM memory_relationships WHERE from_id = ? OR to_id = ?')
+      .run(entryId, entryId);
+
+    log.debug(`All relationships deleted for entry: ${entryId}`);
+    return result.changes;
+  }
+
+  // ==================== Version Operations ====================
+
+  // Save current state as a version (called before updates)
+  private saveVersion(entry: MemoryEntry): void {
+    // Get the next version number
+    const versionRow = this.db
+      .prepare('SELECT COALESCE(MAX(version), 0) as max_version FROM memory_versions WHERE memory_id = ?')
+      .get(entry.id) as { max_version: number };
+
+    const nextVersion = versionRow.max_version + 1;
+    const versionId = randomUUID();
+    const metadataJson = entry.metadata ? JSON.stringify(entry.metadata) : null;
+
+    this.db
+      .prepare(`
+        INSERT INTO memory_versions (id, memory_id, version, key, namespace, content, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        versionId,
+        entry.id,
+        nextVersion,
+        entry.key,
+        entry.namespace,
+        entry.content,
+        metadataJson,
+        entry.updatedAt.getTime()
+      );
+
+    log.debug(`Version saved for entry ${entry.id}: v${nextVersion}`);
+  }
+
+  // Get version history for an entry
+  getVersionHistory(entryId: string): MemoryVersion[] {
+    const rows = this.db
+      .prepare(`
+        SELECT id, memory_id, version, key, namespace, content, metadata, created_at
+        FROM memory_versions
+        WHERE memory_id = ?
+        ORDER BY version DESC
+      `)
+      .all(entryId) as Array<{
+        id: string;
+        memory_id: string;
+        version: number;
+        key: string;
+        namespace: string;
+        content: string;
+        metadata: string | null;
+        created_at: number;
+      }>;
+
+    return rows.map(row => ({
+      id: row.id,
+      memoryId: row.memory_id,
+      version: row.version,
+      key: row.key,
+      namespace: row.namespace,
+      content: row.content,
+      metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined,
+      createdAt: new Date(row.created_at),
+    }));
+  }
+
+  // Get a specific version of an entry
+  getVersion(entryId: string, version: number): MemoryVersion | null {
+    const row = this.db
+      .prepare(`
+        SELECT id, memory_id, version, key, namespace, content, metadata, created_at
+        FROM memory_versions
+        WHERE memory_id = ? AND version = ?
+      `)
+      .get(entryId, version) as {
+        id: string;
+        memory_id: string;
+        version: number;
+        key: string;
+        namespace: string;
+        content: string;
+        metadata: string | null;
+        created_at: number;
+      } | undefined;
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      memoryId: row.memory_id,
+      version: row.version,
+      key: row.key,
+      namespace: row.namespace,
+      content: row.content,
+      metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined,
+      createdAt: new Date(row.created_at),
+    };
+  }
+
+  // Get the current version number for an entry
+  getCurrentVersion(entryId: string): number {
+    const row = this.db
+      .prepare('SELECT COALESCE(MAX(version), 0) as version FROM memory_versions WHERE memory_id = ?')
+      .get(entryId) as { version: number };
+
+    return row.version;
+  }
+
+  // Restore a specific version (creates a new version with old content)
+  restoreVersion(entryId: string, version: number): boolean {
+    const versionEntry = this.getVersion(entryId, version);
+    if (!versionEntry) {
+      return false;
+    }
+
+    const currentEntry = this.getById(entryId);
+    if (!currentEntry) {
+      return false;
+    }
+
+    // Save current state before restoring
+    this.saveVersion(currentEntry);
+
+    // Update with old content
+    const metadataJson = versionEntry.metadata ? JSON.stringify(versionEntry.metadata) : null;
+    this.db
+      .prepare(`
+        UPDATE memory
+        SET content = ?, metadata = ?, updated_at = ?
+        WHERE id = ?
+      `)
+      .run(versionEntry.content, metadataJson, Date.now(), entryId);
+
+    log.info(`Version ${version} restored for entry ${entryId}`);
+    return true;
+  }
+
   private rowToEntry(row: MemoryRow): MemoryEntry {
+    // Fetch tags for this entry
+    const tags = this.getEntryTags(row.id);
+
     return {
       id: row.id,
       key: row.key,
@@ -391,6 +870,7 @@ export class SQLiteStore {
         ? new Float32Array(row.embedding.buffer)
         : undefined,
       metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined,
+      tags: tags.length > 0 ? tags : undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     };

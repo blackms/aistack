@@ -101,6 +101,119 @@ export class MemoryManager {
     return this.sqliteStore.count(namespace);
   }
 
+  // ==================== Tag Operations ====================
+
+  /**
+   * Add a tag to a memory entry
+   */
+  addTag(entryId: string, tagName: string): void {
+    this.sqliteStore.addTag(entryId, tagName);
+    log.debug('Tag added', { entryId, tagName });
+  }
+
+  /**
+   * Remove a tag from a memory entry
+   */
+  removeTag(entryId: string, tagName: string): boolean {
+    const removed = this.sqliteStore.removeTag(entryId, tagName);
+    log.debug('Tag removed', { entryId, tagName, removed });
+    return removed;
+  }
+
+  /**
+   * Get all tags with usage counts
+   */
+  getAllTags(): Array<{ name: string; count: number }> {
+    return this.sqliteStore.getAllTags();
+  }
+
+  /**
+   * Search entries by tags
+   */
+  searchByTags(tags: string[], namespace?: string): MemoryEntry[] {
+    return this.sqliteStore.searchByTags(tags, namespace);
+  }
+
+  // ==================== Relationship Operations ====================
+
+  /**
+   * Create a relationship between two memory entries
+   */
+  createRelationship(
+    fromId: string,
+    toId: string,
+    relationshipType: string,
+    metadata?: Record<string, unknown>
+  ): string {
+    const id = this.sqliteStore.createRelationship(fromId, toId, relationshipType, metadata);
+    log.debug('Relationship created', { fromId, toId, relationshipType });
+    return id;
+  }
+
+  /**
+   * Get relationships for an entry
+   */
+  getRelationships(entryId: string, direction: 'outgoing' | 'incoming' | 'both' = 'both') {
+    return this.sqliteStore.getRelationships(entryId, direction);
+  }
+
+  /**
+   * Get related entries with relationship info
+   */
+  getRelatedEntries(entryId: string, relationshipType?: string) {
+    return this.sqliteStore.getRelatedEntries(entryId, relationshipType);
+  }
+
+  /**
+   * Delete a relationship
+   */
+  deleteRelationship(relationshipId: string): boolean {
+    const deleted = this.sqliteStore.deleteRelationship(relationshipId);
+    log.debug('Relationship deleted', { relationshipId, deleted });
+    return deleted;
+  }
+
+  /**
+   * Delete all relationships for an entry
+   */
+  deleteAllRelationships(entryId: string): number {
+    const count = this.sqliteStore.deleteAllRelationships(entryId);
+    log.debug('All relationships deleted', { entryId, count });
+    return count;
+  }
+
+  // ==================== Version Operations ====================
+
+  /**
+   * Get version history for an entry
+   */
+  getVersionHistory(entryId: string) {
+    return this.sqliteStore.getVersionHistory(entryId);
+  }
+
+  /**
+   * Get a specific version of an entry
+   */
+  getVersion(entryId: string, version: number) {
+    return this.sqliteStore.getVersion(entryId, version);
+  }
+
+  /**
+   * Get the current version number for an entry
+   */
+  getCurrentVersion(entryId: string): number {
+    return this.sqliteStore.getCurrentVersion(entryId);
+  }
+
+  /**
+   * Restore a specific version
+   */
+  restoreVersion(entryId: string, version: number): boolean {
+    const restored = this.sqliteStore.restoreVersion(entryId, version);
+    log.info('Version restored', { entryId, version, restored });
+    return restored;
+  }
+
   /**
    * Search memory using FTS and optionally vector search
    */

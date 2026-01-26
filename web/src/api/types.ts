@@ -62,6 +62,7 @@ export interface MemoryEntry {
   namespace: string;
   content: string;
   metadata?: Record<string, unknown>;
+  tags?: string[];
   createdAt: string;
   updatedAt: string;
 }

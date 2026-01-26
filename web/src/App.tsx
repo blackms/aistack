@@ -8,6 +8,7 @@ import MemoryPage from './pages/MemoryPage';
 import TasksPage from './pages/TasksPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import SessionsPage from './pages/SessionsPage';
+import SettingsPage from './pages/SettingsPage';
 import ChatPage from './pages/ChatPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
@@ -37,6 +38,7 @@ function App() {
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
