@@ -168,7 +168,8 @@ describe('OpenAIProvider', () => {
   });
 
   it('should throw on API error', async () => {
-    mockFetch.mockResolvedValueOnce({
+    // Mock multiple times for retry attempts
+    mockFetch.mockResolvedValue({
       ok: false,
       status: 429,
       text: async () => 'Rate limited',
@@ -318,7 +319,8 @@ describe('OllamaProvider', () => {
   });
 
   it('should throw on chat API error', async () => {
-    mockFetch.mockResolvedValueOnce({
+    // Mock multiple times for retry attempts
+    mockFetch.mockResolvedValue({
       ok: false,
       status: 500,
       text: async () => 'Internal server error',

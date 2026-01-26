@@ -1167,14 +1167,12 @@ export class SQLiteStore {
   deleteProject(id: string): boolean {
     // Use transaction to ensure atomic deletion of project and related data
     return this.transaction((db) => {
-      // First delete related project tasks
+      // First delete specifications for each project task
       const tasks = this.listProjectTasks(id);
       for (const task of tasks) {
+        db.prepare('DELETE FROM specifications WHERE project_task_id = ?').run(task.id);
         db.prepare('DELETE FROM project_tasks WHERE id = ?').run(task.id);
       }
-
-      // Delete project specifications
-      db.prepare('DELETE FROM specifications WHERE project_id = ?').run(id);
 
       // Delete the project itself
       const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);

@@ -90,9 +90,9 @@ export class AuthService {
   /**
    * Create default admin user
    */
-  private async createDefaultAdmin(): Promise<void> {
+  private createDefaultAdmin(): void {
     const defaultPassword = process.env.ADMIN_PASSWORD || 'admin123';
-    const passwordHash = await bcrypt.hash(defaultPassword, SALT_ROUNDS);
+    const passwordHash = bcrypt.hashSync(defaultPassword, SALT_ROUNDS);
 
     this.db
       .prepare(
@@ -168,9 +168,7 @@ export class AuthService {
    */
   async login(credentials: LoginCredentials): Promise<{ user: User; tokens: AuthTokens }> {
     // Find user
-    const user = this.db
-      .prepare('SELECT * FROM users WHERE email = ?')
-      .get(credentials.email) as User | undefined;
+    const user = this.getUserByEmail(credentials.email);
 
     if (!user) {
       throw new Error('Invalid email or password');

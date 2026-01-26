@@ -1175,7 +1175,7 @@ describe('System Routes', () => {
   });
 
   describe('GET /api/v1/system/metrics', () => {
-    it('should return metrics', async () => {
+    it('should return Prometheus metrics array', async () => {
       const req = createMockRequest('GET', '/api/v1/system/metrics');
       const res = createMockResponse();
 
@@ -1183,11 +1183,15 @@ describe('System Routes', () => {
 
       const body = res.getBody();
       expect(body.success).toBe(true);
-      expect(body.data).toHaveProperty('timestamp');
-      expect(body.data).toHaveProperty('uptime');
-      expect(body.data).toHaveProperty('memory');
-      expect(body.data).toHaveProperty('cpu');
-      expect(body.data).toHaveProperty('node');
+      expect(Array.isArray(body.data)).toBe(true);
+      expect(body.data.length).toBeGreaterThan(0);
+
+      // Check that metrics have the expected structure
+      const firstMetric = body.data[0];
+      expect(firstMetric).toHaveProperty('name');
+      expect(firstMetric).toHaveProperty('type');
+      expect(firstMetric).toHaveProperty('help');
+      expect(firstMetric).toHaveProperty('value');
     });
   });
 });

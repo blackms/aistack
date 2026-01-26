@@ -123,6 +123,9 @@ describe('Authentication Integration', () => {
       password: process.env.ADMIN_PASSWORD || 'admin123',
     });
 
+    // Wait 1 second to ensure new token has different iat timestamp
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     const newTokens = await authService.refreshAccessToken(tokens.refreshToken);
 
     expect(newTokens.accessToken).toBeDefined();
