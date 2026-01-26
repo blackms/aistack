@@ -86,7 +86,7 @@ export class AuthService {
       try {
         this.createDefaultAdmin();
       } catch (error) {
-        log.error('Failed to create default admin user', error);
+        log.error('Failed to create default admin user', { error });
       }
     }
   }
