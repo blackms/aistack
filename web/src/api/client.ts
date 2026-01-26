@@ -244,6 +244,15 @@ export const taskApi = {
 
 // Session API
 export const sessionApi = {
+  list: (options?: { status?: 'active' | 'ended'; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.status) params.set('status', options.status);
+    if (options?.limit) params.set('limit', options.limit.toString());
+    if (options?.offset) params.set('offset', options.offset.toString());
+    const query = params.toString();
+    return request<Session[]>(`/sessions${query ? `?${query}` : ''}`);
+  },
+
   getActive: () => request<Session | null>('/sessions/active'),
 
   create: (metadata?: Record<string, unknown>) =>

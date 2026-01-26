@@ -22,6 +22,7 @@ import {
   Memory as MemoryIcon,
   Assignment as TaskIcon,
   AccountTree as WorkflowIcon,
+  EventNote as SessionIcon,
   Chat as ChatIcon,
   Circle as CircleIcon,
   Folder as FolderIcon,
@@ -41,6 +42,7 @@ const navItems = [
   { path: '/memory', label: 'Memory', icon: <MemoryIcon /> },
   { path: '/tasks', label: 'Tasks', icon: <TaskIcon /> },
   { path: '/workflows', label: 'Workflows', icon: <WorkflowIcon /> },
+  { path: '/sessions', label: 'Sessions', icon: <SessionIcon /> },
   { path: '/chat', label: 'Chat', icon: <ChatIcon /> },
 ];
 

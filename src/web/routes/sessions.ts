@@ -12,6 +12,23 @@ import type { CreateSessionRequest } from '../types.js';
 export function registerSessionRoutes(router: Router, config: AgentStackConfig): void {
   const getManager = () => getMemoryManager(config);
 
+  // GET /api/v1/sessions - List all sessions
+  router.get('/api/v1/sessions', (req, res) => {
+    const manager = getManager();
+    const url = new URL(req.url || '', `http://${req.headers.host}`);
+    const status = url.searchParams.get('status') as 'active' | 'ended' | null;
+    const limit = parseInt(url.searchParams.get('limit') || '50');
+    const offset = parseInt(url.searchParams.get('offset') || '0');
+
+    const sessions = manager.listSessions(status || undefined, limit, offset);
+
+    sendJson(res, sessions.map(session => ({
+      ...session,
+      startedAt: session.startedAt.toISOString(),
+      endedAt: session.endedAt?.toISOString(),
+    })));
+  });
+
   // GET /api/v1/sessions/active - Get active session
   router.get('/api/v1/sessions/active', (_req, res) => {
     const manager = getManager();

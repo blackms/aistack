@@ -451,6 +451,22 @@ export class SQLiteStore {
     return row ? this.rowToSession(row) : null;
   }
 
+  listSessions(status?: 'active' | 'ended', limit: number = 50, offset: number = 0): Session[] {
+    let query = 'SELECT * FROM sessions';
+    const params: unknown[] = [];
+
+    if (status) {
+      query += ' WHERE status = ?';
+      params.push(status);
+    }
+
+    query += ' ORDER BY started_at DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
+    const rows = this.db.prepare(query).all(...params) as SessionRow[];
+    return rows.map(row => this.rowToSession(row));
+  }
+
   private rowToSession(row: SessionRow): Session {
     return {
       id: row.id,

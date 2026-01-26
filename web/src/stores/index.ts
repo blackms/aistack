@@ -7,3 +7,4 @@ export { useProjectTaskStore } from './projectTaskStore';
 export { useSpecificationStore } from './specificationStore';
 export { useFilesystemStore } from './filesystemStore';
 export { useReviewLoopStore } from './reviewLoopStore';
+export { useSessionStore } from './sessionStore';

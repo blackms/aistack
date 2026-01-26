@@ -192,6 +192,10 @@ export class MemoryManager {
     return this.sqliteStore.getActiveSession();
   }
 
+  listSessions(status?: 'active' | 'ended', limit?: number, offset?: number): Session[] {
+    return this.sqliteStore.listSessions(status, limit, offset);
+  }
+
   // ==================== Task Operations ====================
 
   createTask(agentType: string, input?: string, sessionId?: string): Task {
