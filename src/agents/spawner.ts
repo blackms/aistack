@@ -8,6 +8,7 @@ import { getAgentDefinition, hasAgentType } from './registry.js';
 import { getProvider } from '../providers/index.js';
 import { ClaudeCodeProvider, GeminiCLIProvider, CodexProvider } from '../providers/cli-providers.js';
 import { logger } from '../utils/logger.js';
+import { getMemoryManager } from '../memory/index.js';
 
 const log = logger.child('spawner');
 
@@ -16,6 +17,9 @@ const activeAgents: Map<string, SpawnedAgent> = new Map();
 
 // Agent by name index for quick lookup
 const agentsByName: Map<string, string> = new Map();
+
+// Config reference for persistence
+let configRef: AgentStackConfig | null = null;
 
 export interface SpawnOptions {
   name?: string;
@@ -29,7 +33,7 @@ export interface SpawnOptions {
 export function spawnAgent(
   type: string,
   options: SpawnOptions = {},
-  _config?: AgentStackConfig
+  config?: AgentStackConfig
 ): SpawnedAgent {
   if (!hasAgentType(type)) {
     throw new Error(`Unknown agent type: ${type}`);
@@ -38,6 +42,11 @@ export function spawnAgent(
   const definition = getAgentDefinition(type);
   if (!definition) {
     throw new Error(`Agent definition not found: ${type}`);
+  }
+
+  // Save config reference for persistence
+  if (config && !configRef) {
+    configRef = config;
   }
 
   const id = randomUUID();
@@ -60,6 +69,16 @@ export function spawnAgent(
 
   activeAgents.set(id, agent);
   agentsByName.set(name, id);
+
+  // Persist to database
+  if (configRef) {
+    try {
+      const memoryManager = getMemoryManager(configRef);
+      memoryManager.getStore().saveActiveAgent(agent);
+    } catch (error) {
+      log.warn('Failed to persist agent', { id, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
 
   log.info('Spawned agent', { id, type, name });
 
@@ -105,6 +124,17 @@ export function updateAgentStatus(id: string, status: AgentStatus): boolean {
   if (!agent) return false;
 
   agent.status = status;
+
+  // Persist to database
+  if (configRef) {
+    try {
+      const memoryManager = getMemoryManager(configRef);
+      memoryManager.getStore().updateAgentStatus(id, status);
+    } catch (error) {
+      log.warn('Failed to persist agent status', { id, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+
   log.debug('Updated agent status', { id, status });
   return true;
 }
@@ -119,6 +149,16 @@ export function stopAgent(id: string): boolean {
   agent.status = 'stopped';
   activeAgents.delete(id);
   agentsByName.delete(agent.name);
+
+  // Delete from database
+  if (configRef) {
+    try {
+      const memoryManager = getMemoryManager(configRef);
+      memoryManager.getStore().deleteActiveAgent(id);
+    } catch (error) {
+      log.warn('Failed to delete persisted agent', { id, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
 
   log.info('Stopped agent', { id, name: agent.name });
   return true;
@@ -315,5 +355,36 @@ export async function runAgent(
   } finally {
     // Optionally stop agent after execution
     // stopAgent(agent.id);
+  }
+}
+
+/**
+ * Restore active agents from database
+ * Should be called on startup to recover from crashes
+ */
+export function restoreAgents(config: AgentStackConfig): number {
+  try {
+    const memoryManager = getMemoryManager(config);
+    const persistedAgents = memoryManager.getStore().loadActiveAgents();
+
+    if (!configRef) {
+      configRef = config;
+    }
+
+    let restored = 0;
+    for (const agent of persistedAgents) {
+      // Only restore if not already in memory
+      if (!activeAgents.has(agent.id)) {
+        activeAgents.set(agent.id, agent);
+        agentsByName.set(agent.name, agent.id);
+        restored++;
+      }
+    }
+
+    log.info('Restored agents from database', { count: restored });
+    return restored;
+  } catch (error) {
+    log.error('Failed to restore agents', { error: error instanceof Error ? error.message : 'Unknown error' });
+    return 0;
   }
 }

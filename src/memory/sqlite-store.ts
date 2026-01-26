@@ -18,6 +18,9 @@ import type {
   SpecificationType,
   SpecificationStatus,
   ReviewComment,
+  SpawnedAgent,
+  AgentStatus,
+  ReviewLoopState,
 } from '../types.js';
 import { logger } from '../utils/logger.js';
 
@@ -158,6 +161,45 @@ CREATE TABLE IF NOT EXISTS specifications (
 
 CREATE INDEX IF NOT EXISTS idx_specifications_task ON specifications(project_task_id);
 CREATE INDEX IF NOT EXISTS idx_specifications_status ON specifications(status);
+
+-- Active Agents table for state persistence
+CREATE TABLE IF NOT EXISTS active_agents (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  name TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL,
+  session_id TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  metadata TEXT,
+  FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_active_agents_status ON active_agents(status);
+CREATE INDEX IF NOT EXISTS idx_active_agents_session ON active_agents(session_id);
+CREATE INDEX IF NOT EXISTS idx_active_agents_name ON active_agents(name);
+
+-- Review Loops table for state persistence
+CREATE TABLE IF NOT EXISTS review_loops (
+  id TEXT PRIMARY KEY,
+  coder_id TEXT NOT NULL,
+  adversarial_id TEXT NOT NULL,
+  session_id TEXT,
+  status TEXT NOT NULL,
+  iteration INTEGER DEFAULT 0,
+  max_iterations INTEGER DEFAULT 3,
+  code_input TEXT NOT NULL,
+  current_code TEXT,
+  reviews TEXT,
+  final_verdict TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_loops_status ON review_loops(status);
+CREATE INDEX IF NOT EXISTS idx_review_loops_session ON review_loops(session_id);
 `;
 
 export class SQLiteStore {
@@ -916,6 +958,238 @@ export class SQLiteStore {
       approvedAt: row.approved_at ? new Date(row.approved_at) : undefined,
       comments: row.comments ? JSON.parse(row.comments) as ReviewComment[] : undefined,
     };
+  }
+
+  // ==================== Active Agents Persistence ====================
+
+  /**
+   * Save active agent state
+   */
+  saveActiveAgent(agent: SpawnedAgent): void {
+    const now = Date.now();
+    const metadataJson = agent.metadata ? JSON.stringify(agent.metadata) : null;
+
+    const existing = this.db
+      .prepare('SELECT id FROM active_agents WHERE id = ?')
+      .get(agent.id);
+
+    if (existing) {
+      this.db
+        .prepare(`
+          UPDATE active_agents
+          SET type = ?, name = ?, status = ?, session_id = ?, updated_at = ?, metadata = ?
+          WHERE id = ?
+        `)
+        .run(
+          agent.type,
+          agent.name,
+          agent.status,
+          agent.sessionId ?? null,
+          now,
+          metadataJson,
+          agent.id
+        );
+    } else {
+      this.db
+        .prepare(`
+          INSERT INTO active_agents (id, type, name, status, session_id, created_at, updated_at, metadata)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          agent.id,
+          agent.type,
+          agent.name,
+          agent.status,
+          agent.sessionId ?? null,
+          agent.createdAt.getTime(),
+          now,
+          metadataJson
+        );
+    }
+  }
+
+  /**
+   * Load active agents
+   */
+  loadActiveAgents(): SpawnedAgent[] {
+    const rows = this.db
+      .prepare('SELECT * FROM active_agents WHERE status IN (?, ?, ?)')
+      .all('idle', 'running', 'stopped') as any[];
+
+    return rows.map(row => ({
+      id: row.id,
+      type: row.type,
+      name: row.name,
+      status: row.status as AgentStatus,
+      sessionId: row.session_id ?? undefined,
+      createdAt: new Date(row.created_at),
+      metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+    }));
+  }
+
+  /**
+   * Delete active agent
+   */
+  deleteActiveAgent(agentId: string): boolean {
+    const result = this.db
+      .prepare('DELETE FROM active_agents WHERE id = ?')
+      .run(agentId);
+
+    return result.changes > 0;
+  }
+
+  /**
+   * Update agent status
+   */
+  updateAgentStatus(agentId: string, status: AgentStatus): boolean {
+    const now = Date.now();
+    const result = this.db
+      .prepare('UPDATE active_agents SET status = ?, updated_at = ? WHERE id = ?')
+      .run(status, now, agentId);
+
+    return result.changes > 0;
+  }
+
+  /**
+   * Clear completed/failed agents
+   */
+  clearInactiveAgents(): void {
+    this.db
+      .prepare('DELETE FROM active_agents WHERE status IN (?, ?)')
+      .run('completed', 'failed');
+  }
+
+  // ==================== Review Loops Persistence ====================
+
+  /**
+   * Save review loop state
+   */
+  saveReviewLoop(loopId: string, state: ReviewLoopState): void {
+    const now = Date.now();
+    const reviewsJson = JSON.stringify(state.reviews);
+    const finalVerdictJson = state.finalVerdict ? JSON.stringify(state.finalVerdict) : null;
+
+    const existing = this.db
+      .prepare('SELECT id FROM review_loops WHERE id = ?')
+      .get(loopId);
+
+    if (existing) {
+      this.db
+        .prepare(`
+          UPDATE review_loops
+          SET status = ?, iteration = ?, current_code = ?, reviews = ?,
+              final_verdict = ?, updated_at = ?, completed_at = ?
+          WHERE id = ?
+        `)
+        .run(
+          state.status,
+          state.iteration,
+          state.currentCode ?? null,
+          reviewsJson,
+          finalVerdictJson,
+          now,
+          state.completedAt?.getTime() ?? null,
+          loopId
+        );
+    } else {
+      this.db
+        .prepare(`
+          INSERT INTO review_loops (
+            id, coder_id, adversarial_id, session_id, status,
+            iteration, max_iterations, code_input, current_code,
+            reviews, final_verdict, created_at, updated_at, completed_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          loopId,
+          state.coderId,
+          state.adversarialId,
+          state.sessionId ?? null,
+          state.status,
+          state.iteration,
+          state.maxIterations,
+          state.codeInput,
+          state.currentCode ?? null,
+          reviewsJson,
+          finalVerdictJson,
+          state.startedAt.getTime(),
+          now,
+          state.completedAt?.getTime() ?? null
+        );
+    }
+  }
+
+  /**
+   * Load review loop state
+   */
+  loadReviewLoop(loopId: string): ReviewLoopState | null {
+    const row = this.db
+      .prepare('SELECT * FROM review_loops WHERE id = ?')
+      .get(loopId) as any;
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      coderId: row.coder_id,
+      adversarialId: row.adversarial_id,
+      sessionId: row.session_id ?? undefined,
+      status: row.status,
+      iteration: row.iteration,
+      maxIterations: row.max_iterations,
+      codeInput: row.code_input,
+      currentCode: row.current_code ?? undefined,
+      reviews: JSON.parse(row.reviews),
+      finalVerdict: row.final_verdict ? JSON.parse(row.final_verdict) : undefined,
+      startedAt: new Date(row.created_at),
+      completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+    };
+  }
+
+  /**
+   * Load active review loops
+   */
+  loadActiveReviewLoops(): ReviewLoopState[] {
+    const rows = this.db
+      .prepare('SELECT * FROM review_loops WHERE status IN (?, ?, ?, ?)')
+      .all('pending', 'coding', 'reviewing', 'fixing') as any[];
+
+    return rows.map(row => ({
+      id: row.id,
+      coderId: row.coder_id,
+      adversarialId: row.adversarial_id,
+      sessionId: row.session_id ?? undefined,
+      status: row.status,
+      iteration: row.iteration,
+      maxIterations: row.max_iterations,
+      codeInput: row.code_input,
+      currentCode: row.current_code ?? undefined,
+      reviews: JSON.parse(row.reviews),
+      finalVerdict: row.final_verdict ? JSON.parse(row.final_verdict) : undefined,
+      startedAt: new Date(row.created_at),
+      completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+    }));
+  }
+
+  /**
+   * Delete review loop
+   */
+  deleteReviewLoop(loopId: string): boolean {
+    const result = this.db
+      .prepare('DELETE FROM review_loops WHERE id = ?')
+      .run(loopId);
+
+    return result.changes > 0;
+  }
+
+  /**
+   * Clear completed review loops
+   */
+  clearCompletedReviewLoops(): void {
+    this.db
+      .prepare('DELETE FROM review_loops WHERE status IN (?, ?)')
+      .run('approved', 'failed');
   }
 
   // ==================== Cleanup ====================
