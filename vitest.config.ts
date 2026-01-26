@@ -4,7 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts'],
+    // Only include unit tests - integration tests use vitest.integration.config.ts
+    include: ['tests/unit/**/*.test.ts'],
     // Enable parallel execution with thread pool
     pool: 'threads',
     poolOptions: {
