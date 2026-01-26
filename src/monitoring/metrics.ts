@@ -7,6 +7,10 @@ import { logger } from '../utils/logger.js';
 
 const log = logger.child('metrics');
 
+// Constants for histogram management
+const MAX_HISTOGRAM_SAMPLES = 10000;
+const HISTOGRAM_CLEANUP_THRESHOLD = 5000;
+
 export interface Metric {
   name: string;
   type: 'counter' | 'gauge' | 'histogram' | 'summary';
@@ -133,6 +137,14 @@ export class MetricsCollector {
     const values = this.histograms.get(name);
     if (values) {
       values.push(value);
+
+      // Prevent memory leak by limiting histogram size
+      // Keep a sliding window of recent samples
+      if (values.length > MAX_HISTOGRAM_SAMPLES) {
+        // Remove oldest samples when threshold is exceeded
+        values.splice(0, values.length - HISTOGRAM_CLEANUP_THRESHOLD);
+        log.debug(`Histogram ${name} trimmed to ${HISTOGRAM_CLEANUP_THRESHOLD} samples`);
+      }
     }
   }
 

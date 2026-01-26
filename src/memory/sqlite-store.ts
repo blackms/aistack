@@ -463,8 +463,16 @@ export class SQLiteStore {
   // Add a tag to a memory entry (creates tag if it doesn't exist)
   addTag(entryId: string, tagName: string): void {
     const normalizedTag = tagName.trim().toLowerCase();
+
+    // Validate tag name
     if (!normalizedTag) {
       throw new Error('Tag name cannot be empty');
+    }
+    if (normalizedTag.length > 50) {
+      throw new Error('Tag name must be 50 characters or less');
+    }
+    if (!/^[a-z0-9_-]+$/.test(normalizedTag)) {
+      throw new Error('Tag name can only contain lowercase letters, numbers, hyphens, and underscores');
     }
 
     // Check if entry exists
@@ -576,6 +584,30 @@ export class SQLiteStore {
     relationshipType: string,
     metadata?: Record<string, unknown>
   ): string {
+    // Validate input
+    if (!fromId || !toId) {
+      throw new Error('Both fromId and toId are required');
+    }
+    if (fromId === toId) {
+      throw new Error('Cannot create relationship to self');
+    }
+
+    // Validate relationship type
+    const validTypes = [
+      'related_to',
+      'derived_from',
+      'references',
+      'depends_on',
+      'supersedes',
+      'conflicts_with',
+      'validates'
+    ];
+    if (!validTypes.includes(relationshipType)) {
+      throw new Error(
+        `Invalid relationship type: ${relationshipType}. Valid types: ${validTypes.join(', ')}`
+      );
+    }
+
     // Validate that both entries exist
     const fromEntry = this.getById(fromId);
     const toEntry = this.getById(toId);
@@ -585,9 +617,6 @@ export class SQLiteStore {
     }
     if (!toEntry) {
       throw new Error(`Target entry not found: ${toId}`);
-    }
-    if (fromId === toId) {
-      throw new Error('Cannot create relationship to self');
     }
 
     const id = randomUUID();
