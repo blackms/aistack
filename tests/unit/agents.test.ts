@@ -28,7 +28,10 @@ describe('Agent Registry', () => {
     expect(types).toContain('architect');
     expect(types).toContain('coordinator');
     expect(types).toContain('analyst');
-    expect(types.length).toBe(8);
+    expect(types).toContain('devops');
+    expect(types).toContain('documentation');
+    expect(types).toContain('security-auditor');
+    expect(types.length).toBe(11);
   });
 
   it('should get agent definition by type', () => {
