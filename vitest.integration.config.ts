@@ -8,10 +8,12 @@ export default defineConfig({
     hookTimeout: 30000,
     globals: true,
     isolate: true,
-    pool: 'forks',
+    // Use thread pool but keep sequential execution to avoid DB conflicts
+    // Integration tests share the same database file, so they must run sequentially
+    pool: 'threads',
     poolOptions: {
-      forks: {
-        singleFork: true,
+      threads: {
+        singleThread: true,
       },
     },
   },

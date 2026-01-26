@@ -5,6 +5,14 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts'],
+    // Enable parallel execution with thread pool
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        singleThread: false,
+        // Let Vitest determine optimal worker count based on CPU cores
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
