@@ -283,7 +283,7 @@ describe('ReviewLoopCoordinator', () => {
 
       coordinator.abort();
 
-      expect(coordinator.getState().status).toBe('failed');
+      expect(coordinator.getState().status).toBe('aborted');
       expect(coordinator.getState().completedAt).toBeDefined();
       expect(getReviewLoop(id)).toBeNull();
     });

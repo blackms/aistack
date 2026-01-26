@@ -83,7 +83,11 @@ export class AuthService {
 
     if (userCount.count === 0) {
       log.info('Creating default admin user');
-      this.createDefaultAdmin();
+      try {
+        this.createDefaultAdmin();
+      } catch (error) {
+        log.error('Failed to create default admin user', error);
+      }
     }
   }
 

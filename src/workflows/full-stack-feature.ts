@@ -28,14 +28,18 @@ export type FeaturePhase =
 export interface FeatureWorkflowConfig extends Omit<WorkflowConfig, 'inputs' | 'phases'> {
   phases: FeaturePhase[];
   inputs: {
+    targetDirectory: string;
+    sourceCode?: string;
+    includes?: string[];
+    excludes?: string[];
     featureDescription: string;
     requirements: string[];
-    targetDirectory: string;
     techStack?: {
       backend?: string[];
       frontend?: string[];
       database?: string;
     };
+    [key: string]: unknown;
   };
 }
 
@@ -88,7 +92,7 @@ export const fullStackFeatureConfig: FeatureWorkflowConfig = {
  * Phase 1: Requirements Analysis
  * Analyze and clarify feature requirements
  */
-export const requirementsPhase = async (context: WorkflowContext): Promise<PhaseResult> => {
+export const requirementsPhase = async (context: WorkflowContext): Promise<PhaseResult<FeaturePhase>> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -133,7 +137,7 @@ export const requirementsPhase = async (context: WorkflowContext): Promise<Phase
  * Phase 2: Architecture Design
  * Design system architecture and data models
  */
-export const architecturePhase = async (context: WorkflowContext): Promise<PhaseResult> => {
+export const architecturePhase = async (context: WorkflowContext): Promise<PhaseResult<FeaturePhase>> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -170,7 +174,7 @@ export const architecturePhase = async (context: WorkflowContext): Promise<Phase
  * Phase 3: Research
  * Research best practices, libraries, and patterns
  */
-export const researchPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
+export const researchPhase = async (_context: WorkflowContext): Promise<PhaseResult<FeaturePhase>> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -195,7 +199,7 @@ export const researchPhase = async (_context: WorkflowContext): Promise<PhaseRes
  * Phase 4: Backend Implementation
  * Implement backend API, services, and database
  */
-export const backendPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
+export const backendPhase = async (_context: WorkflowContext): Promise<PhaseResult<FeaturePhase>> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -220,7 +224,7 @@ export const backendPhase = async (_context: WorkflowContext): Promise<PhaseResu
  * Phase 5: Frontend Implementation
  * Implement UI components and frontend logic
  */
-export const frontendPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
+export const frontendPhase = async (_context: WorkflowContext): Promise<PhaseResult<FeaturePhase>> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -245,7 +249,7 @@ export const frontendPhase = async (_context: WorkflowContext): Promise<PhaseRes
  * Phase 6: Testing
  * Write and run tests for the feature
  */
-export const testingPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
+export const testingPhase = async (_context: WorkflowContext): Promise<PhaseResult<FeaturePhase>> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -281,7 +285,7 @@ export const testingPhase = async (_context: WorkflowContext): Promise<PhaseResu
  * Phase 7: Code Review
  * Review code quality, security, and best practices
  */
-export const reviewPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
+export const reviewPhase = async (_context: WorkflowContext): Promise<PhaseResult<FeaturePhase>> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -306,7 +310,7 @@ export const reviewPhase = async (_context: WorkflowContext): Promise<PhaseResul
  * Phase 8: Documentation
  * Create documentation for the feature
  */
-export const documentationPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
+export const documentationPhase = async (_context: WorkflowContext): Promise<PhaseResult<FeaturePhase>> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -330,7 +334,7 @@ export const documentationPhase = async (_context: WorkflowContext): Promise<Pha
 /**
  * Phase executors mapped to phase names
  */
-export const phaseExecutors: Record<FeaturePhase, (context: WorkflowContext) => Promise<PhaseResult>> = {
+export const phaseExecutors: Record<FeaturePhase, (context: WorkflowContext) => Promise<PhaseResult<FeaturePhase>>> = {
   requirements: requirementsPhase,
   architecture: architecturePhase,
   research: researchPhase,

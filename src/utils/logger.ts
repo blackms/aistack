@@ -179,7 +179,7 @@ class Logger {
     // Extract error if present in context
     if (context?.error) {
       entry.error = serializeError(context.error);
-      delete (entry as any).error; // Remove from context to avoid duplication
+      delete context.error; // Remove original error from context to avoid duplication
     }
 
     const formatted = this.format === 'json'

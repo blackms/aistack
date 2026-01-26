@@ -349,7 +349,7 @@ Provide the corrected code that addresses all the identified issues.`;
    * Abort the review loop
    */
   abort(): void {
-    this.state.status = 'failed';
+    this.state.status = 'aborted';
     this.state.completedAt = new Date();
     this.persistState();
 

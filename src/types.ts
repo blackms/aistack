@@ -280,7 +280,7 @@ export interface AgentStackConfig {
   plugins: PluginsConfig;
   mcp: MCPConfig;
   hooks: HooksConfig;
-  slack: SlackConfig;
+  slack?: SlackConfig;
 }
 
 export interface MemoryConfig {
@@ -424,4 +424,5 @@ export type ReviewLoopStatus =
   | 'fixing'
   | 'approved'
   | 'max_iterations_reached'
-  | 'failed';
+  | 'failed'
+  | 'aborted';

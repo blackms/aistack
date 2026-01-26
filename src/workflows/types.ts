@@ -39,8 +39,8 @@ export interface Finding {
   line?: number;
 }
 
-export interface PhaseResult {
-  phase: WorkflowPhase | string;
+export interface PhaseResult<TPhase = WorkflowPhase | string> {
+  phase: TPhase;
   success: boolean;
   findings: Finding[];
   artifacts: Record<string, unknown>;

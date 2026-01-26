@@ -19,7 +19,7 @@ export class SlackNotifier {
    * Initialize Slack integration and set up event listeners
    */
   initialize(): void {
-    if (!this.config.slack.enabled) {
+    if (!this.config.slack?.enabled) {
       log.debug('Slack integration is disabled');
       return;
     }
@@ -36,7 +36,7 @@ export class SlackNotifier {
    * Handle agent spawned event
    */
   async onAgentSpawned(agentType: string, agentId: string): Promise<void> {
-    if (!this.config.slack.enabled || !this.config.slack.notifyOnAgentSpawn) {
+    if (!this.config.slack?.enabled || !this.config.slack?.notifyOnAgentSpawn) {
       return;
     }
 
@@ -52,7 +52,7 @@ export class SlackNotifier {
    * Handle agent stopped event
    */
   async onAgentStopped(agentId: string): Promise<void> {
-    if (!this.config.slack.enabled) {
+    if (!this.config.slack?.enabled) {
       return;
     }
 
@@ -68,7 +68,7 @@ export class SlackNotifier {
    * Handle agent error event
    */
   async onAgentError(agentId: string, error: string): Promise<void> {
-    if (!this.config.slack.enabled || !this.config.slack.notifyOnErrors) {
+    if (!this.config.slack?.enabled || !this.config.slack?.notifyOnErrors) {
       return;
     }
 
@@ -84,7 +84,7 @@ export class SlackNotifier {
    * Handle workflow started event
    */
   async onWorkflowStarted(workflowId: string, workflowName: string): Promise<void> {
-    if (!this.config.slack.enabled) {
+    if (!this.config.slack?.enabled) {
       return;
     }
 
@@ -100,7 +100,7 @@ export class SlackNotifier {
    * Handle workflow completed event
    */
   async onWorkflowCompleted(workflowId: string, workflowName: string, duration?: number): Promise<void> {
-    if (!this.config.slack.enabled || !this.config.slack.notifyOnWorkflowComplete) {
+    if (!this.config.slack?.enabled || !this.config.slack?.notifyOnWorkflowComplete) {
       return;
     }
 
@@ -116,7 +116,7 @@ export class SlackNotifier {
    * Handle workflow error event
    */
   async onWorkflowError(workflowId: string, workflowName: string, error: string): Promise<void> {
-    if (!this.config.slack.enabled || !this.config.slack.notifyOnErrors) {
+    if (!this.config.slack?.enabled || !this.config.slack?.notifyOnErrors) {
       return;
     }
 
@@ -132,7 +132,7 @@ export class SlackNotifier {
    * Handle review loop started event
    */
   async onReviewLoopStarted(loopId: string, coderId: string, adversarialId: string): Promise<void> {
-    if (!this.config.slack.enabled || !this.config.slack.notifyOnReviewLoop) {
+    if (!this.config.slack?.enabled || !this.config.slack?.notifyOnReviewLoop) {
       return;
     }
 
@@ -148,7 +148,7 @@ export class SlackNotifier {
    * Handle review loop approved event
    */
   async onReviewLoopApproved(loopId: string, iteration: number): Promise<void> {
-    if (!this.config.slack.enabled || !this.config.slack.notifyOnReviewLoop) {
+    if (!this.config.slack?.enabled || !this.config.slack?.notifyOnReviewLoop) {
       return;
     }
 
@@ -164,7 +164,7 @@ export class SlackNotifier {
    * Handle review loop completed event
    */
   async onReviewLoopCompleted(loopId: string, iterations: number, approved: boolean): Promise<void> {
-    if (!this.config.slack.enabled || !this.config.slack.notifyOnReviewLoop) {
+    if (!this.config.slack?.enabled || !this.config.slack?.notifyOnReviewLoop) {
       return;
     }
 
@@ -180,7 +180,7 @@ export class SlackNotifier {
    * Handle task completed event
    */
   async onTaskCompleted(taskId: string, agentType: string): Promise<void> {
-    if (!this.config.slack.enabled) {
+    if (!this.config.slack?.enabled) {
       return;
     }
 
@@ -196,7 +196,7 @@ export class SlackNotifier {
    * Handle task failed event
    */
   async onTaskFailed(taskId: string, agentType: string, error: string): Promise<void> {
-    if (!this.config.slack.enabled || !this.config.slack.notifyOnErrors) {
+    if (!this.config.slack?.enabled || !this.config.slack?.notifyOnErrors) {
       return;
     }
 
@@ -212,7 +212,7 @@ export class SlackNotifier {
    * Send a custom notification
    */
   async sendCustom(title: string, message: string, level: 'info' | 'success' | 'warning' | 'error' = 'info'): Promise<void> {
-    if (!this.config.slack.enabled) {
+    if (!this.config.slack?.enabled) {
       return;
     }
 
