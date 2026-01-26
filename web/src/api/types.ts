@@ -158,6 +158,74 @@ export interface LaunchWorkflowRequest {
   config?: Record<string, unknown>;
 }
 
+// Review Loop types
+export type ReviewLoopStatus =
+  | 'pending'
+  | 'coding'
+  | 'reviewing'
+  | 'fixing'
+  | 'approved'
+  | 'max_iterations_reached'
+  | 'failed';
+
+export type ReviewVerdict = 'APPROVE' | 'REJECT';
+
+export type IssueSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface ReviewIssue {
+  id: string;
+  severity: IssueSeverity;
+  title: string;
+  location?: string;
+  attackVector?: string;
+  impact?: string;
+  requiredFix: string;
+}
+
+export interface ReviewResult {
+  reviewId: string;
+  verdict: ReviewVerdict;
+  issues: ReviewIssue[];
+  summary: string;
+  timestamp: string;
+}
+
+export interface ReviewLoop {
+  id: string;
+  coderId: string;
+  adversarialId: string;
+  sessionId?: string;
+  iteration: number;
+  maxIterations: number;
+  status: ReviewLoopStatus;
+  finalVerdict?: ReviewVerdict;
+  startedAt: string;
+  completedAt?: string;
+  reviewCount: number;
+}
+
+export interface ReviewLoopDetails extends ReviewLoop {
+  codeInput: string;
+  currentCode?: string;
+  reviews: ReviewResult[];
+}
+
+export interface LaunchReviewLoopRequest {
+  codeInput: string;
+  maxIterations?: number;
+  sessionId?: string;
+}
+
+export interface LaunchReviewLoopResponse {
+  id: string;
+  coderId: string;
+  adversarialId: string;
+  status: ReviewLoopStatus;
+  iteration: number;
+  maxIterations: number;
+  startedAt: string;
+}
+
 // System types
 export interface SystemStatus {
   version: string;

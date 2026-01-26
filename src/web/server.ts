@@ -18,6 +18,7 @@ import {
   registerTaskRoutes,
   registerSessionRoutes,
   registerWorkflowRoutes,
+  registerReviewLoopRoutes,
   registerSystemRoutes,
   registerProjectRoutes,
   registerSpecificationRoutes,
@@ -88,6 +89,7 @@ export class WebServer {
     registerTaskRoutes(this.router, this.config);
     registerSessionRoutes(this.router, this.config);
     registerWorkflowRoutes(this.router, this.config);
+    registerReviewLoopRoutes(this.router, this.config);
     registerSystemRoutes(this.router, this.config);
     registerProjectRoutes(this.router, this.config);
     registerSpecificationRoutes(this.router, this.config);
@@ -105,6 +107,7 @@ export class WebServer {
           '/api/v1/tasks',
           '/api/v1/sessions',
           '/api/v1/workflows',
+          '/api/v1/review-loops',
           '/api/v1/system',
           '/api/v1/projects',
           '/api/v1/specs',

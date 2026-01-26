@@ -18,14 +18,19 @@ import {
   Step,
   StepLabel,
   LinearProgress,
+  TextField,
+  Divider,
 } from '@mui/material';
 import {
   PlayArrow as PlayIcon,
   Refresh as RefreshIcon,
+  Stop as StopIcon,
+  Code as CodeIcon,
 } from '@mui/icons-material';
 import { workflowApi } from '../api/client';
 import { useWebSocketEvent } from '../hooks/useWebSocket';
-import type { Workflow, RunningWorkflow, WSMessage } from '../api/types';
+import { useReviewLoopStore } from '../stores';
+import type { Workflow, RunningWorkflow, WSMessage, ReviewLoop } from '../api/types';
 
 export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -36,6 +41,21 @@ export default function WorkflowsPage() {
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
   const [launching, setLaunching] = useState(false);
   const [activePhases, setActivePhases] = useState<Record<string, string>>({});
+
+  // Review loop state
+  const {
+    loops: reviewLoops,
+    loading: loopsLoading,
+    fetchLoops,
+    launchLoop,
+    abortLoop,
+    updateLoop,
+    removeLoop,
+  } = useReviewLoopStore();
+  const [reviewLoopDialogOpen, setReviewLoopDialogOpen] = useState(false);
+  const [codeInput, setCodeInput] = useState('');
+  const [maxIterations, setMaxIterations] = useState(3);
+  const [launchingLoop, setLaunchingLoop] = useState(false);
 
   const fetchWorkflows = async () => {
     setLoading(true);
@@ -61,11 +81,15 @@ export default function WorkflowsPage() {
   useEffect(() => {
     fetchWorkflows();
     fetchRunning();
+    fetchLoops();
 
     // Poll for updates
-    const interval = setInterval(fetchRunning, 5000);
+    const interval = setInterval(() => {
+      fetchRunning();
+      fetchLoops();
+    }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchLoops]);
 
   // Handle WebSocket events
   const handleWorkflowEvent = useCallback((message: WSMessage) => {
@@ -87,6 +111,46 @@ export default function WorkflowsPage() {
   useWebSocketEvent('workflow:complete', handleWorkflowEvent);
   useWebSocketEvent('workflow:error', handleWorkflowEvent);
 
+  // Handle review loop WebSocket events
+  const handleReviewLoopEvent = useCallback((message: WSMessage) => {
+    const payload = message.payload as { loopId: string; state: ReviewLoop };
+
+    if (message.type === 'review-loop:start') {
+      fetchLoops();
+    } else if (message.type === 'review-loop:iteration' || message.type === 'review-loop:review' || message.type === 'review-loop:fix') {
+      // Update the loop in store
+      if (payload.state) {
+        const updatedLoop: ReviewLoop = {
+          id: payload.state.id,
+          coderId: payload.state.coderId,
+          adversarialId: payload.state.adversarialId,
+          sessionId: payload.state.sessionId,
+          iteration: payload.state.iteration,
+          maxIterations: payload.state.maxIterations,
+          status: payload.state.status,
+          finalVerdict: payload.state.finalVerdict,
+          startedAt: payload.state.startedAt,
+          completedAt: payload.state.completedAt,
+          reviewCount: payload.state.reviewCount || payload.state.iteration,
+        };
+        updateLoop(updatedLoop);
+      }
+    } else if (message.type === 'review-loop:complete' || message.type === 'review-loop:approved') {
+      fetchLoops();
+    } else if (message.type === 'review-loop:aborted') {
+      removeLoop(payload.loopId);
+    }
+  }, [fetchLoops, updateLoop, removeLoop]);
+
+  useWebSocketEvent('review-loop:start', handleReviewLoopEvent);
+  useWebSocketEvent('review-loop:iteration', handleReviewLoopEvent);
+  useWebSocketEvent('review-loop:review', handleReviewLoopEvent);
+  useWebSocketEvent('review-loop:fix', handleReviewLoopEvent);
+  useWebSocketEvent('review-loop:approved', handleReviewLoopEvent);
+  useWebSocketEvent('review-loop:complete', handleReviewLoopEvent);
+  useWebSocketEvent('review-loop:aborted', handleReviewLoopEvent);
+  useWebSocketEvent('review-loop:error', handleReviewLoopEvent);
+
   const handleLaunch = async () => {
     if (!selectedWorkflow) return;
 
@@ -102,14 +166,52 @@ export default function WorkflowsPage() {
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const handleLaunchReviewLoop = async () => {
+    if (!codeInput.trim()) {
+      setError('Code input is required');
+      return;
+    }
+
+    setLaunchingLoop(true);
+    try {
+      await launchLoop({
+        codeInput,
+        maxIterations,
+      });
+      setReviewLoopDialogOpen(false);
+      setCodeInput('');
+      setMaxIterations(3);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to launch review loop');
+    } finally {
+      setLaunchingLoop(false);
+    }
+  };
+
+  const handleAbortLoop = async (id: string) => {
+    try {
+      await abortLoop(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to abort review loop');
+    }
+  };
+
+  const getStatusColor = (status: string): 'default' | 'primary' | 'success' | 'error' | 'warning' | 'info' => {
     switch (status) {
       case 'running':
+      case 'coding':
+      case 'reviewing':
+      case 'fixing':
         return 'primary';
       case 'completed':
+      case 'approved':
         return 'success';
       case 'failed':
         return 'error';
+      case 'pending':
+        return 'info';
+      case 'max_iterations_reached':
+        return 'warning';
       default:
         return 'default';
     }
@@ -220,6 +322,106 @@ export default function WorkflowsPage() {
         </Box>
       )}
 
+      {/* Review Loops Section */}
+      <Divider sx={{ my: 4 }} />
+      <Box sx={{ mb: 4 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6">Review Loops</Typography>
+          <Button
+            variant="contained"
+            startIcon={<CodeIcon />}
+            onClick={() => setReviewLoopDialogOpen(true)}
+          >
+            New Review Loop
+          </Button>
+        </Box>
+
+        {loopsLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress />
+          </Box>
+        ) : reviewLoops.length === 0 ? (
+          <Card>
+            <CardContent sx={{ textAlign: 'center', py: 4 }}>
+              <Typography color="text.secondary">No active review loops</Typography>
+            </CardContent>
+          </Card>
+        ) : (
+          <Grid container spacing={3}>
+            {reviewLoops.map((loop) => (
+              <Grid item xs={12} md={6} key={loop.id}>
+                <Card>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6" sx={{ fontSize: '1rem' }}>
+                        Review Loop #{loop.id.slice(0, 8)}
+                      </Typography>
+                      <Chip
+                        label={loop.status}
+                        color={getStatusColor(loop.status)}
+                        size="small"
+                      />
+                    </Box>
+
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Iteration: {loop.iteration} / {loop.maxIterations}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Reviews: {loop.reviewCount}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Started: {new Date(loop.startedAt).toLocaleString()}
+                      </Typography>
+                      {loop.completedAt && (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Completed: {new Date(loop.completedAt).toLocaleString()}
+                        </Typography>
+                      )}
+                      {loop.finalVerdict && (
+                        <Chip
+                          label={loop.finalVerdict}
+                          color={loop.finalVerdict === 'APPROVE' ? 'success' : 'error'}
+                          size="small"
+                          sx={{ mt: 1 }}
+                        />
+                      )}
+                    </Box>
+
+                    {(loop.status === 'coding' || loop.status === 'reviewing' || loop.status === 'fixing') && (
+                      <LinearProgress sx={{ mb: 2 }} />
+                    )}
+
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Typography variant="caption" sx={{ px: 1, py: 0.5, bgcolor: 'primary.light', borderRadius: 1 }}>
+                        Coder: {loop.coderId.slice(0, 8)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ px: 1, py: 0.5, bgcolor: 'error.light', borderRadius: 1 }}>
+                        Adversarial: {loop.adversarialId.slice(0, 8)}
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                  <CardActions>
+                    {(loop.status === 'pending' || loop.status === 'coding' || loop.status === 'reviewing' || loop.status === 'fixing') && (
+                      <Button
+                        size="small"
+                        color="error"
+                        startIcon={<StopIcon />}
+                        onClick={() => handleAbortLoop(loop.id)}
+                      >
+                        Abort
+                      </Button>
+                    )}
+                  </CardActions>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        )}
+      </Box>
+
+      <Divider sx={{ my: 4 }} />
+
       {/* Available Workflows */}
       <Typography variant="h6" gutterBottom>
         Available Workflows
@@ -269,7 +471,7 @@ export default function WorkflowsPage() {
         </Grid>
       )}
 
-      {/* Launch Dialog */}
+      {/* Launch Workflow Dialog */}
       <Dialog open={launchDialogOpen} onClose={() => setLaunchDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Launch Workflow</DialogTitle>
         <DialogContent>
@@ -303,6 +505,50 @@ export default function WorkflowsPage() {
             startIcon={launching ? <CircularProgress size={20} /> : <PlayIcon />}
           >
             {launching ? 'Launching...' : 'Launch'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Launch Review Loop Dialog */}
+      <Dialog open={reviewLoopDialogOpen} onClose={() => setReviewLoopDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Launch Review Loop</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Start an iterative code review loop where a coder agent generates code and an adversarial agent reviews it, providing feedback until the code is approved or max iterations are reached.
+            </Typography>
+
+            <TextField
+              fullWidth
+              multiline
+              rows={10}
+              label="Code Requirements"
+              placeholder="Describe what code you want to generate..."
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value)}
+              sx={{ mb: 3 }}
+            />
+
+            <TextField
+              fullWidth
+              type="number"
+              label="Max Iterations"
+              value={maxIterations}
+              onChange={(e) => setMaxIterations(Math.max(1, Math.min(10, parseInt(e.target.value) || 3)))}
+              inputProps={{ min: 1, max: 10 }}
+              helperText="Maximum number of review iterations (1-10)"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReviewLoopDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleLaunchReviewLoop}
+            variant="contained"
+            disabled={launchingLoop || !codeInput.trim()}
+            startIcon={launchingLoop ? <CircularProgress size={20} /> : <CodeIcon />}
+          >
+            {launchingLoop ? 'Starting...' : 'Start Review Loop'}
           </Button>
         </DialogActions>
       </Dialog>

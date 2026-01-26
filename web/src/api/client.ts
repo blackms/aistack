@@ -17,6 +17,10 @@ import type {
   Workflow,
   RunningWorkflow,
   LaunchWorkflowRequest,
+  ReviewLoop,
+  ReviewLoopDetails,
+  LaunchReviewLoopRequest,
+  LaunchReviewLoopResponse,
   SystemStatus,
   HealthCheck,
   Project,
@@ -272,6 +276,24 @@ export const workflowApi = {
   getRunning: () => request<RunningWorkflow[]>('/workflows/running'),
 
   get: (id: string) => request<RunningWorkflow>(`/workflows/${id}`),
+};
+
+// Review Loop API
+export const reviewLoopApi = {
+  list: () => request<ReviewLoop[]>('/review-loops'),
+
+  launch: (data: LaunchReviewLoopRequest) =>
+    request<LaunchReviewLoopResponse>('/review-loops', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  get: (id: string) => request<ReviewLoopDetails>(`/review-loops/${id}`),
+
+  abort: (id: string) =>
+    request<{ loopId: string; status: string }>(`/review-loops/${id}/abort`, {
+      method: 'POST',
+    }),
 };
 
 // System API
