@@ -170,7 +170,7 @@ export const architecturePhase = async (context: WorkflowContext): Promise<Phase
  * Phase 3: Research
  * Research best practices, libraries, and patterns
  */
-export const researchPhase = async (context: WorkflowContext): Promise<PhaseResult> => {
+export const researchPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -195,7 +195,7 @@ export const researchPhase = async (context: WorkflowContext): Promise<PhaseResu
  * Phase 4: Backend Implementation
  * Implement backend API, services, and database
  */
-export const backendPhase = async (context: WorkflowContext): Promise<PhaseResult> => {
+export const backendPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -220,7 +220,7 @@ export const backendPhase = async (context: WorkflowContext): Promise<PhaseResul
  * Phase 5: Frontend Implementation
  * Implement UI components and frontend logic
  */
-export const frontendPhase = async (context: WorkflowContext): Promise<PhaseResult> => {
+export const frontendPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -245,7 +245,7 @@ export const frontendPhase = async (context: WorkflowContext): Promise<PhaseResu
  * Phase 6: Testing
  * Write and run tests for the feature
  */
-export const testingPhase = async (context: WorkflowContext): Promise<PhaseResult> => {
+export const testingPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -281,7 +281,7 @@ export const testingPhase = async (context: WorkflowContext): Promise<PhaseResul
  * Phase 7: Code Review
  * Review code quality, security, and best practices
  */
-export const reviewPhase = async (context: WorkflowContext): Promise<PhaseResult> => {
+export const reviewPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 
@@ -306,7 +306,7 @@ export const reviewPhase = async (context: WorkflowContext): Promise<PhaseResult
  * Phase 8: Documentation
  * Create documentation for the feature
  */
-export const documentationPhase = async (context: WorkflowContext): Promise<PhaseResult> => {
+export const documentationPhase = async (_context: WorkflowContext): Promise<PhaseResult> => {
   const startTime = Date.now();
   const findings: Finding[] = [];
 

@@ -74,7 +74,8 @@ export function createAuthMiddleware(options: { required?: boolean; roles?: stri
         throw new Error('Forbidden');
       }
 
-      // Return auth context
+      // Return auth context (excluding sensitive fields)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { passwordHash, ...userWithoutPassword } = user;
       return {
         authenticated: true,

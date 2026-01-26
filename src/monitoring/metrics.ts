@@ -2,7 +2,6 @@
  * Prometheus metrics collection for monitoring
  */
 
-import { performance } from 'node:perf_hooks';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('metrics');

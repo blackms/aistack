@@ -38,6 +38,7 @@ export function createAuthRoutes(deps: AuthRoutes) {
           body.role || UserRole.DEVELOPER
         );
 
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { passwordHash, ...userWithoutPassword } = user;
 
         res.writeHead(201, { 'Content-Type': 'application/json' });
@@ -72,6 +73,7 @@ export function createAuthRoutes(deps: AuthRoutes) {
           password: body.password,
         });
 
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { passwordHash, ...userWithoutPassword } = result.user;
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -165,7 +167,7 @@ export function createAuthRoutes(deps: AuthRoutes) {
             permissions: auth.permissions,
           })
         );
-      } catch (error) {
+      } catch {
         // Error already handled by middleware
       }
     },
@@ -209,13 +211,13 @@ export function createAuthRoutes(deps: AuthRoutes) {
      */
     async listUsers(req: IncomingMessage, res: ServerResponse): Promise<void> {
       try {
-        const auth = createAuthMiddleware({ required: true, roles: ['admin'] })(req, res);
+        createAuthMiddleware({ required: true, roles: ['admin'] })(req, res);
 
         const users = authService.listUsers();
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ users }));
-      } catch (error) {
+      } catch {
         // Error already handled by middleware
       }
     },
@@ -229,7 +231,7 @@ export function createAuthRoutes(deps: AuthRoutes) {
       userId: string
     ): Promise<void> {
       try {
-        const auth = createAuthMiddleware({ required: true, roles: ['admin'] })(req, res);
+        createAuthMiddleware({ required: true, roles: ['admin'] })(req, res);
         const body = await parseRequestBody(req);
 
         if (!body.role) {
@@ -263,7 +265,7 @@ export function createAuthRoutes(deps: AuthRoutes) {
       userId: string
     ): Promise<void> {
       try {
-        const auth = createAuthMiddleware({ required: true, roles: ['admin'] })(req, res);
+        createAuthMiddleware({ required: true, roles: ['admin'] })(req, res);
 
         authService.deleteUser(userId);
 
