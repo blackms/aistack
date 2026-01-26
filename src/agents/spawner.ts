@@ -9,6 +9,7 @@ import { getProvider } from '../providers/index.js';
 import { ClaudeCodeProvider, GeminiCLIProvider, CodexProvider } from '../providers/cli-providers.js';
 import { logger } from '../utils/logger.js';
 import { getMemoryManager } from '../memory/index.js';
+import { Semaphore, AgentPool } from '../utils/semaphore.js';
 
 const log = logger.child('spawner');
 
@@ -20,6 +21,13 @@ const agentsByName: Map<string, string> = new Map();
 
 // Config reference for persistence
 let configRef: AgentStackConfig | null = null;
+
+// Concurrency control
+// Max 20 concurrent agents to prevent memory exhaustion
+const agentSemaphore = new Semaphore('agents', 20);
+
+// Agent pool for reusing agents (up to 10 pooled agents per type)
+const agentPool = new AgentPool(10);
 
 export interface SpawnOptions {
   name?: string;
@@ -42,6 +50,11 @@ export function spawnAgent(
   const definition = getAgentDefinition(type);
   if (!definition) {
     throw new Error(`Agent definition not found: ${type}`);
+  }
+
+  // Check agent limit
+  if (activeAgents.size >= 20) {
+    throw new Error('Maximum number of concurrent agents reached (20). Stop some agents before spawning more.');
   }
 
   // Save config reference for persistence
@@ -387,4 +400,36 @@ export function restoreAgents(config: AgentStackConfig): number {
     log.error('Failed to restore agents', { error: error instanceof Error ? error.message : 'Unknown error' });
     return 0;
   }
+}
+
+/**
+ * Get concurrency statistics
+ */
+export function getConcurrencyStats(): {
+  agents: {
+    active: number;
+    maxConcurrent: number;
+    byType: Record<string, number>;
+  };
+  semaphore: {
+    available: number;
+    maxPermits: number;
+    queued: number;
+  };
+  pool: Record<string, { total: number; inUse: number; available: number }>;
+} {
+  const byType: Record<string, number> = {};
+  for (const agent of activeAgents.values()) {
+    byType[agent.type] = (byType[agent.type] || 0) + 1;
+  }
+
+  return {
+    agents: {
+      active: activeAgents.size,
+      maxConcurrent: 20,
+      byType,
+    },
+    semaphore: agentSemaphore.getState(),
+    pool: agentPool.getStats(),
+  };
 }

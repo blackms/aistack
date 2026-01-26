@@ -5,8 +5,27 @@
 import type { LLMProvider, ChatMessage, ChatOptions, ChatResponse, AgentStackConfig } from '../types.js';
 import { logger } from '../utils/logger.js';
 import { ClaudeCodeProvider, GeminiCLIProvider, CodexProvider, checkCLIProviders } from './cli-providers.js';
+import { CircuitBreaker, retryWithCircuitBreaker } from '../utils/retry.js';
 
 const log = logger.child('providers');
+
+// Circuit breakers for each provider
+const circuitBreakers = new Map<string, CircuitBreaker>();
+
+/**
+ * Get or create circuit breaker for a provider
+ */
+function getCircuitBreaker(providerName: string): CircuitBreaker {
+  if (!circuitBreakers.has(providerName)) {
+    circuitBreakers.set(providerName, new CircuitBreaker(providerName, {
+      failureThreshold: 5,
+      successThreshold: 2,
+      timeout: 60000,
+      halfOpenRetryDelayMs: 30000,
+    }));
+  }
+  return circuitBreakers.get(providerName)!;
+}
 
 /**
  * Anthropic Claude provider
@@ -22,62 +41,74 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
-    const model = options?.model ?? this.defaultModel;
+    const circuitBreaker = getCircuitBreaker(`anthropic-${this.defaultModel}`);
 
-    // Convert messages format for Anthropic API
-    const systemMessage = messages.find(m => m.role === 'system');
-    const otherMessages = messages.filter(m => m.role !== 'system');
+    return retryWithCircuitBreaker(
+      async () => {
+        const model = options?.model ?? this.defaultModel;
 
-    interface AnthropicMessage {
-      role: 'user' | 'assistant';
-      content: string;
-    }
+        // Convert messages format for Anthropic API
+        const systemMessage = messages.find(m => m.role === 'system');
+        const otherMessages = messages.filter(m => m.role !== 'system');
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
+        interface AnthropicMessage {
+          role: 'user' | 'assistant';
+          content: string;
+        }
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': this.apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: options?.maxTokens ?? 4096,
+            system: systemMessage?.content,
+            messages: otherMessages.map(m => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })) as AnthropicMessage[],
+            temperature: options?.temperature,
+            stop_sequences: options?.stopSequences,
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`Anthropic API error: ${response.status} - ${error}`);
+        }
+
+        interface AnthropicResponse {
+          content: Array<{ type: string; text: string }>;
+          model: string;
+          usage: {
+            input_tokens: number;
+            output_tokens: number;
+          };
+        }
+
+        const data = await response.json() as AnthropicResponse;
+        const textContent = data.content.find(c => c.type === 'text');
+
+        return {
+          content: textContent?.text ?? '',
+          model: data.model,
+          usage: {
+            inputTokens: data.usage.input_tokens,
+            outputTokens: data.usage.output_tokens,
+          },
+        };
       },
-      body: JSON.stringify({
-        model,
-        max_tokens: options?.maxTokens ?? 4096,
-        system: systemMessage?.content,
-        messages: otherMessages.map(m => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        })) as AnthropicMessage[],
-        temperature: options?.temperature,
-        stop_sequences: options?.stopSequences,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Anthropic API error: ${response.status} - ${error}`);
-    }
-
-    interface AnthropicResponse {
-      content: Array<{ type: string; text: string }>;
-      model: string;
-      usage: {
-        input_tokens: number;
-        output_tokens: number;
-      };
-    }
-
-    const data = await response.json() as AnthropicResponse;
-    const textContent = data.content.find(c => c.type === 'text');
-
-    return {
-      content: textContent?.text ?? '',
-      model: data.model,
-      usage: {
-        inputTokens: data.usage.input_tokens,
-        outputTokens: data.usage.output_tokens,
-      },
-    };
+      circuitBreaker,
+      {
+        maxAttempts: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+      }
+    );
   }
 }
 
@@ -95,48 +126,60 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
-    const model = options?.model ?? this.defaultModel;
+    const circuitBreaker = getCircuitBreaker(`openai-${this.defaultModel}`);
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
+    return retryWithCircuitBreaker(
+      async () => {
+        const model = options?.model ?? this.defaultModel;
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            max_tokens: options?.maxTokens ?? 4096,
+            temperature: options?.temperature,
+            stop: options?.stopSequences,
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`OpenAI API error: ${response.status} - ${error}`);
+        }
+
+        interface OpenAIResponse {
+          choices: Array<{ message: { content: string } }>;
+          model: string;
+          usage: {
+            prompt_tokens: number;
+            completion_tokens: number;
+          };
+        }
+
+        const data = await response.json() as OpenAIResponse;
+        const choice = data.choices[0];
+
+        return {
+          content: choice?.message.content ?? '',
+          model: data.model,
+          usage: {
+            inputTokens: data.usage.prompt_tokens,
+            outputTokens: data.usage.completion_tokens,
+          },
+        };
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: options?.maxTokens ?? 4096,
-        temperature: options?.temperature,
-        stop: options?.stopSequences,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`OpenAI API error: ${response.status} - ${error}`);
-    }
-
-    interface OpenAIResponse {
-      choices: Array<{ message: { content: string } }>;
-      model: string;
-      usage: {
-        prompt_tokens: number;
-        completion_tokens: number;
-      };
-    }
-
-    const data = await response.json() as OpenAIResponse;
-    const choice = data.choices[0];
-
-    return {
-      content: choice?.message.content ?? '',
-      model: data.model,
-      usage: {
-        inputTokens: data.usage.prompt_tokens,
-        outputTokens: data.usage.completion_tokens,
-      },
-    };
+      circuitBreaker,
+      {
+        maxAttempts: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+      }
+    );
   }
 
   async embed(text: string): Promise<number[]> {
@@ -184,49 +227,61 @@ export class OllamaProvider implements LLMProvider {
   }
 
   async chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
-    const model = options?.model ?? this.defaultModel;
+    const circuitBreaker = getCircuitBreaker(`ollama-${this.defaultModel}`);
 
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    return retryWithCircuitBreaker(
+      async () => {
+        const model = options?.model ?? this.defaultModel;
+
+        const response = await fetch(`${this.baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            stream: false,
+            options: {
+              temperature: options?.temperature,
+              num_predict: options?.maxTokens,
+              stop: options?.stopSequences,
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`Ollama API error: ${response.status} - ${error}`);
+        }
+
+        interface OllamaResponse {
+          message: { content: string };
+          model: string;
+          eval_count?: number;
+          prompt_eval_count?: number;
+        }
+
+        const data = await response.json() as OllamaResponse;
+
+        return {
+          content: data.message.content,
+          model: data.model,
+          usage: data.eval_count
+            ? {
+                inputTokens: data.prompt_eval_count ?? 0,
+                outputTokens: data.eval_count,
+              }
+            : undefined,
+        };
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: false,
-        options: {
-          temperature: options?.temperature,
-          num_predict: options?.maxTokens,
-          stop: options?.stopSequences,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Ollama API error: ${response.status} - ${error}`);
-    }
-
-    interface OllamaResponse {
-      message: { content: string };
-      model: string;
-      eval_count?: number;
-      prompt_eval_count?: number;
-    }
-
-    const data = await response.json() as OllamaResponse;
-
-    return {
-      content: data.message.content,
-      model: data.model,
-      usage: data.eval_count
-        ? {
-            inputTokens: data.prompt_eval_count ?? 0,
-            outputTokens: data.eval_count,
-          }
-        : undefined,
-    };
+      circuitBreaker,
+      {
+        maxAttempts: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+      }
+    );
   }
 
   async embed(text: string): Promise<number[]> {

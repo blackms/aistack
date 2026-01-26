@@ -17,8 +17,13 @@ import type {
 import { spawnAgent, executeAgent, stopAgent, updateAgentStatus } from '../agents/spawner.js';
 import { logger } from '../utils/logger.js';
 import { getMemoryManager } from '../memory/index.js';
+import { Semaphore } from '../utils/semaphore.js';
 
 const log = logger.child('review-loop');
+
+// Concurrency control for review loops
+// Max 5 concurrent review loops (each loop spawns 2 agents = 10 agents max)
+const reviewLoopSemaphore = new Semaphore('review-loops', 5);
 
 export interface ReviewLoopOptions {
   maxIterations?: number;
@@ -114,27 +119,30 @@ export class ReviewLoopCoordinator extends EventEmitter {
    * Start the review loop
    */
   async start(): Promise<ReviewLoopState> {
-    try {
-      this.emit('loop:start', this.state);
-      log.info('Starting review loop', { id: this.state.id });
+    // Use semaphore to limit concurrent review loops
+    return reviewLoopSemaphore.execute(async () => {
+      try {
+        this.emit('loop:start', this.state);
+        log.info('Starting review loop', { id: this.state.id });
 
-      // Initial code generation
-      await this.generateInitialCode();
+        // Initial code generation
+        await this.generateInitialCode();
 
-      // Run review iterations
-      await this.runLoop();
+        // Run review iterations
+        await this.runLoop();
 
-      return this.state;
-    } catch (error) {
-      this.state.status = 'failed';
-      this.persistState();
-      this.emit('loop:error', error as Error, this.state);
-      log.error('Review loop failed', {
-        id: this.state.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+        return this.state;
+      } catch (error) {
+        this.state.status = 'failed';
+        this.persistState();
+        this.emit('loop:error', error as Error, this.state);
+        log.error('Review loop failed', {
+          id: this.state.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    });
   }
 
   /**
