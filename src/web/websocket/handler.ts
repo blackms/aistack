@@ -18,6 +18,40 @@ const clients: Map<string, {
   unsubscribe: () => void;
 }> = new Map();
 
+// Authentication service (set via setAuthService)
+let authService: any = null;
+
+/**
+ * Set authentication service
+ */
+export function setAuthService(service: any): void {
+  authService = service;
+}
+
+/**
+ * Extract token from query string or headers
+ */
+function extractToken(req: IncomingMessage): string | null {
+  // Try query string first (for WebSocket connections from browser)
+  const url = new URL(req.url || '', `http://${req.headers.host}`);
+  const token = url.searchParams.get('token');
+  if (token) return token;
+
+  // Try Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+
+  // Try x-api-key header
+  const apiKeyHeader = req.headers['x-api-key'];
+  if (typeof apiKeyHeader === 'string') {
+    return apiKeyHeader;
+  }
+
+  return null;
+}
+
 /**
  * Handle WebSocket upgrade request
  */
@@ -40,6 +74,37 @@ export function handleWebSocketUpgrade(
     socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
     socket.destroy();
     return;
+  }
+
+  // Authenticate connection if auth service is available
+  if (authService && process.env.NODE_ENV === 'production') {
+    const token = extractToken(req);
+    if (!token) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      log.warn('WebSocket connection rejected - no token provided');
+      return;
+    }
+
+    try {
+      const payload = authService.verifyAccessToken(token);
+      const user = authService.getUserById(payload.userId);
+      if (!user) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        log.warn('WebSocket connection rejected - user not found');
+        return;
+      }
+      // Store user info for later use
+      (req as any).user = user;
+    } catch (error) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      log.warn('WebSocket connection rejected - invalid token', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      return;
+    }
   }
 
   // Calculate accept key

@@ -11,3 +11,4 @@ export { registerSystemRoutes } from './system.js';
 export { registerProjectRoutes } from './projects.js';
 export { registerSpecificationRoutes } from './specifications.js';
 export { registerFilesystemRoutes } from './filesystem.js';
+export { createAuthRoutes } from './auth.js';

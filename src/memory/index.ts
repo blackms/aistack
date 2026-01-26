@@ -342,6 +342,13 @@ export class MemoryManager {
 
   // ==================== Cleanup ====================
 
+  /**
+   * Get the underlying SQLite store
+   */
+  getStore(): SQLiteStore {
+    return this.sqliteStore;
+  }
+
   close(): void {
     this.sqliteStore.close();
     log.info('Memory manager closed');

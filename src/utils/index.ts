@@ -2,7 +2,7 @@
  * Utility exports
  */
 
-export { logger, createLogger } from './logger.js';
+export { logger, createLogger, initErrorTracking, Sentry } from './logger.js';
 export {
   loadConfig,
   getConfig,

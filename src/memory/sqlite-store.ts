@@ -597,17 +597,22 @@ export class SQLiteStore {
   }
 
   deleteProject(id: string): boolean {
-    // First delete related project tasks and specifications
-    const tasks = this.listProjectTasks(id);
-    for (const task of tasks) {
-      this.deleteProjectTask(task.id);
-    }
+    // Use transaction to ensure atomic deletion of project and related data
+    return this.transaction((db) => {
+      // First delete related project tasks
+      const tasks = this.listProjectTasks(id);
+      for (const task of tasks) {
+        db.prepare('DELETE FROM project_tasks WHERE id = ?').run(task.id);
+      }
 
-    const result = this.db
-      .prepare('DELETE FROM projects WHERE id = ?')
-      .run(id);
+      // Delete project specifications
+      db.prepare('DELETE FROM specifications WHERE project_id = ?').run(id);
 
-    return result.changes > 0;
+      // Delete the project itself
+      const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+
+      return result.changes > 0;
+    });
   }
 
   private rowToProject(row: ProjectRow): Project {
@@ -749,14 +754,16 @@ export class SQLiteStore {
   }
 
   deleteProjectTask(id: string): boolean {
-    // First delete related specifications
-    this.db.prepare('DELETE FROM specifications WHERE project_task_id = ?').run(id);
+    // Use transaction to ensure atomic deletion
+    return this.transaction((db) => {
+      // First delete related specifications
+      db.prepare('DELETE FROM specifications WHERE project_task_id = ?').run(id);
 
-    const result = this.db
-      .prepare('DELETE FROM project_tasks WHERE id = ?')
-      .run(id);
+      // Delete the task itself
+      const result = db.prepare('DELETE FROM project_tasks WHERE id = ?').run(id);
 
-    return result.changes > 0;
+      return result.changes > 0;
+    });
   }
 
   private rowToProjectTask(row: ProjectTaskRow): ProjectTask {
@@ -912,6 +919,23 @@ export class SQLiteStore {
   }
 
   // ==================== Cleanup ====================
+
+  /**
+   * Get the underlying database instance
+   * Used for authentication and other features that need direct DB access
+   */
+  getDatabase(): Database.Database {
+    return this.db;
+  }
+
+  /**
+   * Execute a function within a transaction
+   * Automatically commits on success and rolls back on error
+   */
+  transaction<T>(fn: (db: Database.Database) => T): T {
+    const transaction = this.db.transaction(fn);
+    return transaction(this.db);
+  }
 
   close(): void {
     this.db.close();
