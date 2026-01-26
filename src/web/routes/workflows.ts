@@ -6,7 +6,13 @@ import type { AgentStackConfig } from '../../types.js';
 import type { Router } from '../router.js';
 import { sendJson } from '../router.js';
 import { badRequest, notFound } from '../middleware/error.js';
-import { getWorkflowRunner, docSyncConfig, type WorkflowConfig, type WorkflowPhase } from '../../workflows/index.js';
+import {
+  getWorkflowRunner,
+  docSyncConfig,
+  fullStackFeatureConfig,
+  type WorkflowConfig,
+  type WorkflowPhase,
+} from '../../workflows/index.js';
 import { agentEvents } from '../websocket/event-bridge.js';
 import type { LaunchWorkflowRequest } from '../types.js';
 
@@ -30,6 +36,12 @@ export function registerWorkflowRoutes(router: Router, _config: AgentStackConfig
         description: 'Synchronize documentation with codebase implementation',
         phases: docSyncConfig.phases,
       },
+      {
+        id: 'full-stack-feature',
+        name: 'Full-Stack Feature Pipeline',
+        description: 'End-to-end workflow for implementing a complete full-stack feature',
+        phases: fullStackFeatureConfig.phases,
+      },
     ];
 
     sendJson(res, workflows);
@@ -52,6 +64,12 @@ export function registerWorkflowRoutes(router: Router, _config: AgentStackConfig
       case 'doc-sync':
         workflowConfig = {
           ...docSyncConfig,
+          ...body.config,
+        } as WorkflowConfig;
+        break;
+      case 'full-stack-feature':
+        workflowConfig = {
+          ...fullStackFeatureConfig,
           ...body.config,
         } as WorkflowConfig;
         break;
