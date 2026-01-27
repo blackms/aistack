@@ -67,7 +67,7 @@ flowchart TB
 
 **Components**:
 - Request handler for `ListTools` and `CallTool`
-- 30 registered tools across 6 categories
+- 36 registered tools across 7 categories
 - JSON-RPC style response formatting
 
 **Interfaces**:
@@ -81,7 +81,7 @@ flowchart TB
 **Components**:
 - **Registry**: Maps agent types to definitions
 - **Spawner**: Creates and tracks active agents
-- **Definitions**: 7 built-in agent types
+- **Definitions**: 11 built-in agent types
 
 **Agent Types**:
 
@@ -91,9 +91,13 @@ flowchart TB
 | tester | write-tests, run-tests, coverage-analysis |
 | reviewer | code-review, security-review, best-practices |
 | researcher | search-code, analyze-patterns, gather-requirements |
+| adversarial | attack-surface-analysis, security-testing, vulnerability-detection |
 | architect | system-design, technical-decisions, documentation |
 | coordinator | task-decomposition, agent-coordination |
 | analyst | data-analysis, performance-profiling, metrics |
+| devops | deployment, infrastructure, monitoring |
+| documentation | docs-writing, api-docs, guides |
+| security-auditor | security-audit, compliance-check, threat-modeling |
 
 ### 3.3 Memory Manager Container
 
@@ -248,14 +252,15 @@ sequenceDiagram
 
 | Category | Tool Count | Purpose |
 |----------|------------|---------|
-| Agent | 6 | Spawn, list, stop, status |
+| Agent | 6 | Spawn, list, stop, status, types, update |
 | Memory | 5 | Store, search, get, list, delete |
 | Task | 5 | Create, assign, complete, list, get |
 | Session | 4 | Start, end, status, active |
 | System | 3 | Status, health, config |
 | GitHub | 7 | Issues and PRs |
+| Review Loop | 6 | Start, status, abort, issues, list, get code |
 
-**Total: 30 tools**
+**Total: 36 tools**
 
 ### 5.2 Provider Interface
 

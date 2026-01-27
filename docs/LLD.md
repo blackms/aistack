@@ -13,8 +13,9 @@
 // Internal storage
 const agentRegistry: Map<string, AgentDefinition> = new Map();
 const coreAgentTypes: Set<string> = new Set([
-  'coder', 'researcher', 'tester', 'reviewer',
-  'architect', 'coordinator', 'analyst'
+  'coder', 'researcher', 'tester', 'reviewer', 'adversarial',
+  'architect', 'coordinator', 'analyst', 'devops',
+  'documentation', 'security-auditor'
 ]);
 ```
 
@@ -342,6 +343,14 @@ interface MCPTool {
 - `github_pr_list`: List PRs
 - `github_pr_get`: Get PR details
 - `github_repo_info`: Repository info
+
+**Review Loop Tools** (`review-loop-tools.ts`):
+- `review_loop_start`: Start adversarial review loop
+- `review_loop_status`: Get loop status and details
+- `review_loop_abort`: Stop running review loop
+- `review_loop_issues`: Get detailed issues from reviews
+- `review_loop_list`: List all active review loops
+- `review_loop_get_code`: Get current code from loop
 
 ## 4. Coordination Module (`src/coordination/`)
 

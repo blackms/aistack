@@ -128,6 +128,45 @@ CREATE TABLE IF NOT EXISTS plugins (
 );
 ```
 
+### Users Table
+
+User authentication and authorization.
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,           -- UUID v4
+  email TEXT UNIQUE NOT NULL,    -- User email (unique)
+  username TEXT UNIQUE NOT NULL, -- Username (unique)
+  password_hash TEXT NOT NULL,   -- bcrypt hashed password (10 rounds)
+  role TEXT NOT NULL DEFAULT 'developer', -- 'admin' | 'developer' | 'viewer'
+  created_at TEXT NOT NULL,      -- ISO timestamp
+  updated_at TEXT NOT NULL,      -- ISO timestamp
+  last_login_at TEXT             -- ISO timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+```
+
+### Refresh Tokens Table
+
+JWT refresh token management.
+
+```sql
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id TEXT PRIMARY KEY,           -- UUID v4
+  user_id TEXT NOT NULL,         -- Foreign key to users
+  token_hash TEXT NOT NULL,      -- Hashed refresh token
+  expires_at TEXT NOT NULL,      -- ISO timestamp
+  created_at TEXT NOT NULL,      -- ISO timestamp
+  revoked INTEGER DEFAULT 0,     -- 0 = active, 1 = revoked
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_at);
+```
+
 ## TypeScript Interfaces
 
 ### Memory Entry
@@ -229,8 +268,9 @@ interface SpawnedAgent {
   metadata?: Record<string, unknown>;   // Agent metadata
 }
 
-type AgentType = 'coder' | 'researcher' | 'tester' | 'reviewer' |
-                 'architect' | 'coordinator' | 'analyst';
+type AgentType = 'coder' | 'researcher' | 'tester' | 'reviewer' | 'adversarial' |
+                 'architect' | 'coordinator' | 'analyst' | 'devops' |
+                 'documentation' | 'security-auditor';
 
 type AgentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'stopped';
 ```

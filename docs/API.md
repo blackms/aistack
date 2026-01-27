@@ -6,7 +6,7 @@
 
 AgentStack provides three API surfaces:
 
-1. **MCP Tools** - 30 tools exposed via Model Context Protocol for Claude Code
+1. **MCP Tools** - 36 tools exposed via Model Context Protocol for Claude Code
 2. **Programmatic API** - TypeScript/JavaScript library exports
 3. **CLI Commands** - Command-line interface
 
@@ -26,7 +26,7 @@ Create a new agent instance.
     "type": {
       "type": "string",
       "description": "Type of agent to spawn",
-      "enum": ["coder", "researcher", "tester", "reviewer", "architect", "coordinator", "analyst"]
+      "enum": ["coder", "researcher", "tester", "reviewer", "adversarial", "architect", "coordinator", "analyst", "devops", "documentation", "security-auditor"]
     },
     "name": {
       "type": "string",
@@ -759,6 +759,219 @@ Get repository information.
     "repo": { "type": "string" }
   },
   "required": ["owner", "repo"]
+}
+```
+
+---
+
+### Review Loop Tools
+
+#### `review_loop_start`
+
+Start a new adversarial review loop where a coder agent generates code and an adversarial agent reviews it iteratively.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "Code or task description to review"
+    },
+    "maxIterations": {
+      "type": "number",
+      "description": "Maximum review iterations (default: 3, max: 10)"
+    },
+    "sessionId": {
+      "type": "string",
+      "description": "Session ID to associate with"
+    }
+  },
+  "required": ["code"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "loop": {
+    "id": "uuid-v4",
+    "status": "approved",
+    "iteration": 2,
+    "maxIterations": 3,
+    "coderId": "agent-uuid",
+    "adversarialId": "agent-uuid",
+    "reviewCount": 2,
+    "finalVerdict": "APPROVED"
+  },
+  "finalCode": "...",
+  "message": "Code approved after 2 iteration(s)"
+}
+```
+
+---
+
+#### `review_loop_status`
+
+Get the current status and details of a review loop.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "loopId": { "type": "string", "description": "Review loop ID" }
+  },
+  "required": ["loopId"]
+}
+```
+
+**Response**:
+```json
+{
+  "found": true,
+  "loop": {
+    "id": "uuid-v4",
+    "status": "running",
+    "iteration": 1,
+    "maxIterations": 3
+  },
+  "latestReview": {
+    "verdict": "NEEDS_CHANGES",
+    "issueCount": 3,
+    "timestamp": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### `review_loop_abort`
+
+Stop a running review loop.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "loopId": { "type": "string", "description": "Review loop ID to abort" }
+  },
+  "required": ["loopId"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Review loop aborted"
+}
+```
+
+---
+
+#### `review_loop_issues`
+
+Get detailed issues from all reviews in a loop.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "loopId": { "type": "string", "description": "Review loop ID" }
+  },
+  "required": ["loopId"]
+}
+```
+
+**Response**:
+```json
+{
+  "found": true,
+  "loopId": "uuid-v4",
+  "reviews": [
+    {
+      "iteration": 1,
+      "reviewId": "review-uuid",
+      "verdict": "NEEDS_CHANGES",
+      "issueCount": 2,
+      "issues": [
+        {
+          "id": "issue-uuid",
+          "severity": "high",
+          "title": "SQL Injection vulnerability",
+          "location": "file.ts:42",
+          "attackVector": "...",
+          "impact": "...",
+          "requiredFix": "..."
+        }
+      ],
+      "timestamp": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+#### `review_loop_list`
+
+List all active review loops.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+**Response**:
+```json
+{
+  "count": 2,
+  "loops": [
+    {
+      "id": "uuid-v4",
+      "status": "running",
+      "iteration": 1,
+      "maxIterations": 3
+    }
+  ]
+}
+```
+
+---
+
+#### `review_loop_get_code`
+
+Get the current code from a review loop.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "loopId": { "type": "string", "description": "Review loop ID" }
+  },
+  "required": ["loopId"]
+}
+```
+
+**Response**:
+```json
+{
+  "found": true,
+  "loopId": "uuid-v4",
+  "status": "approved",
+  "iteration": 2,
+  "originalInput": "...",
+  "currentCode": "...",
+  "finalVerdict": "APPROVED"
 }
 ```
 

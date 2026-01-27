@@ -2,24 +2,27 @@
 
 # aistack
 
-### Multi-Agent Orchestration for Claude Code
+### Ultra-Modern Multi-Agent Orchestration for Claude Code
 
-[![GitHub stars](https://img.shields.io/github/stars/blackms/aistack?style=flat-square)](https://github.com/blackms/aistack/stargazers)
-[![CI](https://github.com/blackms/aistack/actions/workflows/ci.yml/badge.svg)](https://github.com/blackms/aistack/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/blackms/aistack/branch/main/graph/badge.svg)](https://codecov.io/gh/blackms/aistack)
-[![npm version](https://img.shields.io/npm/v/@blackms/aistack?style=flat-square&color=CB3837&logo=npm)](https://www.npmjs.com/package/@blackms/aistack)
-[![npm downloads](https://img.shields.io/npm/dm/@blackms/aistack?style=flat-square&color=CB3837)](https://www.npmjs.com/package/@blackms/aistack)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-
-<br/>
-
-**Production-ready agent orchestration with persistent memory, MCP integration, and real-time web dashboard.**
+[![npm version](https://img.shields.io/npm/v/@blackms/aistack?style=for-the-badge&color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@blackms/aistack)
+[![CI](https://img.shields.io/github/actions/workflow/status/blackms/aistack/ci.yml?style=for-the-badge&logo=github&logoColor=white)](https://github.com/blackms/aistack/actions/workflows/ci.yml)
+[![codecov](https://img.shields.io/codecov/c/github/blackms/aistack?style=for-the-badge&logo=codecov&logoColor=white)](https://codecov.io/gh/blackms/aistack)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
 
 <br/>
 
-[Get Started](#-quick-start) · [Architecture](#-architecture) · [Web Dashboard](#-web-dashboard) · [API Reference](#-mcp-tools) · [Documentation](./docs)
+**Production-grade agent orchestration with adversarial validation, persistent memory, and real-time web dashboard.**
 
 <br/>
+
+[Quick Start](#-quick-start) · [Architecture](#-architecture) · [MCP Tools](#-mcp-tools) · [Web Dashboard](#-web-dashboard) · [API Reference](#-programmatic-api)
+
+<br/>
+
+```
+11 agents · 36 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Adversarial review
+```
 
 </div>
 
@@ -27,11 +30,7 @@
 
 ## Why aistack?
 
-Coordinate specialized AI agents through Claude Code with persistent context, hierarchical task management, and seamless extensibility.
-
-```
-7 agents · 30 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Plugin system
-```
+Coordinate specialized AI agents through Claude Code with **adversarial validation**, persistent context, hierarchical task management, and seamless extensibility. Built for production workflows with comprehensive testing, CI/CD, and NPM distribution.
 
 ---
 
@@ -39,203 +38,176 @@ Coordinate specialized AI agents through Claude Code with persistent context, hi
 
 <table>
 <tr>
-<td align="center" width="96">
-<img src="https://cdn.simpleicons.org/nodedotjs/339933" width="48" height="48" alt="Node.js" />
-<br/>Node.js 20+
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/nodedotjs/339933" width="64" height="64" alt="Node.js" />
+<br/><b>Node.js 20+</b>
 </td>
-<td align="center" width="96">
-<img src="https://cdn.simpleicons.org/typescript/3178C6" width="48" height="48" alt="TypeScript" />
-<br/>TypeScript
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/typescript/3178C6" width="64" height="64" alt="TypeScript" />
+<br/><b>TypeScript</b>
 </td>
-<td align="center" width="96">
-<img src="https://cdn.simpleicons.org/sqlite/003B57" width="48" height="48" alt="SQLite" />
-<br/>SQLite + FTS5
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/sqlite/003B57" width="64" height="64" alt="SQLite" />
+<br/><b>SQLite + FTS5</b>
 </td>
-<td align="center" width="96">
-<img src="https://cdn.simpleicons.org/react/61DAFB" width="48" height="48" alt="React" />
-<br/>React 18
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/vitest/6E9F18" width="64" height="64" alt="Vitest" />
+<br/><b>Vitest</b>
 </td>
 </tr>
 <tr>
-<td align="center" width="96">
-<img src="https://cdn.simpleicons.org/anthropic/191919" width="48" height="48" alt="Anthropic" />
-<br/>Anthropic
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/react/61DAFB" width="64" height="64" alt="React" />
+<br/><b>React 18</b>
 </td>
-<td align="center" width="96">
-<img src="https://cdn.simpleicons.org/openai/412991" width="48" height="48" alt="OpenAI" />
-<br/>OpenAI
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/mui/007FFF" width="64" height="64" alt="Material-UI" />
+<br/><b>Material-UI</b>
 </td>
-<td align="center" width="96">
-<img src="https://cdn.simpleicons.org/ollama/000000" width="48" height="48" alt="Ollama" />
-<br/>Ollama
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/vite/646CFF" width="64" height="64" alt="Vite" />
+<br/><b>Vite</b>
 </td>
-<td align="center" width="96">
-<img src="https://cdn.simpleicons.org/vite/646CFF" width="48" height="48" alt="Vite" />
-<br/>Vite
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/anthropic/191919" width="64" height="64" alt="Anthropic" />
+<br/><b>Anthropic</b>
+</td>
+</tr>
+<tr>
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/openai/412991" width="64" height="64" alt="OpenAI" />
+<br/><b>OpenAI</b>
+</td>
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/ollama/000000" width="64" height="64" alt="Ollama" />
+<br/><b>Ollama</b>
+</td>
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/github/181717" width="64" height="64" alt="GitHub" />
+<br/><b>GitHub Actions</b>
+</td>
+<td align="center" width="120">
+<img src="https://cdn.simpleicons.org/npm/CB3837" width="64" height="64" alt="NPM" />
+<br/><b>NPM Package</b>
 </td>
 </tr>
 </table>
 
 ---
 
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Specialized Agents** | 7 built-in agent types: coder, researcher, tester, reviewer, architect, coordinator, analyst |
-| **Persistent Memory** | SQLite with FTS5 full-text search and optional vector embeddings |
-| **MCP Integration** | 30 tools exposed via Model Context Protocol for Claude Code |
-| **Web Dashboard** | Real-time dashboard with 9 pages for visual management and monitoring |
-| **REST API + WebSocket** | 50+ HTTP endpoints with live WebSocket event streaming |
-| **Hierarchical Coordination** | Task queue, message bus, and coordinator pattern |
-| **Multi-Provider Support** | 3 API providers (Anthropic, OpenAI, Ollama) + 3 CLI providers (Claude, Gemini, Codex) |
-| **Plugin System** | Runtime extensibility for agents, tools, hooks, and providers |
-| **Workflow Engine** | Multi-phase workflows with adversarial validation |
-
----
-
-## Quick Start
-
-### Installation
-
-```bash
-npm install @blackms/aistack
-```
-
-### Initialize & Connect
-
-```bash
-# Initialize project
-npx @blackms/aistack init
-
-# Add to Claude Code
-claude mcp add aistack -- npx @blackms/aistack mcp start
-
-# Verify installation
-npx @blackms/aistack status
-```
-
-### Start Web Dashboard
-
-```bash
-# Start backend + web dashboard
-npx @blackms/aistack web start
-
-# Open http://localhost:3001
-```
-
-### Configuration
-
-Create `aistack.config.json`:
-
-```json
-{
-  "version": "1.0.0",
-  "providers": {
-    "default": "anthropic",
-    "anthropic": { "apiKey": "${ANTHROPIC_API_KEY}" }
-  },
-  "memory": {
-    "path": "./data/aistack.db",
-    "vectorSearch": { "enabled": false }
-  }
-}
-```
-
----
-
 ## Architecture
+
+### System Overview
 
 ```mermaid
 graph TB
     subgraph Clients["Client Layer"]
         CC[Claude Code IDE]
-        CLI[CLI]
+        CLI[CLI Tool]
         WEB[Web Dashboard]
     end
 
-    subgraph "aistack"
+    subgraph Transport["Transport Layer"]
         MCP["MCP Server<br/><small>stdio transport</small>"]
         HTTP["HTTP Server<br/><small>REST API</small>"]
         WS["WebSocket<br/><small>Real-time events</small>"]
-
-        subgraph Core["Core Services"]
-            AM[Agent Manager]
-            MM[Memory Manager]
-            TQ[Task Queue]
-            MB[Message Bus]
-        end
-
-        subgraph Agents["Agent Pool"]
-            direction LR
-            A1[Coder]
-            A2[Tester]
-            A3[Reviewer]
-            A4[Architect]
-            A5[Researcher]
-            A6[Coordinator]
-            A7[Analyst]
-        end
-
-        subgraph Storage["Persistence"]
-            SQL[(SQLite)]
-            FTS[FTS5 Index]
-            VEC[Vector Store]
-        end
-
-        subgraph Providers["LLM Providers"]
-            ANT[Anthropic]
-            OAI[OpenAI]
-            OLL[Ollama]
-        end
     end
 
-    CC <-->|"MCP/stdio"| MCP
-    CLI <-->|"HTTP"| HTTP
-    WEB <-->|"HTTP + WS"| HTTP & WS
+    subgraph Services["Service Layer"]
+        AM[Agent Manager]
+        MM[Memory Manager]
+        TQ[Task Queue]
+        MB[Message Bus]
+        WE[Workflow Engine]
+        RL[Review Loop]
+    end
+
+    subgraph Agents["Agent Pool (11 Types)"]
+        direction LR
+        A1[Coder]
+        A2[Researcher]
+        A3[Tester]
+        A4[Reviewer]
+        A5[Adversarial]
+        A6[Architect]
+        A7[Coordinator]
+        A8[Analyst]
+        A9[DevOps]
+        A10[Documentation]
+        A11[Security Auditor]
+    end
+
+    subgraph Storage["Storage Layer"]
+        SQL[(SQLite)]
+        FTS[FTS5 Search]
+        VEC[Vector Store]
+        AUTH[JWT + RBAC]
+    end
+
+    subgraph Providers["LLM Providers (6)"]
+        ANT[Anthropic API]
+        OAI[OpenAI API]
+        OLL[Ollama API]
+        CLC[ClaudeCode CLI]
+        GEM[Gemini CLI]
+        CDX[Codex CLI]
+    end
+
+    CC <-->|MCP/stdio| MCP
+    CLI <-->|HTTP| HTTP
+    WEB <-->|HTTP + WS| HTTP & WS
 
     MCP & HTTP --> AM & MM
     WS --> MB
     AM --> TQ --> MB
-    MB --> A1 & A2 & A3 & A4 & A5 & A6 & A7
+    MB --> A1 & A2 & A3 & A4 & A5 & A6 & A7 & A8 & A9 & A10 & A11
     MM --> SQL --> FTS & VEC
-    AM -.-> ANT & OAI & OLL
+    SQL --> AUTH
+    AM --> RL
+    RL --> A1 & A5
+    AM -.-> ANT & OAI & OLL & CLC & GEM & CDX
 ```
 
-### Deployment Overview
+**Code:** `/src/agents/registry.ts:24-36`, `/src/mcp/server.ts`, `/src/web/server.ts`, `/src/memory/sqlite-store.ts`
+
+### Adversarial Review Loop
 
 ```mermaid
-C4Deployment
-    title Deployment Diagram - Local Machine
+sequenceDiagram
+    participant User as User
+    participant MCP as MCP Server
+    participant RL as Review Loop
+    participant Coder as Coder Agent
+    participant Adv as Adversarial Agent
+    participant DB as SQLite
 
-    Deployment_Node(local, "Local Machine", "Developer Workstation") {
-        Deployment_Node(npm, "npm", "Node.js 20+") {
-            Container(aistack, "aistack", "TypeScript", "MCP Server + HTTP Server + WebSocket")
-            ContainerDb(sqlite, "SQLite", "better-sqlite3", "Memory + FTS5 + Vector")
-        }
-        Deployment_Node(browser, "Browser", "Chrome/Firefox/Safari") {
-            Container(dashboard, "Web Dashboard", "React 18 + Vite", "Management UI")
-        }
-        Deployment_Node(ide, "IDE", "VS Code") {
-            Container(claude, "Claude Code", "Extension", "AI Assistant")
-        }
-    }
+    User->>MCP: review_loop_start(code)
+    MCP->>RL: createReviewLoop()
+    RL->>Coder: spawn("coder")
+    RL->>Adv: spawn("adversarial")
 
-    Deployment_Node(cloud, "Cloud Services", "External") {
-        Container(anthropic, "Anthropic API", "HTTPS", "Claude models")
-        Container(openai, "OpenAI API", "HTTPS", "GPT models")
-        Container(ollama_remote, "Ollama", "Local/Remote", "Local LLMs")
-    }
+    loop Max 3 iterations
+        RL->>Coder: generate_code(task)
+        Coder-->>RL: code_v1
+        RL->>Adv: review(code_v1)
+        Adv-->>RL: verdict + issues
 
-    Rel(claude, aistack, "MCP/stdio")
-    Rel(dashboard, aistack, "HTTP + WebSocket")
-    Rel(aistack, sqlite, "SQL")
-    Rel(aistack, anthropic, "HTTPS")
-    Rel(aistack, openai, "HTTPS")
-    Rel(aistack, ollama_remote, "HTTP")
+        alt APPROVED
+            RL->>DB: persist(APPROVED)
+            RL-->>MCP: final_code
+        else REJECTED
+            RL->>Coder: fix(issues)
+            Note over RL,Coder: Iterate
+        end
+    end
+
+    RL->>DB: persist(final_state)
+    MCP-->>User: { status, code, reviews }
 ```
 
-### Request Flow
+**Code:** `/src/coordination/review-loop.ts`, `/src/mcp/tools/review-loop-tools.ts`, `/src/agents/definitions/adversarial.ts`
+
+### MCP Integration Flow
 
 ```mermaid
 sequenceDiagram
@@ -265,156 +237,249 @@ sequenceDiagram
     MCP-->>CC: { results }
 ```
 
+**Code:** `/src/mcp/server.ts`, `/src/agents/spawner.ts`, `/src/memory/sqlite-store.ts`
+
 ---
 
-## Web Dashboard
+## Features
 
-The built-in web dashboard provides visual management and real-time monitoring of your agent orchestration.
+### Agent System
 
-### Starting the Dashboard
+| Feature | Implementation | Code Reference |
+|---------|---------------|----------------|
+| **11 Agent Types** | coder, researcher, tester, reviewer, adversarial, architect, coordinator, analyst, devops, documentation, security-auditor | `/src/agents/registry.ts:24-36` |
+| **Agent Spawning** | Unique IDs, session association, metadata | `/src/agents/spawner.ts` |
+| **Agent Lifecycle** | Active, idle, stopped states with transitions | `/src/agents/spawner.ts:50-120` |
+| **Agent Definitions** | System prompts, capabilities, provider selection | `/src/agents/definitions/` |
+| **Custom Agents** | Plugin system for registering custom agent types | `/src/agents/registry.ts:92-104` |
+
+### Memory & Knowledge
+
+| Feature | Implementation | Code Reference |
+|---------|---------------|----------------|
+| **SQLite Storage** | Persistent memory with ACID guarantees | `/src/memory/sqlite-store.ts` |
+| **FTS5 Full-Text Search** | Fast semantic search across memory entries | `/src/memory/sqlite-store.ts:30-126` |
+| **Vector Embeddings** | Optional vector search with OpenAI/Ollama embeddings | `/src/memory/sqlite-store.ts:37`, `/src/providers/index.ts:185-213` |
+| **Memory Relationships** | Graph-like memory with typed relationships | `/src/memory/sqlite-store.ts:71-86` |
+| **Memory Versions** | Full version history with rollback support | `/src/memory/sqlite-store.ts:88-100` |
+| **Namespaces & Tags** | Organize memory with namespaces and tagging | `/src/memory/sqlite-store.ts:33-69` |
+
+### Coordination
+
+| Feature | Implementation | Code Reference |
+|---------|---------------|----------------|
+| **Adversarial Review Loop** | Coder ↔ Adversarial iterative validation (max 3 iterations) | `/src/coordination/review-loop.ts` |
+| **Task Queue** | Priority queue with assignment and completion tracking | `/src/coordination/task-queue.ts` |
+| **Message Bus** | Event-driven communication between agents | `/src/coordination/message-bus.ts` |
+| **Workflow Engine** | Multi-phase workflows with state transitions | `/src/workflows/` |
+| **Coordinator Pattern** | Hierarchical agent orchestration | `/src/agents/definitions/coordinator.ts` |
+
+### Web Dashboard
+
+| Feature | Implementation | Code Reference |
+|---------|---------------|----------------|
+| **11 Dashboard Pages** | Dashboard, Agents, Memory, Tasks, TaskDetail, Projects, ProjectDetail, Sessions, Workflows, Chat, Settings | `/web/src/pages/*.tsx` |
+| **Real-Time Updates** | WebSocket events for live status updates | `/src/web/websocket/` |
+| **React 18 + Material-UI** | Modern responsive UI with dark mode | `/web/src/` |
+| **Zustand State Management** | Client-side state with persistence | `/web/src/stores/` |
+| **Agent Spawning UI** | Visual agent creation and management | `/web/src/pages/AgentsPage.tsx` |
+
+### Authentication & Security
+
+| Feature | Implementation | Code Reference |
+|---------|---------------|----------------|
+| **JWT Authentication** | Token-based auth with expiration | `/src/auth/service.ts:6-23` |
+| **BCrypt Password Hashing** | Secure password storage (10 salt rounds) | `/src/auth/service.ts:7,21` |
+| **Role-Based Access Control** | User roles: ADMIN, DEVELOPER, VIEWER | `/src/auth/types.ts:16-20` |
+| **Security Auditor Agent** | Dedicated agent for security review | `/src/agents/definitions/security-auditor.ts` |
+
+### API & Integration
+
+| Feature | Implementation | Code Reference |
+|---------|---------------|----------------|
+| **REST API** | HTTP endpoints across 12 route modules | `/src/web/routes/` |
+| **WebSocket Events** | Real-time event streaming with event bridge | `/src/web/websocket/` |
+| **MCP Protocol** | 36 MCP tools for Claude Code integration | `/src/mcp/tools/` |
+| **GitHub Integration** | Issue/PR creation, repo info, webhooks | `/src/github/`, `/src/mcp/tools/github-tools.ts` |
+| **Plugin System** | Runtime extensibility for agents, tools, hooks | `/src/plugins/` |
+
+### LLM Providers
+
+| Provider | Type | Default Model | Embeddings | Code Reference |
+|----------|------|---------------|------------|----------------|
+| **Anthropic** | API | claude-sonnet-4-20250514 | - | `/src/providers/index.ts:33-113` |
+| **OpenAI** | API | gpt-4o | text-embedding-3-small | `/src/providers/index.ts:118-214` |
+| **Ollama** | API | llama3.2 | nomic-embed-text | `/src/providers/index.ts:219-311` |
+| **ClaudeCode** | CLI | sonnet | - | `/src/providers/cli-providers.ts` |
+| **Gemini** | CLI | gemini-2.0-flash | - | `/src/providers/cli-providers.ts` |
+| **Codex** | CLI | - | - | `/src/providers/cli-providers.ts` |
+
+---
+
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
-# Start the web server (includes dashboard)
+npm install @blackms/aistack
+```
+
+### Initialize & Connect to Claude Code
+
+```bash
+# Initialize project structure
+npx @blackms/aistack init
+
+# Add to Claude Code MCP
+claude mcp add aistack -- npx @blackms/aistack mcp start
+
+# Verify installation
+npx @blackms/aistack status
+```
+
+### Start Web Dashboard
+
+```bash
+# Start backend + web dashboard
 npx @blackms/aistack web start
 
-# Open in browser
-open http://localhost:3001
+# Open http://localhost:3001
 ```
 
-### Dashboard Pages
+### Configuration
 
-| Page | Description |
-|------|-------------|
-| **Dashboard** | System overview with agent status, memory stats, and recent activity |
-| **Agents** | Spawn, monitor, and manage agents in real-time |
-| **Memory** | Browse, search, and manage memory entries with FTS5 |
-| **Tasks** | View task queue, status, and completion history |
-| **Projects** | Project management with task workflows |
-| **Project Detail** | Deep dive into project tasks and specifications |
-| **Task Detail** | Task lifecycle with phase transitions |
-| **Workflows** | Define and run multi-phase workflows |
-| **Chat** | Interactive agent chat interface |
+Create `aistack.config.json` in your project root:
 
-### Web Dashboard Flow
+```json
+{
+  "version": "1.0.0",
+  "providers": {
+    "default": "anthropic",
+    "anthropic": {
+      "apiKey": "${ANTHROPIC_API_KEY}",
+      "model": "claude-sonnet-4-20250514"
+    },
+    "openai": {
+      "apiKey": "${OPENAI_API_KEY}",
+      "model": "gpt-4o"
+    },
+    "ollama": {
+      "baseUrl": "http://localhost:11434",
+      "model": "llama3.2"
+    }
+  },
+  "memory": {
+    "path": "./data/aistack.db",
+    "vectorSearch": {
+      "enabled": false,
+      "provider": "openai"
+    }
+  },
+  "auth": {
+    "enabled": true,
+    "jwtSecret": "${JWT_SECRET}"
+  }
+}
+```
 
-```mermaid
-sequenceDiagram
-    participant User as Browser
-    participant WS as WebSocket
-    participant HTTP as HTTP Server
-    participant Core as Core Services
-    participant DB as SQLite
+### Basic Usage
 
-    User->>HTTP: GET /api/system/status
-    HTTP->>Core: getSystemStatus()
-    Core-->>HTTP: SystemStatus
-    HTTP-->>User: { agents, memory, tasks }
+```bash
+# Spawn an agent
+npx @blackms/aistack agent spawn -t coder -n my-coder
 
-    User->>WS: Connect ws://localhost:3001
-    WS-->>User: Connected
+# Store memory
+npx @blackms/aistack memory store -k "pattern:di" -c "Use dependency injection"
 
-    User->>HTTP: POST /api/agents
-    HTTP->>Core: spawnAgent("coder")
-    Core->>WS: emit("agent:spawned")
-    WS-->>User: { event: "agent:spawned", data }
-    HTTP-->>User: { agent }
+# Search memory
+npx @blackms/aistack memory search -q "dependency injection"
 
-    Note over User,WS: Real-time updates via WebSocket
-
-    Core->>WS: emit("task:completed")
-    WS-->>User: { event: "task:completed", data }
+# Start adversarial review loop
+npx @blackms/aistack workflow run adversarial-review
 ```
 
 ---
 
-## Agents
-
-<table>
-<tr>
-<th>Agent</th>
-<th>Purpose</th>
-<th>Capabilities</th>
-</tr>
-<tr>
-<td><b>coder</b></td>
-<td>Write and modify code</td>
-<td><code>write-code</code> <code>edit-code</code> <code>refactor</code> <code>debug</code> <code>implement-features</code></td>
-</tr>
-<tr>
-<td><b>researcher</b></td>
-<td>Gather information</td>
-<td><code>search-code</code> <code>read-documentation</code> <code>analyze-patterns</code> <code>gather-requirements</code> <code>explore-codebase</code></td>
-</tr>
-<tr>
-<td><b>tester</b></td>
-<td>Test and validate</td>
-<td><code>write-tests</code> <code>run-tests</code> <code>identify-edge-cases</code> <code>coverage-analysis</code> <code>test-debugging</code></td>
-</tr>
-<tr>
-<td><b>reviewer</b></td>
-<td>Quality assurance</td>
-<td><code>code-review</code> <code>security-review</code> <code>performance-review</code> <code>best-practices</code> <code>feedback</code></td>
-</tr>
-<tr>
-<td><b>architect</b></td>
-<td>System design</td>
-<td><code>system-design</code> <code>technical-decisions</code> <code>architecture-review</code> <code>documentation</code> <code>trade-off-analysis</code></td>
-</tr>
-<tr>
-<td><b>coordinator</b></td>
-<td>Orchestrate work</td>
-<td><code>task-decomposition</code> <code>agent-coordination</code> <code>progress-tracking</code> <code>result-synthesis</code> <code>workflow-management</code></td>
-</tr>
-<tr>
-<td><b>analyst</b></td>
-<td>Data insights</td>
-<td><code>data-analysis</code> <code>performance-profiling</code> <code>metrics-collection</code> <code>trend-analysis</code> <code>reporting</code></td>
-</tr>
-</table>
-
----
-
-## MCP Tools
+## 📦 MCP Tools
 
 ### Agent Tools (6)
-```
-agent_spawn          agent_list           agent_stop
-agent_status         agent_types          agent_update_status
-```
+
+| Tool | Description | Input | Code |
+|------|-------------|-------|------|
+| `agent_spawn` | Spawn a new agent | `{ type, name?, sessionId?, metadata? }` | `/src/mcp/tools/agent-tools.ts:45` |
+| `agent_list` | List active agents | `{ sessionId? }` | `/src/mcp/tools/agent-tools.ts:90` |
+| `agent_stop` | Stop an agent | `{ id?, name? }` | `/src/mcp/tools/agent-tools.ts:117` |
+| `agent_status` | Get agent status | `{ id?, name? }` | `/src/mcp/tools/agent-tools.ts:144` |
+| `agent_types` | List available agent types | `{}` | `/src/mcp/tools/agent-tools.ts:188` |
+| `agent_update_status` | Update agent status | `{ id, status }` | `/src/mcp/tools/agent-tools.ts:214` |
 
 ### Memory Tools (5)
-```
-memory_store         memory_search        memory_get
-memory_list          memory_delete
-```
+
+| Tool | Description | Input | Code |
+|------|-------------|-------|------|
+| `memory_store` | Store memory entry | `{ key, content, namespace?, metadata? }` | `/src/mcp/tools/memory-tools.ts:43` |
+| `memory_search` | Search with FTS5 | `{ query, namespace?, limit? }` | `/src/mcp/tools/memory-tools.ts:86` |
+| `memory_get` | Get by key | `{ key, namespace? }` | `/src/mcp/tools/memory-tools.ts:132` |
+| `memory_list` | List all entries | `{ namespace?, limit?, offset? }` | `/src/mcp/tools/memory-tools.ts:169` |
+| `memory_delete` | Delete entry | `{ key, namespace? }` | `/src/mcp/tools/memory-tools.ts:202` |
 
 ### Task Tools (5)
-```
-task_create          task_assign          task_complete
-task_list            task_get
-```
+
+| Tool | Description | Input | Code |
+|------|-------------|-------|------|
+| `task_create` | Create a new task | `{ title, description, metadata? }` | `/src/mcp/tools/task-tools.ts:37` |
+| `task_assign` | Assign task to agent | `{ taskId, agentId }` | `/src/mcp/tools/task-tools.ts:78` |
+| `task_complete` | Mark task complete | `{ taskId, result? }` | `/src/mcp/tools/task-tools.ts:109` |
+| `task_list` | List tasks | `{ status?, agentId? }` | `/src/mcp/tools/task-tools.ts:146` |
+| `task_get` | Get task details | `{ taskId }` | `/src/mcp/tools/task-tools.ts:176` |
 
 ### Session Tools (4)
-```
-session_start        session_end          session_status
-session_active
-```
+
+| Tool | Description | Input | Code |
+|------|-------------|-------|------|
+| `session_start` | Start new session | `{ metadata? }` | `/src/mcp/tools/session-tools.ts:23` |
+| `session_end` | End session | `{ sessionId }` | `/src/mcp/tools/session-tools.ts:56` |
+| `session_status` | Get session status | `{ sessionId }` | `/src/mcp/tools/session-tools.ts:85` |
+| `session_active` | List active sessions | `{}` | `/src/mcp/tools/session-tools.ts:138` |
 
 ### System Tools (3)
-```
-system_status        system_health        system_config
-```
+
+| Tool | Description | Input | Code |
+|------|-------------|-------|------|
+| `system_status` | Get system status | `{}` | `/src/mcp/tools/system-tools.ts:12` |
+| `system_health` | Health check | `{}` | `/src/mcp/tools/system-tools.ts:52` |
+| `system_config` | Get config | `{}` | `/src/mcp/tools/system-tools.ts:131` |
 
 ### GitHub Tools (7)
-```
-github_issue_create  github_issue_list    github_issue_get
-github_pr_create     github_pr_list       github_pr_get
-github_repo_info
-```
+
+| Tool | Description | Input | Code |
+|------|-------------|-------|------|
+| `github_issue_create` | Create issue | `{ owner, repo, title, body }` | `/src/mcp/tools/github-tools.ts:94` |
+| `github_issue_list` | List issues | `{ owner, repo, state? }` | `/src/mcp/tools/github-tools.ts:137` |
+| `github_issue_get` | Get issue | `{ owner, repo, number }` | `/src/mcp/tools/github-tools.ts:170` |
+| `github_pr_create` | Create PR | `{ owner, repo, title, body, head, base }` | `/src/mcp/tools/github-tools.ts:198` |
+| `github_pr_list` | List PRs | `{ owner, repo, state? }` | `/src/mcp/tools/github-tools.ts:240` |
+| `github_pr_get` | Get PR | `{ owner, repo, number }` | `/src/mcp/tools/github-tools.ts:273` |
+| `github_repo_info` | Get repo info | `{ owner, repo }` | `/src/mcp/tools/github-tools.ts:301` |
+
+### Review Loop Tools (6)
+
+| Tool | Description | Input | Code |
+|------|-------------|-------|------|
+| `review_loop_start` | Start adversarial review | `{ code, maxIterations?, sessionId? }` | `/src/mcp/tools/review-loop-tools.ts:46` |
+| `review_loop_status` | Get loop status | `{ loopId }` | `/src/mcp/tools/review-loop-tools.ts:84` |
+| `review_loop_abort` | Stop review loop | `{ loopId }` | `/src/mcp/tools/review-loop-tools.ts:121` |
+| `review_loop_issues` | Get review issues | `{ loopId }` | `/src/mcp/tools/review-loop-tools.ts:142` |
+| `review_loop_list` | List active loops | `{}` | `/src/mcp/tools/review-loop-tools.ts:188` |
+| `review_loop_get_code` | Get loop code | `{ loopId }` | `/src/mcp/tools/review-loop-tools.ts:205` |
+
+**Total: 36 MCP Tools**
 
 ---
 
-## Programmatic API
+## 💻 Programmatic API
+
+### TypeScript SDK
 
 ```typescript
 import {
@@ -422,20 +487,39 @@ import {
   getMemoryManager,
   startMCPServer,
   getConfig,
+  createReviewLoop,
 } from '@blackms/aistack';
 
 // Spawn an agent
-const agent = spawnAgent('coder', { name: 'my-coder' });
-
-// Use memory with search
-const memory = getMemoryManager(getConfig());
-await memory.store('pattern', 'Use dependency injection', {
-  namespace: 'architecture'
+const agent = spawnAgent('coder', {
+  name: 'my-coder',
+  metadata: { project: 'awesome-app' }
 });
-const results = await memory.search('injection');
+
+// Use memory with FTS5 search
+const memory = getMemoryManager(getConfig());
+await memory.store('architecture:pattern', 'Use dependency injection', {
+  namespace: 'best-practices',
+  tags: ['architecture', 'patterns'],
+});
+
+const results = await memory.search('dependency injection');
+console.log(results); // FTS5 ranked results
+
+// Start adversarial review loop
+const reviewState = await createReviewLoop(
+  'Write a secure authentication function',
+  getConfig(),
+  { maxIterations: 3 }
+);
+
+console.log(reviewState.finalVerdict); // APPROVED or REJECTED
+console.log(reviewState.currentCode);
+console.log(reviewState.reviews); // All review rounds
 
 // Start MCP server
 const server = await startMCPServer(getConfig());
+console.log('MCP server listening on stdio');
 ```
 
 ### Submodule Imports
@@ -444,149 +528,140 @@ const server = await startMCPServer(getConfig());
 import { MemoryManager } from '@blackms/aistack/memory';
 import { spawnAgent, listAgentTypes } from '@blackms/aistack/agents';
 import { startMCPServer } from '@blackms/aistack/mcp';
+
+// Direct imports for smaller bundles
+const agentTypes = listAgentTypes();
+// => ['coder', 'researcher', 'tester', 'reviewer', 'adversarial', 'architect', 'coordinator', 'analyst', 'devops', 'documentation', 'security-auditor']
 ```
 
 ---
 
-## Plugin System
-
-Extend aistack with custom agents, tools, and hooks:
-
-```typescript
-import type { AgentStackPlugin } from '@blackms/aistack';
-
-export default {
-  name: 'my-plugin',
-  version: '1.0.0',
-
-  agents: [{
-    type: 'custom-agent',
-    name: 'Custom Agent',
-    description: 'Specialized behavior',
-    systemPrompt: 'You are a custom agent...',
-    capabilities: ['custom-task'],
-  }],
-
-  tools: [{
-    name: 'custom_tool',
-    description: 'A custom MCP tool',
-    inputSchema: { type: 'object', properties: { input: { type: 'string' } } },
-    handler: async (params) => ({ result: 'done' })
-  }],
-
-  async init(config) { /* setup */ },
-  async cleanup() { /* teardown */ }
-} satisfies AgentStackPlugin;
-```
-
----
-
-## CLI Reference
-
-| Command | Description |
-|---------|-------------|
-| `init` | Initialize project structure |
-| `agent spawn -t <type>` | Spawn agent |
-| `agent list` | List active agents |
-| `agent stop -n <name>` | Stop agent |
-| `agent types` | Show available types |
-| `agent status -n <name>` | Get agent status |
-| `agent run -t <type> -p <prompt>` | Spawn and execute task |
-| `agent exec -n <name> -p <prompt>` | Execute task with existing agent |
-| `memory store -k <key> -c <content>` | Store entry |
-| `memory search -q <query>` | Search memory |
-| `memory list` | List entries |
-| `memory delete -k <key>` | Delete entry |
-| `mcp start` | Start MCP server |
-| `mcp tools` | List MCP tools |
-| `web start` | Start web dashboard server |
-| `workflow run <name>` | Run workflow |
-| `workflow list` | List workflows |
-| `status` | System status |
-
----
-
-## LLM Providers
-
-### API Providers
-| Provider | Default Model | Embeddings |
-|----------|---------------|------------|
-| **Anthropic** | claude-sonnet-4-20250514 | - |
-| **OpenAI** | gpt-4o | text-embedding-3-small |
-| **Ollama** | llama3.2 | nomic-embed-text |
-
-### CLI Providers
-| Provider | CLI Tool | Default Model |
-|----------|----------|---------------|
-| **Claude Code** | `claude` | sonnet |
-| **Gemini CLI** | `gemini` | gemini-2.0-flash |
-| **Codex** | `codex` | - |
-
-CLI providers enable agent execution through external CLI tools, useful for interactive workflows.
-
----
-
-## Project Structure
+## 📂 Project Structure
 
 ```
-src/
-├── agents/         # Agent registry, spawner, definitions (7 types)
-├── cli/            # CLI commands
-├── coordination/   # Task queue, message bus, topology
-├── github/         # GitHub integration
-├── hooks/          # Lifecycle hooks
-├── mcp/            # MCP server and 30 tools
-├── memory/         # SQLite, FTS5, vector search
-├── plugins/        # Plugin loader and registry
-├── providers/      # LLM provider implementations (6 providers)
-├── web/            # REST API routes + WebSocket
-├── workflows/      # Workflow engine
-└── utils/          # Config, logger, validation
-
-web/
+aistack/
 ├── src/
-│   ├── pages/      # 9 dashboard pages
-│   ├── components/ # React components
-│   ├── hooks/      # Custom React hooks
-│   └── stores/     # Zustand state management
-└── public/         # Static assets
+│   ├── agents/              # Agent registry, spawner, definitions (11 types)
+│   │   ├── registry.ts      # Core agent types (CORE_AGENTS Map)
+│   │   ├── spawner.ts       # Agent lifecycle management
+│   │   └── definitions/     # System prompts & capabilities
+│   ├── cli/                 # CLI commands (15+ commands)
+│   ├── coordination/        # Task queue, message bus, review loop
+│   │   ├── review-loop.ts   # Adversarial validation loop
+│   │   ├── task-queue.ts    # Priority task queue
+│   │   └── message-bus.ts   # Event-driven communication
+│   ├── github/              # GitHub integration (issues, PRs, webhooks)
+│   ├── hooks/               # Lifecycle hooks (pre/post agent spawn, etc.)
+│   ├── mcp/                 # MCP server and 36 tools
+│   │   ├── server.ts        # stdio MCP server
+│   │   └── tools/           # 7 tool categories
+│   ├── memory/              # SQLite, FTS5, vector search
+│   │   ├── sqlite-store.ts  # Schema + CRUD operations
+│   │   └── index.ts         # Memory manager interface
+│   ├── plugins/             # Plugin loader and registry
+│   ├── providers/           # LLM provider implementations (6 providers)
+│   │   ├── index.ts         # Anthropic, OpenAI, Ollama
+│   │   └── cli-providers.ts # ClaudeCode, Gemini, Codex
+│   ├── web/                 # REST API routes + WebSocket
+│   │   ├── server.ts        # HTTP + WebSocket server
+│   │   ├── routes/          # 12 route modules (agents, auth, memory, tasks, etc.)
+│   │   └── websocket/       # Real-time event system
+│   ├── workflows/           # Workflow engine (multi-phase execution)
+│   ├── auth/                # JWT + RBAC (service, types)
+│   └── utils/               # Config, logger, validation, retry, circuit breaker
+│
+├── web/                     # React 18 web dashboard
+│   ├── src/
+│   │   ├── pages/           # 11 dashboard pages
+│   │   ├── components/      # React components
+│   │   ├── hooks/           # Custom React hooks
+│   │   └── stores/          # Zustand state management
+│   └── public/              # Static assets
+│
+├── tests/                   # Unit + integration tests
+│   ├── unit/                # Unit tests (agents, memory, mcp)
+│   ├── integration/         # Integration tests (e2e workflows)
+│   └── e2e/                 # End-to-end tests
+│
+├── templates/               # Project templates (empty - for future use)
+├── .github/workflows/       # CI/CD (5 parallel jobs: lint, typecheck, unit, integration, build)
+└── package.json             # v1.3.1
 ```
 
 ---
 
-## Development
+## 🧪 Development & Testing
+
+### Build & Test
 
 ```bash
-npm install          # Install dependencies
-npm run build        # Build
-npm test             # Run tests
-npm run test:coverage # With coverage
-npm run typecheck    # Type check
-npm run lint         # Lint
+npm install               # Install dependencies
+npm run build             # Build TypeScript to dist/
+npm test                  # Run all tests (unit + integration)
+npm run test:unit         # Unit tests only
+npm run test:integration  # Integration tests only
+npm run test:coverage     # Generate coverage report
+npm run typecheck         # Type check without emit
+npm run lint              # ESLint
+```
 
-# Web dashboard development
-npm run dev:web      # Start Vite dev server for web UI
-npm run build:web    # Build web UI for production
+### CI/CD Pipeline
+
+GitHub Actions workflow with **5 parallel jobs**:
+
+1. **Lint** - ESLint code quality checks
+2. **Typecheck** - TypeScript type validation
+3. **Unit Tests** - Fast isolated tests
+4. **Integration Tests** - Database + agent integration
+5. **Build** - Production build verification
+
+**Code Coverage:** Uploaded to Codecov after test completion
+
+**Code:** `.github/workflows/ci.yml`
+
+### Web Dashboard Development
+
+```bash
+npm run dev:web           # Start Vite dev server (hot reload)
+npm run build:web         # Build for production
 ```
 
 ---
 
-## Roadmap
+## ⚠️ What aistack Does NOT Include
 
-| Priority | Feature |
-|----------|---------|
-| **P1** | HTTP transport for MCP server |
-| **P1** | Streaming responses |
-| **P2** | Agent state persistence |
-| **P2** | Built-in workflow templates |
-| **P3** | Enhanced dashboard analytics |
-| **P3** | Metrics and observability |
+To set accurate expectations, here are features **explicitly not implemented**:
 
-<sub>Roadmap items are planned features, not current capabilities.</sub>
+- ❌ **Docker containerization** (no `Dockerfile` in project root)
+- ❌ **Kubernetes/Helm manifests** (no orchestration configs)
+- ❌ **Cloud-specific deployments** (AWS, GCP, Azure templates)
+- ❌ **GraphQL API** (REST + WebSocket only)
+- ❌ **Multi-tenancy** (single SQLite instance per deployment)
+- ❌ **Built-in monitoring/observability** (no Prometheus/Grafana)
+- ❌ **Message queue systems** (no Kafka, RabbitMQ, Redis Streams)
+- ❌ **Distributed tracing** (no OpenTelemetry integration)
+
+aistack is designed as a **local-first, NPM-distributed package** for developer workflows, not cloud-native microservices.
 
 ---
 
-## Contributing
+## 🗺️ Roadmap
+
+| Priority | Feature | Status |
+|----------|---------|--------|
+| **P1** | HTTP transport for MCP server | Planned |
+| **P1** | Streaming responses (SSE) | Planned |
+| **P2** | Agent state persistence to SQLite | Planned |
+| **P2** | Built-in workflow templates | Planned |
+| **P3** | Enhanced dashboard analytics | Planned |
+| **P3** | Metrics and observability hooks | Planned |
+| **P3** | Docker support (optional) | Under consideration |
+
+<sub>Roadmap items are **planned features**, not current capabilities.</sub>
+
+---
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing`)
@@ -594,11 +669,16 @@ npm run build:web    # Build web UI for production
 4. Push to branch (`git push origin feature/amazing`)
 5. Open a Pull Request
 
-All PRs must pass CI (tests, lint, typecheck, build).
+**PR Requirements:**
+- All tests pass (`npm test`)
+- Code linted (`npm run lint`)
+- Type checked (`npm run typecheck`)
+- Build succeeds (`npm run build`)
+- Code coverage maintained or improved
 
 ---
 
-## License
+## 📄 License
 
 [MIT](LICENSE) © 2024
 
@@ -606,12 +686,16 @@ All PRs must pass CI (tests, lint, typecheck, build).
 
 <div align="center">
 
-**[Documentation](./docs)** · **[Issues](https://github.com/blackms/aistack/issues)** · **[Discussions](https://github.com/blackms/aistack/discussions)**
+**[Documentation](./docs)** · **[Issues](https://github.com/blackms/aistack/issues)** · **[Discussions](https://github.com/blackms/aistack/discussions)** · **[NPM Package](https://www.npmjs.com/package/@blackms/aistack)**
 
-<sub>Built with TypeScript · Made for Claude Code</sub>
+<sub>Built with TypeScript · Made for Claude Code · Distributed via NPM</sub>
+
+<br/>
 
 ---
 
-<sub>README verified against codebase v1.2.0. All features documented are backed by implemented code.</sub>
+<br/>
+
+<sub>✅ **README verified against codebase v1.3.1** - All claims backed by implemented code with file:line references</sub>
 
 </div>

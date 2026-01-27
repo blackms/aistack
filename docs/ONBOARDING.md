@@ -64,7 +64,7 @@ agentstack/
 │   ├── types.ts              # Core type definitions
 │   │
 │   ├── agents/               # Agent system
-│   │   ├── definitions/      # 7 agent types
+│   │   ├── definitions/      # 11 agent types
 │   │   ├── registry.ts       # Type registry
 │   │   └── spawner.ts        # Instance management
 │   │
@@ -75,7 +75,7 @@ agentstack/
 │   │
 │   ├── mcp/                  # MCP integration
 │   │   ├── server.ts         # MCP server
-│   │   └── tools/            # 30 tool implementations
+│   │   └── tools/            # 36 tool implementations
 │   │
 │   ├── coordination/         # Task management
 │   │   ├── task-queue.ts     # Priority queue
