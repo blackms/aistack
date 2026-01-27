@@ -296,21 +296,168 @@ Create `aistack.config.json` in your project root:
 }
 ```
 
-### Basic Usage
+---
+
+## 💡 Usage Examples
+
+### Example 1: Code Generation with Review
+
+**Via Claude Code (MCP)**:
+```
+In Claude Code, just ask:
+"Use aistack to generate a REST API for user authentication with adversarial review"
+
+aistack will:
+1. Spawn a coder agent to write the API
+2. Spawn an adversarial agent to find vulnerabilities
+3. Fix issues iteratively (up to 3 rounds)
+4. Return production-ready code
+```
+
+**Via CLI**:
+```bash
+# Start adversarial review loop
+npx @blackms/aistack workflow run adversarial-review \
+  --task "Create REST API for user authentication"
+
+# Check the review status
+npx @blackms/aistack agent list
+```
+
+**Via TypeScript**:
+```typescript
+import { createReviewLoop, getConfig } from '@blackms/aistack';
+
+const result = await createReviewLoop(
+  'Create REST API for user authentication',
+  getConfig(),
+  { maxIterations: 3 }
+);
+
+console.log(result.finalVerdict); // APPROVED
+console.log(result.currentCode);   // Production-ready code
+```
+
+### Example 2: Build Institutional Knowledge
+
+**Store patterns as you learn**:
+```bash
+# Store a coding pattern
+npx @blackms/aistack memory store \
+  -k "api:error-handling" \
+  -c "Always return { success: boolean, data?, error? } structure" \
+  -n "best-practices"
+
+# Store an architecture decision
+npx @blackms/aistack memory store \
+  -k "db:connection" \
+  -c "Use connection pooling with max 10 connections" \
+  -n "architecture"
+```
+
+**Search when you need it**:
+```bash
+# Find all patterns about error handling
+npx @blackms/aistack memory search -q "error handling" -n "best-practices"
+
+# Find architecture decisions about databases
+npx @blackms/aistack memory search -q "database" -n "architecture"
+```
+
+**In Claude Code**:
+```
+You: "What's our pattern for API error handling?"
+Claude uses memory_search tool: Returns your stored pattern
+Claude: "Based on your team's pattern, use { success, data, error } structure"
+```
+
+### Example 3: Multi-Agent Collaboration
+
+**Generate feature with tests and docs**:
+```typescript
+import { spawnAgent, getMemoryManager, getConfig } from '@blackms/aistack';
+
+// 1. Coder writes the feature
+const coder = spawnAgent('coder', { name: 'feature-coder' });
+const code = await executeTask(coder, 'Create user profile API');
+
+// 2. Tester writes tests
+const tester = spawnAgent('tester', { name: 'test-writer' });
+const tests = await executeTask(tester, 'Write tests for user profile API');
+
+// 3. Documentation agent generates docs
+const docs = spawnAgent('documentation', { name: 'doc-writer' });
+const documentation = await executeTask(docs, 'Document user profile API');
+
+// 4. Store the pattern for future use
+const memory = getMemoryManager(getConfig());
+await memory.store('pattern:user-api', 'User API pattern with tests and docs', {
+  namespace: 'patterns',
+  metadata: { code, tests, documentation }
+});
+```
+
+### Example 4: Use in Claude Code
+
+After installing the MCP server:
+```bash
+claude mcp add aistack -- npx @blackms/aistack mcp start
+```
+
+In Claude Code, you can:
+```
+"Spawn a researcher agent to analyze this codebase"
+→ Uses agent_spawn tool
+
+"Store this pattern in memory: Always validate user input"
+→ Uses memory_store tool
+
+"Search memory for authentication patterns"
+→ Uses memory_search tool
+
+"Start an adversarial review of this function"
+→ Uses review_loop_start tool
+
+"List all active agents"
+→ Uses agent_list tool
+```
+
+### Example 5: CLI Workflow
 
 ```bash
-# Spawn an agent
-npx @blackms/aistack agent spawn -t coder -n my-coder
+# 1. Start a session
+npx @blackms/aistack session start --metadata '{"project": "myapp"}'
 
-# Store memory
-npx @blackms/aistack memory store -k "pattern:di" -c "Use dependency injection"
+# 2. Spawn specialized agents
+npx @blackms/aistack agent spawn -t coder -n backend-coder
+npx @blackms/aistack agent spawn -t tester -n test-writer
+npx @blackms/aistack agent spawn -t reviewer -n code-reviewer
 
-# Search memory
-npx @blackms/aistack memory search -q "dependency injection"
+# 3. Run tasks (agents process automatically)
+npx @blackms/aistack agent run -t coder -p "Create login endpoint"
+npx @blackms/aistack agent run -t tester -p "Test login endpoint"
+npx @blackms/aistack agent run -t reviewer -p "Review login code"
 
-# Start adversarial review loop
-npx @blackms/aistack workflow run adversarial-review
+# 4. Check system status
+npx @blackms/aistack status
+
+# 5. End session
+npx @blackms/aistack session end
 ```
+
+### Example 6: Web Dashboard
+
+```bash
+# Start the dashboard
+npx @blackms/aistack web start
+```
+
+Then open http://localhost:3001 to:
+- 👀 **Monitor** all active agents in real-time
+- 🧠 **Browse** and search your memory database
+- ✅ **Manage** tasks and workflows visually
+- 📊 **View** system health and statistics
+- 🔄 **Watch** adversarial review loops in progress
 
 ---
 
