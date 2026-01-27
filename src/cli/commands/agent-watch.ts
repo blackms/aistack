@@ -5,7 +5,7 @@
 import type { AgentStackConfig, SpawnedAgent, AgentStatus } from '../../types.js';
 import { listAgents, getConcurrencyStats } from '../../agents/spawner.js';
 import { WatchRenderer, type AgentWatchData } from '../utils/watch-renderer.js';
-import { hideCursor, showCursor, clearScreen } from '../utils/terminal.js';
+import { hideCursor, showCursor } from '../utils/terminal.js';
 
 export interface AgentWatchOptions {
   interval: string;
