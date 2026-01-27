@@ -41,3 +41,7 @@ coverage/
 *.tmp
 *.temp
 .cache/
+
+# Documentation working files
+*.backup
+DOCUMENTATION_SYNC_AUDIT.md
