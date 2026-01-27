@@ -24,6 +24,7 @@ import {
   registerSpecificationRoutes,
   registerFilesystemRoutes,
   createAuthRoutes,
+  registerIdentityRoutes,
 } from './routes/index.js';
 import type { WebConfig } from './types.js';
 import { AuthService } from '../auth/service.js';
@@ -85,6 +86,7 @@ export class WebServer {
 
     // API routes
     registerAgentRoutes(this.router, this.config);
+    registerIdentityRoutes(this.router, this.config);
     registerMemoryRoutes(this.router, this.config);
     registerTaskRoutes(this.router, this.config);
     registerSessionRoutes(this.router, this.config);
@@ -103,6 +105,7 @@ export class WebServer {
         endpoints: [
           '/api/v1/auth',
           '/api/v1/agents',
+          '/api/v1/identities',
           '/api/v1/memory',
           '/api/v1/tasks',
           '/api/v1/sessions',

@@ -25,11 +25,17 @@ import { logger } from '../utils/logger.js';
 
 const log = logger.child('memory');
 
+export interface AgentContext {
+  agentId: string;
+  includeShared?: boolean;
+}
+
 export class MemoryManager {
   private sqliteStore: SQLiteStore;
   private fts: FTSSearch;
   private vector: VectorSearch;
   private config: AgentStackConfig;
+  private agentContext: AgentContext | null = null;
 
   constructor(config: AgentStackConfig) {
     this.config = config;
@@ -44,6 +50,31 @@ export class MemoryManager {
     });
   }
 
+  // ==================== Agent Context ====================
+
+  /**
+   * Set the current agent context for memory operations
+   */
+  setAgentContext(context: AgentContext | null): void {
+    this.agentContext = context;
+    log.debug('Agent context set', { agentId: context?.agentId });
+  }
+
+  /**
+   * Get the current agent context
+   */
+  getAgentContext(): AgentContext | null {
+    return this.agentContext;
+  }
+
+  /**
+   * Clear the current agent context
+   */
+  clearAgentContext(): void {
+    this.agentContext = null;
+    log.debug('Agent context cleared');
+  }
+
   // ==================== Memory Operations ====================
 
   /**
@@ -55,14 +86,37 @@ export class MemoryManager {
     options: MemoryStoreOptions = {}
   ): Promise<MemoryEntry> {
     const namespace = options.namespace ?? this.config.memory.defaultNamespace;
-    const entry = this.sqliteStore.store(key, content, { ...options, namespace });
+    // Use explicit agentId if provided, otherwise use context
+    const agentId = options.agentId ?? this.agentContext?.agentId;
+    const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId });
 
     // Index for vector search if enabled
     if (options.generateEmbedding !== false && this.vector.isEnabled()) {
       await this.vector.indexEntry(entry);
     }
 
-    log.debug('Stored memory entry', { key, namespace });
+    log.debug('Stored memory entry', { key, namespace, agentId });
+    return entry;
+  }
+
+  /**
+   * Store explicitly shared memory (agent_id = NULL)
+   */
+  async storeShared(
+    key: string,
+    content: string,
+    options: Omit<MemoryStoreOptions, 'agentId'> = {}
+  ): Promise<MemoryEntry> {
+    const namespace = options.namespace ?? this.config.memory.defaultNamespace;
+    // Explicitly set agentId to undefined to ensure shared memory
+    const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId: undefined });
+
+    // Index for vector search if enabled
+    if (options.generateEmbedding !== false && this.vector.isEnabled()) {
+      await this.vector.indexEntry(entry);
+    }
+
+    log.debug('Stored shared memory entry', { key, namespace });
     return entry;
   }
 
@@ -90,8 +144,31 @@ export class MemoryManager {
   /**
    * List memory entries
    */
-  list(namespace?: string, limit?: number, offset?: number): MemoryEntry[] {
-    return this.sqliteStore.list(namespace, limit, offset);
+  list(
+    namespace?: string,
+    limit?: number,
+    offset?: number,
+    options?: { agentId?: string; includeShared?: boolean }
+  ): MemoryEntry[] {
+    // Use explicit agentId if provided, otherwise use context
+    const agentId = options?.agentId ?? this.agentContext?.agentId;
+    const includeShared = options?.includeShared ?? this.agentContext?.includeShared ?? true;
+    return this.sqliteStore.list(namespace, limit, offset, { agentId, includeShared });
+  }
+
+  /**
+   * Get memory entries for a specific agent
+   */
+  getAgentMemory(
+    agentId: string,
+    options?: { namespace?: string; limit?: number; offset?: number; includeShared?: boolean }
+  ): MemoryEntry[] {
+    return this.sqliteStore.list(
+      options?.namespace,
+      options?.limit ?? 100,
+      options?.offset ?? 0,
+      { agentId, includeShared: options?.includeShared ?? false }
+    );
   }
 
   /**
@@ -222,6 +299,9 @@ export class MemoryManager {
     options: MemorySearchOptions = {}
   ): Promise<MemorySearchResult[]> {
     const { namespace, limit = 10, threshold = 0.7, useVector } = options;
+    // Use explicit agentId if provided, otherwise use context
+    const agentId = options.agentId ?? this.agentContext?.agentId;
+    const includeShared = options.includeShared ?? this.agentContext?.includeShared ?? true;
 
     // Decide whether to use vector search
     const shouldUseVector = useVector ?? this.vector.isEnabled();
@@ -234,24 +314,27 @@ export class MemoryManager {
         namespace,
         limit,
         threshold,
+        agentId,
+        includeShared,
       });
       results = vectorResults;
     }
 
     // If no vector results or vector disabled, use FTS
     if (results.length === 0) {
-      results = this.fts.search(query, { namespace, limit });
+      results = this.fts.search(query, { namespace, limit, agentId, includeShared });
     }
 
     // If we have both, merge and deduplicate
     if (shouldUseVector && this.vector.isEnabled() && results.length > 0) {
-      const ftsResults = this.fts.search(query, { namespace, limit });
+      const ftsResults = this.fts.search(query, { namespace, limit, agentId, includeShared });
       results = this.mergeResults(results, ftsResults, limit);
     }
 
     log.debug('Search completed', {
       query: query.slice(0, 50),
       results: results.length,
+      agentId,
     });
 
     return results;

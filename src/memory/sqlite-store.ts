@@ -22,6 +22,10 @@ import type {
   AgentStatus,
   ReviewLoopState,
   MemoryVersion,
+  AgentIdentity,
+  AgentIdentityStatus,
+  AgentCapability,
+  AgentIdentityAuditEntry,
 } from '../types.js';
 import { logger } from '../utils/logger.js';
 
@@ -36,6 +40,7 @@ CREATE TABLE IF NOT EXISTS memory (
   content TEXT NOT NULL,
   embedding BLOB,
   metadata TEXT,
+  agent_id TEXT DEFAULT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   UNIQUE(namespace, key)
@@ -45,6 +50,7 @@ CREATE TABLE IF NOT EXISTS memory (
 CREATE INDEX IF NOT EXISTS idx_memory_namespace ON memory(namespace);
 CREATE INDEX IF NOT EXISTS idx_memory_key ON memory(key);
 CREATE INDEX IF NOT EXISTS idx_memory_updated ON memory(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_agent_id ON memory(agent_id);
 
 -- Tags table
 CREATE TABLE IF NOT EXISTS tags (
@@ -94,6 +100,7 @@ CREATE TABLE IF NOT EXISTS memory_versions (
   namespace TEXT NOT NULL,
   content TEXT NOT NULL,
   metadata TEXT,
+  agent_id TEXT DEFAULT NULL,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (memory_id) REFERENCES memory(id) ON DELETE CASCADE,
   UNIQUE(memory_id, version)
@@ -219,6 +226,49 @@ CREATE TABLE IF NOT EXISTS specifications (
 CREATE INDEX IF NOT EXISTS idx_specifications_task ON specifications(project_task_id);
 CREATE INDEX IF NOT EXISTS idx_specifications_status ON specifications(status);
 
+-- Agent Identities table for persistent identity
+CREATE TABLE IF NOT EXISTS agent_identities (
+  agent_id TEXT PRIMARY KEY,
+  agent_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'created'
+    CHECK (status IN ('created', 'active', 'dormant', 'retired')),
+  capabilities TEXT NOT NULL DEFAULT '[]',
+  version INTEGER NOT NULL DEFAULT 1,
+  display_name TEXT,
+  description TEXT,
+  metadata TEXT,
+  created_at INTEGER NOT NULL,
+  last_active_at INTEGER NOT NULL,
+  retired_at INTEGER,
+  retirement_reason TEXT,
+  created_by TEXT,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_identities_type ON agent_identities(agent_type);
+CREATE INDEX IF NOT EXISTS idx_agent_identities_status ON agent_identities(status);
+CREATE INDEX IF NOT EXISTS idx_agent_identities_last_active ON agent_identities(last_active_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_identities_display_name ON agent_identities(display_name);
+
+-- Agent Identity Audit Log
+CREATE TABLE IF NOT EXISTS agent_identity_audit (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  action TEXT NOT NULL
+    CHECK (action IN ('created', 'activated', 'deactivated', 'retired', 'updated', 'spawned')),
+  previous_status TEXT,
+  new_status TEXT,
+  reason TEXT,
+  actor_id TEXT,
+  metadata TEXT,
+  timestamp INTEGER NOT NULL,
+  FOREIGN KEY (agent_id) REFERENCES agent_identities(agent_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_identity_audit_agent ON agent_identity_audit(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_identity_audit_timestamp ON agent_identity_audit(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_identity_audit_action ON agent_identity_audit(action);
+
 -- Active Agents table for state persistence
 CREATE TABLE IF NOT EXISTS active_agents (
   id TEXT PRIMARY KEY,
@@ -226,15 +276,18 @@ CREATE TABLE IF NOT EXISTS active_agents (
   name TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL,
   session_id TEXT,
+  identity_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   metadata TEXT,
-  FOREIGN KEY (session_id) REFERENCES sessions(id)
+  FOREIGN KEY (session_id) REFERENCES sessions(id),
+  FOREIGN KEY (identity_id) REFERENCES agent_identities(agent_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_active_agents_status ON active_agents(status);
 CREATE INDEX IF NOT EXISTS idx_active_agents_session ON active_agents(session_id);
 CREATE INDEX IF NOT EXISTS idx_active_agents_name ON active_agents(name);
+CREATE INDEX IF NOT EXISTS idx_active_agents_identity ON active_agents(identity_id);
 
 -- Review Loops table for state persistence
 CREATE TABLE IF NOT EXISTS review_loops (
@@ -292,6 +345,7 @@ export class SQLiteStore {
     options: MemoryStoreOptions = {}
   ): MemoryEntry {
     const namespace = options.namespace ?? 'default';
+    const agentId = options.agentId ?? null;
     const now = Date.now();
 
     // Check if entry exists
@@ -313,18 +367,18 @@ export class SQLiteStore {
       this.db
         .prepare(`
           UPDATE memory
-          SET content = ?, metadata = ?, updated_at = ?
+          SET content = ?, metadata = ?, agent_id = ?, updated_at = ?
           WHERE id = ?
         `)
-        .run(content, metadataJson, now, id);
+        .run(content, metadataJson, agentId, now, id);
     } else {
       // Insert new entry
       this.db
         .prepare(`
-          INSERT INTO memory (id, key, namespace, content, metadata, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO memory (id, key, namespace, content, metadata, agent_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `)
-        .run(id, key, namespace, content, metadataJson, now, now);
+        .run(id, key, namespace, content, metadataJson, agentId, now, now);
     }
 
     return {
@@ -333,6 +387,7 @@ export class SQLiteStore {
       namespace,
       content,
       metadata: options.metadata,
+      agentId: agentId ?? undefined,
       createdAt: new Date(now),
       updatedAt: new Date(now),
     };
@@ -341,7 +396,7 @@ export class SQLiteStore {
   get(key: string, namespace: string = 'default'): MemoryEntry | null {
     const row = this.db
       .prepare(`
-        SELECT id, key, namespace, content, embedding, metadata, created_at, updated_at
+        SELECT id, key, namespace, content, embedding, metadata, agent_id, created_at, updated_at
         FROM memory
         WHERE namespace = ? AND key = ?
       `)
@@ -353,7 +408,7 @@ export class SQLiteStore {
   getById(id: string): MemoryEntry | null {
     const row = this.db
       .prepare(`
-        SELECT id, key, namespace, content, embedding, metadata, created_at, updated_at
+        SELECT id, key, namespace, content, embedding, metadata, agent_id, created_at, updated_at
         FROM memory
         WHERE id = ?
       `)
@@ -381,17 +436,31 @@ export class SQLiteStore {
   list(
     namespace?: string,
     limit: number = 100,
-    offset: number = 0
+    offset: number = 0,
+    options?: { agentId?: string; includeShared?: boolean }
   ): MemoryEntry[] {
     let query = `
-      SELECT id, key, namespace, content, embedding, metadata, created_at, updated_at
+      SELECT id, key, namespace, content, embedding, metadata, agent_id, created_at, updated_at
       FROM memory
+      WHERE 1=1
     `;
     const params: (string | number)[] = [];
 
     if (namespace) {
-      query += ' WHERE namespace = ?';
+      query += ' AND namespace = ?';
       params.push(namespace);
+    }
+
+    // Agent filtering
+    if (options?.agentId) {
+      const includeShared = options.includeShared ?? true;
+      if (includeShared) {
+        query += ' AND (agent_id = ? OR agent_id IS NULL)';
+        params.push(options.agentId);
+      } else {
+        query += ' AND agent_id = ?';
+        params.push(options.agentId);
+      }
     }
 
     query += ' ORDER BY updated_at DESC LIMIT ? OFFSET ?';
@@ -423,7 +492,10 @@ export class SQLiteStore {
   }
 
   // Get all entries with embeddings for vector search
-  getEntriesWithEmbeddings(namespace?: string): Array<{ id: string; embedding: number[] }> {
+  getEntriesWithEmbeddings(
+    namespace?: string,
+    options?: { agentId?: string; includeShared?: boolean }
+  ): Array<{ id: string; embedding: number[] }> {
     let query = `
       SELECT id, embedding
       FROM memory
@@ -434,6 +506,18 @@ export class SQLiteStore {
     if (namespace) {
       query += ' AND namespace = ?';
       params.push(namespace);
+    }
+
+    // Agent filtering
+    if (options?.agentId) {
+      const includeShared = options.includeShared ?? true;
+      if (includeShared) {
+        query += ' AND (agent_id = ? OR agent_id IS NULL)';
+        params.push(options.agentId);
+      } else {
+        query += ' AND agent_id = ?';
+        params.push(options.agentId);
+      }
     }
 
     const rows = this.db.prepare(query).all(...params) as Array<{ id: string; embedding: Buffer }>;
@@ -901,6 +985,7 @@ export class SQLiteStore {
         : undefined,
       metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined,
       tags: tags.length > 0 ? tags : undefined,
+      agentId: row.agent_id ?? undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     };
@@ -1501,7 +1586,7 @@ export class SQLiteStore {
       this.db
         .prepare(`
           UPDATE active_agents
-          SET type = ?, name = ?, status = ?, session_id = ?, updated_at = ?, metadata = ?
+          SET type = ?, name = ?, status = ?, session_id = ?, identity_id = ?, updated_at = ?, metadata = ?
           WHERE id = ?
         `)
         .run(
@@ -1509,6 +1594,7 @@ export class SQLiteStore {
           agent.name,
           agent.status,
           agent.sessionId ?? null,
+          agent.identityId ?? null,
           now,
           metadataJson,
           agent.id
@@ -1516,8 +1602,8 @@ export class SQLiteStore {
     } else {
       this.db
         .prepare(`
-          INSERT INTO active_agents (id, type, name, status, session_id, created_at, updated_at, metadata)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO active_agents (id, type, name, status, session_id, identity_id, created_at, updated_at, metadata)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(
           agent.id,
@@ -1525,6 +1611,7 @@ export class SQLiteStore {
           agent.name,
           agent.status,
           agent.sessionId ?? null,
+          agent.identityId ?? null,
           agent.createdAt.getTime(),
           now,
           metadataJson
@@ -1546,6 +1633,7 @@ export class SQLiteStore {
       name: row.name,
       status: row.status as AgentStatus,
       sessionId: row.session_id ?? undefined,
+      identityId: row.identity_id ?? undefined,
       createdAt: new Date(row.created_at),
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
     }));
@@ -1716,6 +1804,269 @@ export class SQLiteStore {
       .run('approved', 'failed');
   }
 
+  // ==================== Agent Identity Operations ====================
+
+  /**
+   * Create a new agent identity
+   */
+  createAgentIdentity(options: {
+    agentId: string;
+    agentType: string;
+    status?: AgentIdentityStatus;
+    capabilities?: AgentCapability[];
+    displayName?: string;
+    description?: string;
+    metadata?: Record<string, unknown>;
+    createdBy?: string;
+  }): AgentIdentity {
+    const now = Date.now();
+    const status = options.status ?? 'created';
+    const capabilities = options.capabilities ?? [];
+    const capabilitiesJson = JSON.stringify(capabilities);
+    const metadataJson = options.metadata ? JSON.stringify(options.metadata) : null;
+
+    this.db
+      .prepare(`
+        INSERT INTO agent_identities (
+          agent_id, agent_type, status, capabilities, version, display_name,
+          description, metadata, created_at, last_active_at, created_by, updated_at
+        )
+        VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        options.agentId,
+        options.agentType,
+        status,
+        capabilitiesJson,
+        options.displayName ?? null,
+        options.description ?? null,
+        metadataJson,
+        now,
+        now,
+        options.createdBy ?? null,
+        now
+      );
+
+    log.debug('Created agent identity', { agentId: options.agentId, type: options.agentType });
+
+    return {
+      agentId: options.agentId,
+      agentType: options.agentType,
+      status,
+      capabilities,
+      version: 1,
+      displayName: options.displayName,
+      description: options.description,
+      metadata: options.metadata,
+      createdAt: new Date(now),
+      lastActiveAt: new Date(now),
+      createdBy: options.createdBy,
+      updatedAt: new Date(now),
+    };
+  }
+
+  /**
+   * Get an agent identity by ID
+   */
+  getAgentIdentity(agentId: string): AgentIdentity | null {
+    const row = this.db
+      .prepare('SELECT * FROM agent_identities WHERE agent_id = ?')
+      .get(agentId) as AgentIdentityRow | undefined;
+
+    return row ? this.rowToAgentIdentity(row) : null;
+  }
+
+  /**
+   * Get an agent identity by display name
+   */
+  getAgentIdentityByName(displayName: string): AgentIdentity | null {
+    const row = this.db
+      .prepare('SELECT * FROM agent_identities WHERE display_name = ?')
+      .get(displayName) as AgentIdentityRow | undefined;
+
+    return row ? this.rowToAgentIdentity(row) : null;
+  }
+
+  /**
+   * Update an agent identity
+   */
+  updateAgentIdentity(
+    agentId: string,
+    updates: Partial<Pick<AgentIdentity, 'displayName' | 'description' | 'metadata' | 'capabilities' | 'status' | 'lastActiveAt' | 'retiredAt' | 'retirementReason'>>
+  ): boolean {
+    const identity = this.getAgentIdentity(agentId);
+    if (!identity) return false;
+
+    const now = Date.now();
+    const fields: string[] = ['updated_at = ?'];
+    const params: (string | number | null)[] = [now];
+
+    if (updates.displayName !== undefined) {
+      fields.push('display_name = ?');
+      params.push(updates.displayName ?? null);
+    }
+    if (updates.description !== undefined) {
+      fields.push('description = ?');
+      params.push(updates.description ?? null);
+    }
+    if (updates.metadata !== undefined) {
+      fields.push('metadata = ?');
+      params.push(updates.metadata ? JSON.stringify(updates.metadata) : null);
+    }
+    if (updates.capabilities !== undefined) {
+      fields.push('capabilities = ?');
+      params.push(JSON.stringify(updates.capabilities));
+    }
+    if (updates.status !== undefined) {
+      fields.push('status = ?');
+      params.push(updates.status);
+    }
+    if (updates.lastActiveAt !== undefined) {
+      fields.push('last_active_at = ?');
+      params.push(updates.lastActiveAt.getTime());
+    }
+    if (updates.retiredAt !== undefined) {
+      fields.push('retired_at = ?');
+      params.push(updates.retiredAt?.getTime() ?? null);
+    }
+    if (updates.retirementReason !== undefined) {
+      fields.push('retirement_reason = ?');
+      params.push(updates.retirementReason ?? null);
+    }
+
+    params.push(agentId);
+
+    const result = this.db
+      .prepare(`UPDATE agent_identities SET ${fields.join(', ')} WHERE agent_id = ?`)
+      .run(...params);
+
+    log.debug('Updated agent identity', { agentId, fields: fields.length - 1 });
+    return result.changes > 0;
+  }
+
+  /**
+   * List agent identities with optional filters
+   */
+  listAgentIdentities(filters?: {
+    status?: AgentIdentityStatus;
+    agentType?: string;
+    limit?: number;
+    offset?: number;
+  }): AgentIdentity[] {
+    let query = 'SELECT * FROM agent_identities WHERE 1=1';
+    const params: (string | number)[] = [];
+
+    if (filters?.status) {
+      query += ' AND status = ?';
+      params.push(filters.status);
+    }
+    if (filters?.agentType) {
+      query += ' AND agent_type = ?';
+      params.push(filters.agentType);
+    }
+
+    query += ' ORDER BY last_active_at DESC';
+
+    if (filters?.limit) {
+      query += ' LIMIT ?';
+      params.push(filters.limit);
+    }
+    if (filters?.offset) {
+      query += ' OFFSET ?';
+      params.push(filters.offset);
+    }
+
+    const rows = this.db.prepare(query).all(...params) as AgentIdentityRow[];
+    return rows.map(row => this.rowToAgentIdentity(row));
+  }
+
+  /**
+   * Create an audit entry for an agent identity
+   */
+  createAgentIdentityAudit(entry: {
+    id: string;
+    agentId: string;
+    action: AgentIdentityAuditEntry['action'];
+    previousStatus?: AgentIdentityStatus;
+    newStatus?: AgentIdentityStatus;
+    reason?: string;
+    actorId?: string;
+    metadata?: Record<string, unknown>;
+  }): void {
+    const metadataJson = entry.metadata ? JSON.stringify(entry.metadata) : null;
+
+    this.db
+      .prepare(`
+        INSERT INTO agent_identity_audit (
+          id, agent_id, action, previous_status, new_status,
+          reason, actor_id, metadata, timestamp
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        entry.id,
+        entry.agentId,
+        entry.action,
+        entry.previousStatus ?? null,
+        entry.newStatus ?? null,
+        entry.reason ?? null,
+        entry.actorId ?? null,
+        metadataJson,
+        Date.now()
+      );
+
+    log.debug('Created audit entry', { agentId: entry.agentId, action: entry.action });
+  }
+
+  /**
+   * Get audit history for an agent identity
+   */
+  getAgentIdentityAuditHistory(agentId: string, limit: number = 100): AgentIdentityAuditEntry[] {
+    const rows = this.db
+      .prepare(`
+        SELECT * FROM agent_identity_audit
+        WHERE agent_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `)
+      .all(agentId, limit) as AgentIdentityAuditRow[];
+
+    return rows.map(row => this.rowToAgentIdentityAudit(row));
+  }
+
+  private rowToAgentIdentity(row: AgentIdentityRow): AgentIdentity {
+    return {
+      agentId: row.agent_id,
+      agentType: row.agent_type,
+      status: row.status as AgentIdentityStatus,
+      capabilities: JSON.parse(row.capabilities) as AgentCapability[],
+      version: row.version,
+      displayName: row.display_name ?? undefined,
+      description: row.description ?? undefined,
+      metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined,
+      createdAt: new Date(row.created_at),
+      lastActiveAt: new Date(row.last_active_at),
+      retiredAt: row.retired_at ? new Date(row.retired_at) : undefined,
+      retirementReason: row.retirement_reason ?? undefined,
+      createdBy: row.created_by ?? undefined,
+      updatedAt: new Date(row.updated_at),
+    };
+  }
+
+  private rowToAgentIdentityAudit(row: AgentIdentityAuditRow): AgentIdentityAuditEntry {
+    return {
+      id: row.id,
+      agentId: row.agent_id,
+      action: row.action as AgentIdentityAuditEntry['action'],
+      previousStatus: row.previous_status as AgentIdentityStatus | undefined,
+      newStatus: row.new_status as AgentIdentityStatus | undefined,
+      reason: row.reason ?? undefined,
+      actorId: row.actor_id ?? undefined,
+      metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined,
+      timestamp: new Date(row.timestamp),
+    };
+  }
+
   // ==================== Cleanup ====================
 
   /**
@@ -1754,6 +2105,7 @@ interface MemoryRow {
   content: string;
   embedding: Buffer | null;
   metadata: string | null;
+  agent_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -1816,4 +2168,33 @@ interface SpecificationRow {
   updated_at: number;
   approved_at: number | null;
   comments: string | null;
+}
+
+interface AgentIdentityRow {
+  agent_id: string;
+  agent_type: string;
+  status: string;
+  capabilities: string;
+  version: number;
+  display_name: string | null;
+  description: string | null;
+  metadata: string | null;
+  created_at: number;
+  last_active_at: number;
+  retired_at: number | null;
+  retirement_reason: string | null;
+  created_by: string | null;
+  updated_at: number;
+}
+
+interface AgentIdentityAuditRow {
+  id: string;
+  agent_id: string;
+  action: string;
+  previous_status: string | null;
+  new_status: string | null;
+  reason: string | null;
+  actor_id: string | null;
+  metadata: string | null;
+  timestamp: number;
 }

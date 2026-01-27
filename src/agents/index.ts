@@ -34,4 +34,12 @@ export {
   type ExecuteResult,
 } from './spawner.js';
 
+export {
+  IdentityService,
+  getIdentityService,
+  resetIdentityService,
+  type CreateIdentityOptions,
+  type ListIdentitiesFilters,
+} from './identity-service.js';
+
 export * from './definitions/index.js';

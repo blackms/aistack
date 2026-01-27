@@ -32,6 +32,7 @@ export interface SpawnedAgent {
   createdAt: Date;
   sessionId?: string;
   metadata?: Record<string, unknown>;
+  identityId?: string;  // Link to persistent AgentIdentity
 }
 
 export type AgentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'stopped';
@@ -76,6 +77,7 @@ export interface MemoryEntry {
   tags?: string[];
   relationships?: MemoryRelationship[];
   version?: number;
+  agentId?: string;  // Agent ownership for scoped memory
   createdAt: Date;
   updatedAt: Date;
 }
@@ -90,6 +92,7 @@ export interface MemoryStoreOptions {
   namespace?: string;
   metadata?: Record<string, unknown>;
   generateEmbedding?: boolean;
+  agentId?: string;  // Associate memory with a specific agent
 }
 
 export interface MemorySearchOptions {
@@ -97,6 +100,8 @@ export interface MemorySearchOptions {
   limit?: number;
   threshold?: number;
   useVector?: boolean;
+  agentId?: string;       // Filter by agent ownership
+  includeShared?: boolean; // Include shared memory (agent_id = NULL), default true
 }
 
 // Session types
@@ -426,3 +431,50 @@ export type ReviewLoopStatus =
   | 'max_iterations_reached'
   | 'failed'
   | 'aborted';
+
+// Agent Identity types
+export type AgentIdentityStatus = 'created' | 'active' | 'dormant' | 'retired';
+
+export interface AgentCapability {
+  name: string;
+  version?: string;
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AgentIdentity {
+  agentId: string;
+  agentType: AgentType | string;
+  status: AgentIdentityStatus;
+  capabilities: AgentCapability[];
+  version: number;
+  displayName?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+  lastActiveAt: Date;
+  retiredAt?: Date;
+  retirementReason?: string;
+  createdBy?: string;
+  updatedAt: Date;
+}
+
+export interface AgentIdentityAuditEntry {
+  id: string;
+  agentId: string;
+  action: 'created' | 'activated' | 'deactivated' | 'retired' | 'updated' | 'spawned';
+  previousStatus?: AgentIdentityStatus;
+  newStatus?: AgentIdentityStatus;
+  reason?: string;
+  actorId?: string;
+  metadata?: Record<string, unknown>;
+  timestamp: Date;
+}
+
+// Valid identity status transitions
+export const IDENTITY_STATUS_TRANSITIONS: Record<AgentIdentityStatus, AgentIdentityStatus[]> = {
+  created: ['active', 'retired'],
+  active: ['dormant', 'retired'],
+  dormant: ['active', 'retired'],
+  retired: [], // Terminal state - no transitions allowed
+};

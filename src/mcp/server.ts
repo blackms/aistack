@@ -13,6 +13,7 @@ import { MemoryManager } from '../memory/index.js';
 import { logger } from '../utils/logger.js';
 import {
   createAgentTools,
+  createIdentityTools,
   createMemoryTools,
   createTaskTools,
   createSessionTools,
@@ -59,6 +60,7 @@ export class MCPServer {
     // Register all tool categories
     const toolSets = [
       createAgentTools(this.config),
+      createIdentityTools(this.config),
       createMemoryTools(this.memory),
       createTaskTools(this.memory),
       createSessionTools(this.memory),
