@@ -17,6 +17,7 @@ import {
 import { listAgentTypes, getAgentDefinition } from '../../agents/registry.js';
 import { getConfig } from '../../utils/config.js';
 import { readFileSync, existsSync } from 'node:fs';
+import { runAgentWatch, type AgentWatchOptions } from './agent-watch.js';
 
 export function createAgentCommand(): Command {
   const command = new Command('agent')
@@ -176,6 +177,21 @@ export function createAgentCommand(): Command {
         const def = getAgentDefinition(type);
         console.log(`${type.padEnd(14)}${def?.description ?? ''}`);
       }
+    });
+
+  // watch subcommand
+  command
+    .command('watch')
+    .description('Watch agent activity in real-time')
+    .option('-i, --interval <seconds>', 'Refresh interval in seconds', '2')
+    .option('-s, --session <id>', 'Filter by session ID')
+    .option('-t, --type <type>', 'Filter by agent type')
+    .option('--status <status>', 'Filter by status (idle, running, completed, failed, stopped)')
+    .option('--json', 'Output as JSON snapshot (no watch)')
+    .option('--no-clear', 'Do not clear screen between refreshes')
+    .action(async (options) => {
+      const config = getConfig();
+      await runAgentWatch(options as AgentWatchOptions, config);
     });
 
   // run subcommand - execute a task with an agent
