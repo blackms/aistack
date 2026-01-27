@@ -16,5 +16,21 @@ export default defineConfig({
         singleThread: true,
       },
     },
+    coverage: {
+      provider: 'v8',
+      reporter: ['lcov', 'json'],
+      reportsDirectory: './coverage/integration',
+      include: ['src/**/*.ts'],
+      exclude: [
+        'node_modules/**',
+        'dist/**',
+        'tests/**',
+        '**/*.d.ts',
+        '**/*.test.ts',
+        '**/index.ts',
+        '**/types.ts',
+        'src/cli/**',
+      ],
+    },
   },
 });

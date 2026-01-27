@@ -38,7 +38,7 @@
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage && vitest run --config vitest.integration.config.ts --coverage",
+    "test:coverage": "vitest run --coverage && vitest run --config vitest.integration.config.ts --coverage && node scripts/merge-coverage.js",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "lint": "eslint src",

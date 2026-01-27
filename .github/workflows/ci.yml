@@ -126,3 +126,5 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/lcov.info
           fail_ci_if_error: false
+          flags: merged
+          name: merged-coverage
