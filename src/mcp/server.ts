@@ -20,6 +20,7 @@ import {
   createSystemTools,
   createGitHubTools,
 } from './tools/index.js';
+import { DriftDetectionService } from '../tasks/drift-detection-service.js';
 
 const log = logger.child('mcp');
 
@@ -35,10 +36,12 @@ export class MCPServer {
   private tools: Map<string, MCPTool> = new Map();
   private memory: MemoryManager;
   private config: AgentStackConfig;
+  private driftService: DriftDetectionService;
 
   constructor(config: AgentStackConfig) {
     this.config = config;
     this.memory = new MemoryManager(config);
+    this.driftService = new DriftDetectionService(this.memory.getStore(), config);
 
     this.server = new Server(
       {
@@ -62,7 +65,7 @@ export class MCPServer {
       createAgentTools(this.config),
       createIdentityTools(this.config),
       createMemoryTools(this.memory),
-      createTaskTools(this.memory),
+      createTaskTools(this.memory, this.driftService),
       createSessionTools(this.memory),
       createSystemTools(this.memory, this.config),
       createGitHubTools(this.config),
