@@ -9,10 +9,13 @@ AgentStack is a multi-agent orchestration framework that enables Claude Code to 
 ### 1.1 System Goals
 
 1. **Agent Management**: Spawn and coordinate specialized agents (coder, tester, reviewer, etc.)
-2. **Persistent Memory**: Store and retrieve context with full-text and semantic search
-3. **Task Coordination**: Queue, prioritize, and distribute tasks to agents
-4. **Workflow Automation**: Execute multi-phase workflows with validation
-5. **Extensibility**: Support plugins for custom agents, tools, and hooks
+2. **Agent Identity**: Persistent lifecycle management for agents (create, activate, deactivate, retire)
+3. **Persistent Memory**: Store and retrieve context with full-text and semantic search
+4. **Task Coordination**: Queue, prioritize, and distribute tasks to agents
+5. **Semantic Drift Detection**: Detect when task descriptions are too similar to ancestors
+6. **Resource Exhaustion Monitoring**: Track and prevent runaway agents consuming excessive resources
+7. **Workflow Automation**: Execute multi-phase workflows with validation
+8. **Extensibility**: Support plugins for custom agents, tools, and hooks
 
 ### 1.2 Key Stakeholders
 
@@ -253,14 +256,16 @@ sequenceDiagram
 | Category | Tool Count | Purpose |
 |----------|------------|---------|
 | Agent | 6 | Spawn, list, stop, status, types, update |
+| Identity | 8 | Create, get, list, update, activate, deactivate, retire, audit |
 | Memory | 5 | Store, search, get, list, delete |
-| Task | 5 | Create, assign, complete, list, get |
+| Task | 8 | Create, assign, complete, list, get, check_drift, get_relationships, drift_metrics |
 | Session | 4 | Start, end, status, active |
 | System | 3 | Status, health, config |
 | GitHub | 7 | Issues and PRs |
-| Review Loop | 6 | Start, status, abort, issues, list, get code |
 
-**Total: 36 tools**
+**Total: 41 tools**
+
+> Note: Review loop functionality is available via programmatic API (`createReviewLoop`) and CLI, but not exposed as MCP tools.
 
 ### 5.2 Provider Interface
 

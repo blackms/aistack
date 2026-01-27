@@ -1,8 +1,10 @@
-# Documentation Audit Report
+# Documentation Audit Report (Historical)
+
+> **⚠️ SUPERSEDED**: This audit was performed for v1.3.1. For current documentation audit, see `AUDIT_DOCS_VS_CODE.md`.
 
 > Generated: 2026-01-27
 > Workflow: Documentation Truth Sync with Adversarial Review
-> Version: v1.3.1
+> Version: v1.3.1 (36 MCP tools)
 
 ## Executive Summary
 

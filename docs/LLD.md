@@ -1016,7 +1016,71 @@ function createEmbeddingProvider(config: AgentStackConfig): EmbeddingProvider | 
 }
 ```
 
-## 11. Related Documents
+## 11. Monitoring Module (`src/monitoring/`)
+
+### 11.1 Resource Exhaustion Service (`resource-exhaustion-service.ts`)
+
+**Purpose**: Track and prevent runaway agents consuming excessive resources.
+
+**Data Structures**:
+```typescript
+interface AgentResourceMetrics {
+  agentId: string;
+  filesRead: number;
+  filesWritten: number;
+  filesModified: number;
+  apiCallsCount: number;
+  subtasksSpawned: number;
+  tokensConsumed: number;
+  startedAt: Date;
+  lastDeliverableAt: Date | null;
+  lastActivityAt: Date;
+  phase: ResourceExhaustionPhase;  // 'normal' | 'warning' | 'intervention' | 'termination'
+  pausedAt: Date | null;
+  pauseReason: string | null;
+}
+```
+
+**Key Functions**:
+
+| Function | Description |
+|----------|-------------|
+| `initializeAgent(agentId, type)` | Start tracking a new agent |
+| `recordFileOperation(agentId, op)` | Record file read/write/modify |
+| `recordApiCall(agentId, tokens?)` | Record API call and token usage |
+| `recordSubtaskSpawn(agentId)` | Record subtask spawn |
+| `recordDeliverable(agentId, type, desc?)` | Record deliverable checkpoint |
+| `evaluateAgent(agentId)` | Evaluate current phase based on thresholds |
+| `pauseAgent(agentId, reason)` | Pause agent execution |
+| `resumeAgent(agentId)` | Resume paused agent |
+
+**Phase Progression**:
+```
+normal → warning → intervention → termination
+```
+
+**Thresholds** (configurable):
+- `maxFilesAccessed`: 50 (default)
+- `maxApiCalls`: 100 (default)
+- `maxSubtasksSpawned`: 20 (default)
+- `maxTimeWithoutDeliverableMs`: 1800000 (30 min)
+- `maxTokensConsumed`: 500000 (default)
+
+### 11.2 Metrics Collector (`metrics.ts`)
+
+**Prometheus Metrics**:
+- Counters: warnings, interventions, terminations
+- Gauges: paused agents count
+- Histograms: files accessed, API calls, tokens consumed
+
+### 11.3 Health Monitor (`health.ts`)
+
+**Health Check Types**:
+- Liveness probe (`/api/v1/system/health/live`)
+- Readiness probe (`/api/v1/system/health/ready`)
+- Detailed health (`/api/v1/system/health/detailed`)
+
+## 12. Related Documents
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System diagrams
 - [HLD.md](HLD.md) - High-level design
