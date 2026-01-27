@@ -47,9 +47,7 @@ export async function runAgentWatch(
   const cleanup = (): void => {
     running = false;
     showCursor();
-    if (options.clear) {
-      clearScreen();
-    }
+    // Don't clear screen on exit - preserve output for user reference
     console.log('\nWatch stopped.');
     process.exit(0);
   };

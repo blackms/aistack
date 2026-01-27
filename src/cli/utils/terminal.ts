@@ -53,8 +53,6 @@ export function statusIcon(status: AgentStatus): string {
       return '\u2717'; // ✗ x mark
     case 'stopped':
       return '\u25a0'; // ■ filled square
-    default:
-      return '?';
   }
 }
 
@@ -73,8 +71,6 @@ export function statusColor(status: AgentStatus): string {
       return colors.red;
     case 'stopped':
       return colors.gray;
-    default:
-      return colors.white;
   }
 }
 

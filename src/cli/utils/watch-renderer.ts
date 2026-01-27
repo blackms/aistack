@@ -14,6 +14,10 @@ import {
   clearScreen,
 } from './terminal.js';
 
+// Pre-compiled regex for stripping ANSI codes (hoisted for performance)
+// eslint-disable-next-line no-control-regex
+const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
+
 export interface AgentWatchData {
   agents: SpawnedAgent[];
   stats: {
@@ -162,17 +166,16 @@ export class WatchRenderer {
     switch (agent.status) {
       case 'running':
         return `${colors.dim}Processing...${colors.reset}`;
-      case 'failed':
+      case 'failed': {
         const error = agent.metadata?.lastError as string | undefined;
         return error ? `${colors.red}Error: ${error}${colors.reset}` : `${colors.red}Error${colors.reset}`;
+      }
       case 'idle':
         return `${colors.dim}\u2014${colors.reset}`; // em dash
       case 'completed':
         return `${colors.green}Done${colors.reset}`;
       case 'stopped':
         return `${colors.dim}Stopped${colors.reset}`;
-      default:
-        return `${colors.dim}\u2014${colors.reset}`;
     }
   }
 
@@ -189,6 +192,5 @@ export class WatchRenderer {
  * Strip ANSI codes from string (for length calculation)
  */
 function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*m/g, '');
+  return str.replace(ANSI_REGEX, '');
 }
