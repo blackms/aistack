@@ -21,7 +21,7 @@
 <br/>
 
 ```
-11 agents · 41 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Agent Identity · Drift Detection
+11 agents · 41 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Agent Identity · Drift Detection · Resource Exhaustion Monitoring
 ```
 
 </div>
@@ -190,6 +190,17 @@ Detect when task descriptions are semantically similar to ancestors:
 - **Task Relationships** - Track `parent_of`, `derived_from`, `depends_on`, `supersedes`
 - **Metrics & Events** - Full logging for drift detection analysis
 
+### 🛡️ Resource Exhaustion Monitoring
+
+Detect and prevent runaway agents consuming excessive resources:
+
+- **Per-Agent Tracking** - Track files accessed, API calls, subtasks spawned, tokens consumed
+- **Phase Progression** - `normal` → `warning` → `intervention` → `termination`
+- **Configurable Thresholds** - Set limits for each resource type
+- **Pause/Resume Control** - Automatically pause agents exceeding thresholds
+- **Deliverable Checkpoints** - Reset time-based tracking when agents produce results
+- **Slack Notifications** - Alert on warnings, interventions, and terminations
+
 ### 🎯 41 MCP Tools for Claude Code
 
 Control aistack directly from Claude Code IDE:
@@ -316,6 +327,20 @@ Create `aistack.config.json` in your project root:
     "ancestorDepth": 3,
     "behavior": "warn",
     "asyncEmbedding": true
+  },
+  "resourceExhaustion": {
+    "enabled": false,
+    "thresholds": {
+      "maxFilesAccessed": 50,
+      "maxApiCalls": 100,
+      "maxSubtasksSpawned": 20,
+      "maxTimeWithoutDeliverableMs": 1800000,
+      "maxTokensConsumed": 500000
+    },
+    "warningThresholdPercent": 0.7,
+    "checkIntervalMs": 10000,
+    "autoTerminate": false,
+    "pauseOnIntervention": true
   },
   "auth": {
     "enabled": true,
@@ -622,8 +647,9 @@ console.log('MCP server listening on stdio');
 
 ```typescript
 import { MemoryManager } from '@blackms/aistack/memory';
-import { spawnAgent, listAgentTypes } from '@blackms/aistack/agents';
+import { spawnAgent, listAgentTypes, pauseAgent, resumeAgent } from '@blackms/aistack/agents';
 import { startMCPServer } from '@blackms/aistack/mcp';
+import { getResourceExhaustionService } from '@blackms/aistack/monitoring';
 
 // Direct imports for smaller bundles
 const agentTypes = listAgentTypes();
@@ -641,6 +667,7 @@ aistack/
 │   ├── mcp/             # MCP server + 41 tools
 │   ├── memory/          # SQLite + FTS5 + vector search
 │   ├── tasks/           # Drift detection service
+│   ├── monitoring/      # Resource exhaustion, metrics, health
 │   ├── coordination/    # Task queue, message bus, review loop
 │   ├── web/             # REST API + WebSocket server + identity routes
 │   ├── providers/       # 6 LLM provider integrations
@@ -771,6 +798,6 @@ aistack is designed as a **local-first, NPM-distributed package** for developer 
 
 <br/>
 
-<sub>✅ **README verified against codebase v1.5.0** - All claims backed by implemented code with file:line references</sub>
+<sub>✅ **README verified against codebase v1.5.0+** - All claims backed by implemented code with file:line references (includes Resource Exhaustion Monitoring)</sub>
 
 </div>

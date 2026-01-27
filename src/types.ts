@@ -287,6 +287,7 @@ export interface AgentStackConfig {
   hooks: HooksConfig;
   slack?: SlackConfig;
   driftDetection?: DriftDetectionConfig;
+  resourceExhaustion?: ResourceExhaustionConfig;
 }
 
 export interface MemoryConfig {
@@ -368,6 +369,8 @@ export interface SlackConfig {
   notifyOnWorkflowComplete?: boolean;
   notifyOnErrors?: boolean;
   notifyOnReviewLoop?: boolean;
+  notifyOnResourceWarning?: boolean;
+  notifyOnResourceIntervention?: boolean;
 }
 
 // Result types
@@ -530,5 +533,65 @@ export interface DriftDetectionEvent {
   threshold: number;
   actionTaken: DriftDetectionAction;
   taskInput?: string;
+  createdAt: Date;
+}
+
+// Resource Exhaustion types
+export type ResourceExhaustionPhase = 'normal' | 'warning' | 'intervention' | 'termination';
+export type ResourceExhaustionAction = 'allowed' | 'warned' | 'paused' | 'terminated';
+export type DeliverableType = 'task_completed' | 'code_committed' | 'tests_passed' | 'user_checkpoint' | 'artifact_produced';
+
+export interface ResourceThresholds {
+  maxFilesAccessed: number;
+  maxApiCalls: number;
+  maxSubtasksSpawned: number;
+  maxTimeWithoutDeliverableMs: number;
+  maxTokensConsumed: number;
+}
+
+export interface AgentResourceMetrics {
+  agentId: string;
+  filesRead: number;
+  filesWritten: number;
+  filesModified: number;
+  apiCallsCount: number;
+  subtasksSpawned: number;
+  tokensConsumed: number;
+  startedAt: Date;
+  lastDeliverableAt: Date | null;
+  lastActivityAt: Date;
+  phase: ResourceExhaustionPhase;
+  pausedAt: Date | null;
+  pauseReason: string | null;
+}
+
+export interface DeliverableCheckpoint {
+  id: string;
+  agentId: string;
+  type: DeliverableType;
+  description?: string;
+  artifacts?: string[];
+  createdAt: Date;
+}
+
+export interface ResourceExhaustionConfig {
+  enabled: boolean;
+  thresholds: ResourceThresholds;
+  warningThresholdPercent: number;
+  checkIntervalMs: number;
+  autoTerminate: boolean;
+  requireConfirmationOnIntervention: boolean;
+  pauseOnIntervention: boolean;
+}
+
+export interface ResourceExhaustionEvent {
+  id: string;
+  agentId: string;
+  agentType: string;
+  phase: ResourceExhaustionPhase;
+  actionTaken: ResourceExhaustionAction;
+  metrics: AgentResourceMetrics;
+  thresholds: ResourceThresholds;
+  triggeredBy: keyof ResourceThresholds;
   createdAt: Date;
 }

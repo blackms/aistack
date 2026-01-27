@@ -14,7 +14,12 @@ import {
   updateAgentStatus,
   executeAgent,
   listAgentDefinitions,
+  pauseAgent,
+  resumeAgent,
 } from '../../agents/index.js';
+import { getResourceExhaustionService } from '../../monitoring/resource-exhaustion-service.js';
+import { getMemoryManager } from '../../memory/index.js';
+import type { DeliverableType } from '../../types.js';
 import { agentEvents } from '../websocket/event-bridge.js';
 import type { SpawnAgentRequest, ExecuteAgentRequest, ChatRequest } from '../types.js';
 
@@ -218,6 +223,165 @@ export function registerAgentRoutes(router: Router, config: AgentStackConfig): v
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Chat failed';
+      sendError(res, 500, message);
+    }
+  });
+
+  // GET /api/v1/agents/:id/resources - Get agent resource metrics
+  router.get('/api/v1/agents/:id/resources', (_req, res, params) => {
+    const agentId = params.path[0];
+    if (!agentId) {
+      throw badRequest('Agent ID is required');
+    }
+
+    const agent = getAgent(agentId);
+    if (!agent) {
+      throw notFound('Agent');
+    }
+
+    if (!config.resourceExhaustion?.enabled) {
+      sendJson(res, { error: 'Resource exhaustion monitoring not enabled' }, 400);
+      return;
+    }
+
+    try {
+      const memoryManager = getMemoryManager(config);
+      const resourceService = getResourceExhaustionService(
+        memoryManager.getStore(),
+        config.resourceExhaustion
+      );
+
+      const metrics = resourceService.getAgentMetrics(agentId);
+      if (!metrics) {
+        sendJson(res, { error: 'No metrics available for this agent' }, 404);
+        return;
+      }
+
+      sendJson(res, {
+        ...metrics,
+        startedAt: metrics.startedAt.toISOString(),
+        lastDeliverableAt: metrics.lastDeliverableAt?.toISOString() ?? null,
+        lastActivityAt: metrics.lastActivityAt.toISOString(),
+        pausedAt: metrics.pausedAt?.toISOString() ?? null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to get resource metrics';
+      sendError(res, 500, message);
+    }
+  });
+
+  // POST /api/v1/agents/:id/deliverable - Record a deliverable checkpoint
+  router.post('/api/v1/agents/:id/deliverable', (_req, res, params) => {
+    const agentId = params.path[0];
+    if (!agentId) {
+      throw badRequest('Agent ID is required');
+    }
+
+    const agent = getAgent(agentId);
+    if (!agent) {
+      throw notFound('Agent');
+    }
+
+    const body = params.body as { type?: string; description?: string; artifacts?: string[] } | undefined;
+    if (!body?.type) {
+      throw badRequest('Deliverable type is required');
+    }
+
+    const validTypes = ['task_completed', 'code_committed', 'tests_passed', 'user_checkpoint', 'artifact_produced'];
+    if (!validTypes.includes(body.type)) {
+      throw badRequest(`Invalid deliverable type. Must be one of: ${validTypes.join(', ')}`);
+    }
+
+    if (!config.resourceExhaustion?.enabled) {
+      sendJson(res, { error: 'Resource exhaustion monitoring not enabled' }, 400);
+      return;
+    }
+
+    try {
+      const memoryManager = getMemoryManager(config);
+      const resourceService = getResourceExhaustionService(
+        memoryManager.getStore(),
+        config.resourceExhaustion
+      );
+
+      const checkpoint = resourceService.recordDeliverable(
+        agentId,
+        body.type as DeliverableType,
+        body.description,
+        body.artifacts
+      );
+
+      sendJson(res, {
+        ...checkpoint,
+        createdAt: checkpoint.createdAt.toISOString(),
+      }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to record deliverable';
+      sendError(res, 500, message);
+    }
+  });
+
+  // POST /api/v1/agents/:id/pause - Pause an agent
+  router.post('/api/v1/agents/:id/pause', async (_req, res, params) => {
+    const agentId = params.path[0];
+    if (!agentId) {
+      throw badRequest('Agent ID is required');
+    }
+
+    const agent = getAgent(agentId);
+    if (!agent) {
+      throw notFound('Agent');
+    }
+
+    const body = params.body as { reason?: string } | undefined;
+    const reason = body?.reason ?? 'Manual pause via API';
+
+    if (!config.resourceExhaustion?.enabled) {
+      sendJson(res, { error: 'Resource exhaustion monitoring not enabled' }, 400);
+      return;
+    }
+
+    try {
+      const success = await pauseAgent(agentId, reason);
+      if (success) {
+        agentEvents.emit('agent:paused', { id: agentId, reason });
+        sendJson(res, { paused: true, reason });
+      } else {
+        sendJson(res, { error: 'Failed to pause agent' }, 500);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to pause agent';
+      sendError(res, 500, message);
+    }
+  });
+
+  // POST /api/v1/agents/:id/resume - Resume a paused agent
+  router.post('/api/v1/agents/:id/resume', (_req, res, params) => {
+    const agentId = params.path[0];
+    if (!agentId) {
+      throw badRequest('Agent ID is required');
+    }
+
+    const agent = getAgent(agentId);
+    if (!agent) {
+      throw notFound('Agent');
+    }
+
+    if (!config.resourceExhaustion?.enabled) {
+      sendJson(res, { error: 'Resource exhaustion monitoring not enabled' }, 400);
+      return;
+    }
+
+    try {
+      const success = resumeAgent(agentId);
+      if (success) {
+        agentEvents.emit('agent:resumed', { id: agentId });
+        sendJson(res, { resumed: true });
+      } else {
+        sendJson(res, { error: 'Agent was not paused or failed to resume' }, 400);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to resume agent';
       sendError(res, 500, message);
     }
   });

@@ -10,6 +10,7 @@ import { getMemoryManager } from '../../memory/index.js';
 import type { SystemStatus, HealthCheck } from '../types.js';
 import { getMetricsCollector } from '../../monitoring/metrics.js';
 import { getHealthMonitor } from '../../monitoring/health.js';
+import { getResourceExhaustionService } from '../../monitoring/resource-exhaustion-service.js';
 
 // Server start time for uptime calculation
 const serverStartTime = Date.now();
@@ -176,5 +177,59 @@ export function registerSystemRoutes(router: Router, config: AgentStackConfig): 
     const statusCode = result.status === 'ready' ? 200 : 503;
     res.writeHead(statusCode, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));
+  });
+
+  // GET /api/v1/system/resources - Resource exhaustion summary
+  router.get('/api/v1/system/resources', (_req, res) => {
+    if (!config.resourceExhaustion?.enabled) {
+      sendJson(res, {
+        enabled: false,
+        message: 'Resource exhaustion monitoring not enabled',
+      });
+      return;
+    }
+
+    try {
+      const manager = getMemoryManager(config);
+      const resourceService = getResourceExhaustionService(
+        manager.getStore(),
+        config.resourceExhaustion
+      );
+
+      const metrics = resourceService.getResourceMetrics();
+
+      sendJson(res, {
+        enabled: true,
+        config: {
+          thresholds: config.resourceExhaustion.thresholds,
+          warningThresholdPercent: config.resourceExhaustion.warningThresholdPercent,
+          checkIntervalMs: config.resourceExhaustion.checkIntervalMs,
+          autoTerminate: config.resourceExhaustion.autoTerminate,
+          pauseOnIntervention: config.resourceExhaustion.pauseOnIntervention,
+        },
+        metrics: {
+          totalAgentsTracked: metrics.totalAgentsTracked,
+          agentsByPhase: metrics.agentsByPhase,
+          pausedAgents: metrics.pausedAgents,
+          totalWarnings: metrics.totalWarnings,
+          totalInterventions: metrics.totalInterventions,
+          totalTerminations: metrics.totalTerminations,
+          recentEvents: metrics.recentEvents.map(event => ({
+            ...event,
+            createdAt: event.createdAt.toISOString(),
+            metrics: {
+              ...event.metrics,
+              startedAt: event.metrics.startedAt.toISOString(),
+              lastActivityAt: event.metrics.lastActivityAt.toISOString(),
+              lastDeliverableAt: event.metrics.lastDeliverableAt?.toISOString() ?? null,
+              pausedAt: event.metrics.pausedAt?.toISOString() ?? null,
+            },
+          })),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to get resource metrics';
+      sendJson(res, { error: message }, 500);
+    }
   });
 }

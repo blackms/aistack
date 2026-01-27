@@ -11,6 +11,7 @@ import { logger } from '../utils/logger.js';
 import { getMemoryManager } from '../memory/index.js';
 import { Semaphore, AgentPool } from '../utils/semaphore.js';
 import { getIdentityService } from './identity-service.js';
+import { getResourceExhaustionService } from '../monitoring/resource-exhaustion-service.js';
 
 const log = logger.child('spawner');
 
@@ -137,6 +138,19 @@ export function spawnAgent(
     try {
       const memoryManager = getMemoryManager(configRef);
       memoryManager.getStore().saveActiveAgent(agent);
+
+      // Initialize resource exhaustion tracking if enabled
+      if (configRef.resourceExhaustion?.enabled) {
+        try {
+          const resourceService = getResourceExhaustionService(
+            memoryManager.getStore(),
+            configRef.resourceExhaustion
+          );
+          resourceService.initializeAgent(id, type);
+        } catch (error) {
+          log.warn('Failed to initialize resource tracking', { id, error: error instanceof Error ? error.message : 'Unknown error' });
+        }
+      }
     } catch (error) {
       log.warn('Failed to persist agent', { id, error: error instanceof Error ? error.message : 'Unknown error' });
     }
@@ -227,6 +241,15 @@ export function stopAgent(id: string): boolean {
     try {
       const memoryManager = getMemoryManager(configRef);
       memoryManager.getStore().deleteActiveAgent(id);
+
+      // Clean up resource exhaustion tracking if enabled
+      if (configRef.resourceExhaustion?.enabled) {
+        const resourceService = getResourceExhaustionService(
+          memoryManager.getStore(),
+          configRef.resourceExhaustion
+        );
+        resourceService.cleanupAgent(id);
+      }
     } catch (error) {
       log.warn('Failed to delete persisted agent', { id, error: error instanceof Error ? error.message : 'Unknown error' });
     }
@@ -352,6 +375,35 @@ export async function executeAgent(
     throw new Error(`Agent definition not found: ${agent.type}`);
   }
 
+  // Check resource exhaustion state
+  if (config.resourceExhaustion?.enabled) {
+    try {
+      const memoryManager = getMemoryManager(config);
+      const resourceService = getResourceExhaustionService(
+        memoryManager.getStore(),
+        config.resourceExhaustion
+      );
+
+      // Check if agent is paused
+      const metrics = resourceService.getAgentMetrics(agentId);
+      if (metrics?.pausedAt) {
+        throw new Error(`Agent ${agentId} is paused: ${metrics.pauseReason ?? 'Resource limits exceeded'}`);
+      }
+
+      // Evaluate current phase before execution
+      const phase = resourceService.evaluateAgent(agentId);
+      if (phase === 'intervention' && config.resourceExhaustion.pauseOnIntervention) {
+        throw new Error(`Agent ${agentId} is paused due to resource exhaustion`);
+      }
+    } catch (error) {
+      // Re-throw pause errors, log others
+      if (error instanceof Error && error.message.includes('paused')) {
+        throw error;
+      }
+      log.warn('Failed to check resource state', { agentId, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+
   // Get the provider
   const providerName = options.provider ?? config.providers.default;
   const provider = getProvider(providerName, config);
@@ -392,6 +444,27 @@ export async function executeAgent(
 
     const duration = Date.now() - startTime;
     updateAgentStatus(agentId, 'idle');
+
+    // Record API call for resource tracking
+    if (config.resourceExhaustion?.enabled) {
+      try {
+        const memoryManager = getMemoryManager(config);
+        const resourceService = getResourceExhaustionService(
+          memoryManager.getStore(),
+          config.resourceExhaustion
+        );
+
+        const totalTokens = response.usage
+          ? response.usage.inputTokens + response.usage.outputTokens
+          : undefined;
+        resourceService.recordApiCall(agentId, totalTokens);
+
+        // Re-evaluate phase after API call
+        resourceService.evaluateAgent(agentId);
+      } catch (error) {
+        log.warn('Failed to record API call', { agentId, error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
 
     log.info('Agent task completed', { agentId, duration, model: response.model });
 
@@ -491,4 +564,68 @@ export function getConcurrencyStats(): {
     semaphore: agentSemaphore.getState(),
     pool: agentPool.getStats(),
   };
+}
+
+/**
+ * Pause an agent due to resource exhaustion
+ */
+export async function pauseAgent(agentId: string, reason: string): Promise<boolean> {
+  if (!configRef?.resourceExhaustion?.enabled) {
+    log.warn('Resource exhaustion not enabled, cannot pause agent', { agentId });
+    return false;
+  }
+
+  try {
+    const memoryManager = getMemoryManager(configRef);
+    const resourceService = getResourceExhaustionService(
+      memoryManager.getStore(),
+      configRef.resourceExhaustion
+    );
+    return resourceService.pauseAgent(agentId, reason);
+  } catch (error) {
+    log.error('Failed to pause agent', { agentId, error: error instanceof Error ? error.message : 'Unknown error' });
+    return false;
+  }
+}
+
+/**
+ * Resume a paused agent
+ */
+export function resumeAgent(agentId: string): boolean {
+  if (!configRef?.resourceExhaustion?.enabled) {
+    log.warn('Resource exhaustion not enabled, cannot resume agent', { agentId });
+    return false;
+  }
+
+  try {
+    const memoryManager = getMemoryManager(configRef);
+    const resourceService = getResourceExhaustionService(
+      memoryManager.getStore(),
+      configRef.resourceExhaustion
+    );
+    return resourceService.resumeAgent(agentId);
+  } catch (error) {
+    log.error('Failed to resume agent', { agentId, error: error instanceof Error ? error.message : 'Unknown error' });
+    return false;
+  }
+}
+
+/**
+ * Check if an agent is paused
+ */
+export function isAgentPaused(agentId: string): boolean {
+  if (!configRef?.resourceExhaustion?.enabled) {
+    return false;
+  }
+
+  try {
+    const memoryManager = getMemoryManager(configRef);
+    const resourceService = getResourceExhaustionService(
+      memoryManager.getStore(),
+      configRef.resourceExhaustion
+    );
+    return resourceService.isAgentPaused(agentId);
+  } catch {
+    return false;
+  }
 }

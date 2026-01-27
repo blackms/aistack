@@ -82,6 +82,8 @@ const SlackConfigSchema = z.object({
   notifyOnWorkflowComplete: z.boolean().default(true),
   notifyOnErrors: z.boolean().default(true),
   notifyOnReviewLoop: z.boolean().default(true),
+  notifyOnResourceWarning: z.boolean().default(true),
+  notifyOnResourceIntervention: z.boolean().default(true),
 });
 
 const DriftDetectionConfigSchema = z.object({
@@ -99,6 +101,24 @@ const DriftDetectionConfigSchema = z.object({
   }
 );
 
+const ResourceThresholdsSchema = z.object({
+  maxFilesAccessed: z.number().min(1).max(1000).default(50),
+  maxApiCalls: z.number().min(1).max(10000).default(100),
+  maxSubtasksSpawned: z.number().min(1).max(100).default(20),
+  maxTimeWithoutDeliverableMs: z.number().min(60000).max(7200000).default(1800000),
+  maxTokensConsumed: z.number().min(1000).max(10000000).default(500000),
+});
+
+const ResourceExhaustionConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  thresholds: ResourceThresholdsSchema.default({}),
+  warningThresholdPercent: z.number().min(0.1).max(0.99).default(0.7),
+  checkIntervalMs: z.number().min(1000).max(60000).default(10000),
+  autoTerminate: z.boolean().default(false),
+  requireConfirmationOnIntervention: z.boolean().default(true),
+  pauseOnIntervention: z.boolean().default(true),
+});
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -110,6 +130,7 @@ const ConfigSchema = z.object({
   hooks: HooksConfigSchema.default({}),
   slack: SlackConfigSchema.default({}),
   driftDetection: DriftDetectionConfigSchema.default({}),
+  resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
