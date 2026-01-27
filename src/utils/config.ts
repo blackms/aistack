@@ -91,7 +91,13 @@ const DriftDetectionConfigSchema = z.object({
   ancestorDepth: z.number().min(1).max(10).default(3),
   behavior: z.enum(['warn', 'prevent']).default('warn'),
   asyncEmbedding: z.boolean().default(true),
-});
+}).refine(
+  (data) => !data.warningThreshold || data.warningThreshold < data.threshold,
+  {
+    message: 'warningThreshold must be less than threshold',
+    path: ['warningThreshold'],
+  }
+);
 
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),

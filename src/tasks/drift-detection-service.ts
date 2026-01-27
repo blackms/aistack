@@ -341,7 +341,7 @@ export class DriftDetectionService {
     const db = this.store.getDatabase();
     const buffer = Buffer.from(new Float32Array(embedding).buffer);
     const now = Date.now();
-    const model = 'openai'; // TODO: Get from config
+    const model = this.embeddingProvider?.model ?? 'unknown';
 
     db.prepare(`
       INSERT OR REPLACE INTO task_embeddings (task_id, embedding, model, dimensions, created_at)
@@ -478,20 +478,45 @@ export class DriftDetectionService {
   }
 }
 
-// Singleton instance
+// Singleton instance with config tracking
 let instance: DriftDetectionService | null = null;
+let instanceConfig: DriftDetectionConfig | null = null;
 
 /**
  * Get or create the drift detection service instance
+ * @param store - The SQLite store instance
+ * @param config - The application configuration
+ * @param forceNew - Force creation of a new instance (useful when config changes)
  */
 export function getDriftDetectionService(
   store: SQLiteStore,
-  config: AgentStackConfig
+  config: AgentStackConfig,
+  forceNew: boolean = false
 ): DriftDetectionService {
-  if (!instance) {
+  const newConfig = config.driftDetection;
+
+  // Create new instance if forced, no instance exists, or config changed
+  if (forceNew || !instance || !configEquals(instanceConfig, newConfig)) {
     instance = new DriftDetectionService(store, config);
+    instanceConfig = newConfig ? { ...newConfig } : null;
   }
   return instance;
+}
+
+/**
+ * Compare two drift detection configs for equality
+ */
+function configEquals(a: DriftDetectionConfig | null | undefined, b: DriftDetectionConfig | null | undefined): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.enabled === b.enabled &&
+    a.threshold === b.threshold &&
+    a.warningThreshold === b.warningThreshold &&
+    a.ancestorDepth === b.ancestorDepth &&
+    a.behavior === b.behavior &&
+    a.asyncEmbedding === b.asyncEmbedding
+  );
 }
 
 /**
@@ -499,4 +524,5 @@ export function getDriftDetectionService(
  */
 export function resetDriftDetectionService(): void {
   instance = null;
+  instanceConfig = null;
 }

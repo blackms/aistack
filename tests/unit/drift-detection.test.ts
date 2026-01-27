@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { SQLiteStore } from '../../src/memory/sqlite-store.js';
 import {
   DriftDetectionService,
+  getDriftDetectionService,
   resetDriftDetectionService,
 } from '../../src/tasks/drift-detection-service.js';
 import type { AgentStackConfig } from '../../src/types.js';
@@ -688,6 +689,98 @@ describe('DriftDetectionService', () => {
       expect(config.warningThreshold).toBe(0.7);
       expect(config.ancestorDepth).toBe(5);
       expect(config.behavior).toBe('prevent');
+    });
+  });
+
+  describe('getDriftDetectionService (singleton)', () => {
+    it('should return the same instance for same config', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const config = createConfig({ driftEnabled: true, threshold: 0.9 });
+
+      const service1 = getDriftDetectionService(store, config);
+      const service2 = getDriftDetectionService(store, config);
+
+      expect(service1).toBe(service2);
+    });
+
+    it('should create new instance when config changes', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const config1 = createConfig({ driftEnabled: true, threshold: 0.9 });
+      const config2 = createConfig({ driftEnabled: true, threshold: 0.85 });
+
+      const service1 = getDriftDetectionService(store, config1);
+      const service2 = getDriftDetectionService(store, config2);
+
+      expect(service1).not.toBe(service2);
+      expect(service1.getConfig().threshold).toBe(0.9);
+      expect(service2.getConfig().threshold).toBe(0.85);
+    });
+
+    it('should create new instance when forceNew is true', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const config = createConfig({ driftEnabled: true, threshold: 0.9 });
+
+      const service1 = getDriftDetectionService(store, config);
+      const service2 = getDriftDetectionService(store, config, true);
+
+      expect(service1).not.toBe(service2);
+    });
+
+    it('should detect enabled flag change', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const config1 = createConfig({ driftEnabled: false });
+      const config2 = createConfig({ driftEnabled: true, openaiKey: 'sk-test' });
+
+      const service1 = getDriftDetectionService(store, config1);
+      const service2 = getDriftDetectionService(store, config2);
+
+      expect(service1).not.toBe(service2);
+      expect(service1.isEnabled()).toBe(false);
+      expect(service2.isEnabled()).toBe(true);
+    });
+
+    it('should detect behavior change', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const config1 = createConfig({ driftEnabled: true, behavior: 'warn' });
+      const config2 = createConfig({ driftEnabled: true, behavior: 'prevent' });
+
+      const service1 = getDriftDetectionService(store, config1);
+      const service2 = getDriftDetectionService(store, config2);
+
+      expect(service1).not.toBe(service2);
+      expect(service1.getConfig().behavior).toBe('warn');
+      expect(service2.getConfig().behavior).toBe('prevent');
+    });
+  });
+
+  describe('embedding model name', () => {
+    it('should store embedding with correct model name', async () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const service = new DriftDetectionService(
+        store,
+        createConfig({
+          driftEnabled: true,
+          openaiKey: 'sk-test',
+          asyncEmbedding: false,
+        })
+      );
+
+      const task = store.createTask('coder', 'Test task');
+
+      // Mock the embedding API call
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: createMockEmbedding(1) }],
+        }),
+      });
+
+      await service.indexTask(task.id, 'Test task');
+
+      const embedding = service.getTaskEmbedding(task.id);
+      expect(embedding).not.toBeNull();
+      // Model should be from the provider (text-embedding-3-small for OpenAI)
+      expect(embedding?.model).toBe('text-embedding-3-small');
     });
   });
 });
