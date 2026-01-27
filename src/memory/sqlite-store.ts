@@ -26,6 +26,13 @@ import type {
   AgentIdentityStatus,
   AgentCapability,
   AgentIdentityAuditEntry,
+  AgentResourceMetrics,
+  ResourceExhaustionPhase,
+  DeliverableCheckpoint,
+  DeliverableType,
+  ResourceExhaustionEvent,
+  ResourceExhaustionAction,
+  ResourceThresholds,
 } from '../types.js';
 import { logger } from '../utils/logger.js';
 
@@ -356,6 +363,54 @@ CREATE TABLE IF NOT EXISTS drift_detection_events (
 CREATE INDEX IF NOT EXISTS idx_drift_detection_events_task ON drift_detection_events(task_id);
 CREATE INDEX IF NOT EXISTS idx_drift_detection_events_created ON drift_detection_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_drift_detection_events_action ON drift_detection_events(action_taken);
+
+-- Agent Resource Metrics
+CREATE TABLE IF NOT EXISTS agent_resource_metrics (
+  agent_id TEXT PRIMARY KEY,
+  files_read INTEGER DEFAULT 0,
+  files_written INTEGER DEFAULT 0,
+  files_modified INTEGER DEFAULT 0,
+  api_calls_count INTEGER DEFAULT 0,
+  subtasks_spawned INTEGER DEFAULT 0,
+  tokens_consumed INTEGER DEFAULT 0,
+  started_at INTEGER NOT NULL,
+  last_deliverable_at INTEGER,
+  last_activity_at INTEGER NOT NULL,
+  phase TEXT DEFAULT 'normal',
+  paused_at INTEGER,
+  pause_reason TEXT,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_resource_metrics_phase ON agent_resource_metrics(phase);
+
+-- Deliverable Checkpoints
+CREATE TABLE IF NOT EXISTS agent_deliverable_checkpoints (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  description TEXT,
+  artifacts TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_deliverable_checkpoints_agent ON agent_deliverable_checkpoints(agent_id);
+
+-- Resource Exhaustion Events
+CREATE TABLE IF NOT EXISTS resource_exhaustion_events (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  agent_type TEXT NOT NULL,
+  phase TEXT NOT NULL,
+  action_taken TEXT NOT NULL,
+  metrics TEXT NOT NULL,
+  thresholds TEXT NOT NULL,
+  triggered_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_resource_exhaustion_events_agent ON resource_exhaustion_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_resource_exhaustion_events_created ON resource_exhaustion_events(created_at DESC);
 `;
 
 export class SQLiteStore {
@@ -2117,6 +2172,349 @@ export class SQLiteStore {
     };
   }
 
+  // ==================== Resource Exhaustion Operations ====================
+
+  /**
+   * Save or update agent resource metrics
+   */
+  saveAgentResourceMetrics(metrics: AgentResourceMetrics): void {
+    const now = Date.now();
+
+    const existing = this.db
+      .prepare('SELECT agent_id FROM agent_resource_metrics WHERE agent_id = ?')
+      .get(metrics.agentId);
+
+    if (existing) {
+      this.db
+        .prepare(`
+          UPDATE agent_resource_metrics
+          SET files_read = ?, files_written = ?, files_modified = ?,
+              api_calls_count = ?, subtasks_spawned = ?, tokens_consumed = ?,
+              last_deliverable_at = ?, last_activity_at = ?, phase = ?,
+              paused_at = ?, pause_reason = ?, updated_at = ?
+          WHERE agent_id = ?
+        `)
+        .run(
+          metrics.filesRead,
+          metrics.filesWritten,
+          metrics.filesModified,
+          metrics.apiCallsCount,
+          metrics.subtasksSpawned,
+          metrics.tokensConsumed,
+          metrics.lastDeliverableAt?.getTime() ?? null,
+          metrics.lastActivityAt.getTime(),
+          metrics.phase,
+          metrics.pausedAt?.getTime() ?? null,
+          metrics.pauseReason,
+          now,
+          metrics.agentId
+        );
+    } else {
+      this.db
+        .prepare(`
+          INSERT INTO agent_resource_metrics (
+            agent_id, files_read, files_written, files_modified,
+            api_calls_count, subtasks_spawned, tokens_consumed,
+            started_at, last_deliverable_at, last_activity_at, phase,
+            paused_at, pause_reason, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          metrics.agentId,
+          metrics.filesRead,
+          metrics.filesWritten,
+          metrics.filesModified,
+          metrics.apiCallsCount,
+          metrics.subtasksSpawned,
+          metrics.tokensConsumed,
+          metrics.startedAt.getTime(),
+          metrics.lastDeliverableAt?.getTime() ?? null,
+          metrics.lastActivityAt.getTime(),
+          metrics.phase,
+          metrics.pausedAt?.getTime() ?? null,
+          metrics.pauseReason,
+          now
+        );
+    }
+  }
+
+  /**
+   * Get agent resource metrics
+   */
+  getAgentResourceMetrics(agentId: string): AgentResourceMetrics | null {
+    const row = this.db
+      .prepare('SELECT * FROM agent_resource_metrics WHERE agent_id = ?')
+      .get(agentId) as AgentResourceMetricsRow | undefined;
+
+    return row ? this.rowToAgentResourceMetrics(row) : null;
+  }
+
+  /**
+   * List all active agent resource metrics
+   */
+  listAgentResourceMetrics(phase?: ResourceExhaustionPhase): AgentResourceMetrics[] {
+    let query = 'SELECT * FROM agent_resource_metrics';
+    const params: string[] = [];
+
+    if (phase) {
+      query += ' WHERE phase = ?';
+      params.push(phase);
+    }
+
+    query += ' ORDER BY last_activity_at DESC';
+
+    const rows = this.db.prepare(query).all(...params) as AgentResourceMetricsRow[];
+    return rows.map(row => this.rowToAgentResourceMetrics(row));
+  }
+
+  /**
+   * Delete agent resource metrics
+   */
+  deleteAgentResourceMetrics(agentId: string): boolean {
+    const result = this.db
+      .prepare('DELETE FROM agent_resource_metrics WHERE agent_id = ?')
+      .run(agentId);
+
+    return result.changes > 0;
+  }
+
+  /**
+   * Create a deliverable checkpoint
+   */
+  createDeliverableCheckpoint(checkpoint: {
+    id: string;
+    agentId: string;
+    type: DeliverableType;
+    description?: string;
+    artifacts?: string[];
+  }): DeliverableCheckpoint {
+    const now = Date.now();
+    const artifactsJson = checkpoint.artifacts ? JSON.stringify(checkpoint.artifacts) : null;
+
+    this.db
+      .prepare(`
+        INSERT INTO agent_deliverable_checkpoints (id, agent_id, type, description, artifacts, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        checkpoint.id,
+        checkpoint.agentId,
+        checkpoint.type,
+        checkpoint.description ?? null,
+        artifactsJson,
+        now
+      );
+
+    return {
+      id: checkpoint.id,
+      agentId: checkpoint.agentId,
+      type: checkpoint.type,
+      description: checkpoint.description,
+      artifacts: checkpoint.artifacts,
+      createdAt: new Date(now),
+    };
+  }
+
+  /**
+   * Get deliverable checkpoints for an agent
+   */
+  getDeliverableCheckpoints(agentId: string, limit: number = 100): DeliverableCheckpoint[] {
+    const rows = this.db
+      .prepare(`
+        SELECT * FROM agent_deliverable_checkpoints
+        WHERE agent_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .all(agentId, limit) as DeliverableCheckpointRow[];
+
+    return rows.map(row => this.rowToDeliverableCheckpoint(row));
+  }
+
+  /**
+   * Get the most recent deliverable checkpoint for an agent
+   */
+  getLastDeliverableCheckpoint(agentId: string): DeliverableCheckpoint | null {
+    const row = this.db
+      .prepare(`
+        SELECT * FROM agent_deliverable_checkpoints
+        WHERE agent_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `)
+      .get(agentId) as DeliverableCheckpointRow | undefined;
+
+    return row ? this.rowToDeliverableCheckpoint(row) : null;
+  }
+
+  /**
+   * Delete deliverable checkpoints for an agent
+   */
+  deleteDeliverableCheckpoints(agentId: string): number {
+    const result = this.db
+      .prepare('DELETE FROM agent_deliverable_checkpoints WHERE agent_id = ?')
+      .run(agentId);
+
+    return result.changes;
+  }
+
+  /**
+   * Save a resource exhaustion event
+   */
+  saveResourceExhaustionEvent(event: ResourceExhaustionEvent): void {
+    const metricsJson = JSON.stringify(event.metrics);
+    const thresholdsJson = JSON.stringify(event.thresholds);
+
+    this.db
+      .prepare(`
+        INSERT INTO resource_exhaustion_events (
+          id, agent_id, agent_type, phase, action_taken,
+          metrics, thresholds, triggered_by, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        event.id,
+        event.agentId,
+        event.agentType,
+        event.phase,
+        event.actionTaken,
+        metricsJson,
+        thresholdsJson,
+        event.triggeredBy,
+        event.createdAt.getTime()
+      );
+  }
+
+  /**
+   * Get resource exhaustion events
+   */
+  getResourceExhaustionEvents(options?: {
+    agentId?: string;
+    limit?: number;
+    since?: Date;
+  }): ResourceExhaustionEvent[] {
+    let query = 'SELECT * FROM resource_exhaustion_events WHERE 1=1';
+    const params: (string | number)[] = [];
+
+    if (options?.agentId) {
+      query += ' AND agent_id = ?';
+      params.push(options.agentId);
+    }
+
+    if (options?.since) {
+      query += ' AND created_at >= ?';
+      params.push(options.since.getTime());
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    if (options?.limit) {
+      query += ' LIMIT ?';
+      params.push(options.limit);
+    }
+
+    const rows = this.db.prepare(query).all(...params) as ResourceExhaustionEventRow[];
+    return rows.map(row => this.rowToResourceExhaustionEvent(row));
+  }
+
+  /**
+   * Get resource exhaustion metrics summary
+   */
+  getResourceExhaustionMetrics(since?: Date): {
+    totalEvents: number;
+    warningCount: number;
+    interventionCount: number;
+    terminationCount: number;
+    byAgent: Record<string, number>;
+  } {
+    let query = 'SELECT * FROM resource_exhaustion_events WHERE 1=1';
+    const params: number[] = [];
+
+    if (since) {
+      query += ' AND created_at >= ?';
+      params.push(since.getTime());
+    }
+
+    const rows = this.db.prepare(query).all(...params) as ResourceExhaustionEventRow[];
+
+    const byAgent: Record<string, number> = {};
+    let warningCount = 0;
+    let interventionCount = 0;
+    let terminationCount = 0;
+
+    for (const row of rows) {
+      byAgent[row.agent_id] = (byAgent[row.agent_id] || 0) + 1;
+
+      if (row.action_taken === 'warned') warningCount++;
+      else if (row.action_taken === 'paused') interventionCount++;
+      else if (row.action_taken === 'terminated') terminationCount++;
+    }
+
+    return {
+      totalEvents: rows.length,
+      warningCount,
+      interventionCount,
+      terminationCount,
+      byAgent,
+    };
+  }
+
+  private rowToAgentResourceMetrics(row: AgentResourceMetricsRow): AgentResourceMetrics {
+    return {
+      agentId: row.agent_id,
+      filesRead: row.files_read,
+      filesWritten: row.files_written,
+      filesModified: row.files_modified,
+      apiCallsCount: row.api_calls_count,
+      subtasksSpawned: row.subtasks_spawned,
+      tokensConsumed: row.tokens_consumed,
+      startedAt: new Date(row.started_at),
+      lastDeliverableAt: row.last_deliverable_at ? new Date(row.last_deliverable_at) : null,
+      lastActivityAt: new Date(row.last_activity_at),
+      phase: row.phase as ResourceExhaustionPhase,
+      pausedAt: row.paused_at ? new Date(row.paused_at) : null,
+      pauseReason: row.pause_reason,
+    };
+  }
+
+  private rowToDeliverableCheckpoint(row: DeliverableCheckpointRow): DeliverableCheckpoint {
+    return {
+      id: row.id,
+      agentId: row.agent_id,
+      type: row.type as DeliverableType,
+      description: row.description ?? undefined,
+      artifacts: row.artifacts ? JSON.parse(row.artifacts) as string[] : undefined,
+      createdAt: new Date(row.created_at),
+    };
+  }
+
+  private rowToResourceExhaustionEvent(row: ResourceExhaustionEventRow): ResourceExhaustionEvent {
+    const metrics = JSON.parse(row.metrics) as AgentResourceMetrics;
+    // Convert date strings back to Date objects
+    metrics.startedAt = new Date(metrics.startedAt);
+    metrics.lastActivityAt = new Date(metrics.lastActivityAt);
+    if (metrics.lastDeliverableAt) {
+      metrics.lastDeliverableAt = new Date(metrics.lastDeliverableAt);
+    }
+    if (metrics.pausedAt) {
+      metrics.pausedAt = new Date(metrics.pausedAt);
+    }
+
+    return {
+      id: row.id,
+      agentId: row.agent_id,
+      agentType: row.agent_type,
+      phase: row.phase as ResourceExhaustionPhase,
+      actionTaken: row.action_taken as ResourceExhaustionAction,
+      metrics,
+      thresholds: JSON.parse(row.thresholds) as ResourceThresholds,
+      triggeredBy: row.triggered_by as keyof ResourceThresholds,
+      createdAt: new Date(row.created_at),
+    };
+  }
+
   // ==================== Cleanup ====================
 
   /**
@@ -2247,4 +2645,42 @@ interface AgentIdentityAuditRow {
   actor_id: string | null;
   metadata: string | null;
   timestamp: number;
+}
+
+interface AgentResourceMetricsRow {
+  agent_id: string;
+  files_read: number;
+  files_written: number;
+  files_modified: number;
+  api_calls_count: number;
+  subtasks_spawned: number;
+  tokens_consumed: number;
+  started_at: number;
+  last_deliverable_at: number | null;
+  last_activity_at: number;
+  phase: string;
+  paused_at: number | null;
+  pause_reason: string | null;
+  updated_at: number;
+}
+
+interface DeliverableCheckpointRow {
+  id: string;
+  agent_id: string;
+  type: string;
+  description: string | null;
+  artifacts: string | null;
+  created_at: number;
+}
+
+interface ResourceExhaustionEventRow {
+  id: string;
+  agent_id: string;
+  agent_type: string;
+  phase: string;
+  action_taken: string;
+  metrics: string;
+  thresholds: string;
+  triggered_by: string;
+  created_at: number;
 }

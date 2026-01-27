@@ -73,6 +73,15 @@ export class MetricsCollector {
     this.registerCounter('websocket_messages_received_total', 'Total number of WebSocket messages received');
     this.registerGauge('websocket_clients_current', 'Current number of WebSocket clients');
 
+    // Resource exhaustion metrics
+    this.registerCounter('resource_exhaustion_warnings_total', 'Total resource warning events');
+    this.registerCounter('resource_exhaustion_interventions_total', 'Total resource intervention events');
+    this.registerCounter('resource_exhaustion_terminations_total', 'Total resource termination events');
+    this.registerGauge('agents_paused_current', 'Current number of paused agents');
+    this.registerHistogram('agent_files_accessed', 'Files accessed per agent session');
+    this.registerHistogram('agent_api_calls', 'API calls per agent session');
+    this.registerHistogram('agent_tokens_consumed', 'Tokens consumed per agent session');
+
     log.debug('System metrics initialized');
   }
 

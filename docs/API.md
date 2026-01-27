@@ -1620,6 +1620,48 @@ const toolNames = server.getToolNames();
 await server.stop();
 ```
 
+### Resource Exhaustion Service
+
+```typescript
+import {
+  getResourceExhaustionService,
+  resetResourceExhaustionService
+} from '@blackms/aistack';
+
+// Get singleton (requires config.resourceExhaustion.enabled: true)
+const service = getResourceExhaustionService(store, config.resourceExhaustion);
+
+// Track operations
+service.initializeAgent(agentId);
+service.recordFileOperation(agentId, 'read');
+service.recordApiCall(agentId, tokensConsumed);
+service.recordSubtaskSpawn(agentId);
+
+// Record deliverables (resets time-based tracking)
+service.recordDeliverable(agentId, 'task_completed', 'Implemented feature X');
+
+// Evaluate phase progression
+const phase = service.evaluateAgent(agentId); // 'normal' | 'warning' | 'intervention' | 'termination'
+
+// Control agents
+await service.pauseAgent(agentId, 'Resource thresholds exceeded');
+service.resumeAgent(agentId);
+const isPaused = service.isAgentPaused(agentId);
+
+// Get metrics
+const metrics = service.getAgentMetrics(agentId);
+const summary = service.getResourceMetrics();
+const events = service.getRecentEvents(10);
+
+// Lifecycle
+service.start();  // Start background monitoring
+service.stop();   // Stop background monitoring
+service.cleanupAgent(agentId);
+
+// Reset singleton (for testing)
+resetResourceExhaustionService();
+```
+
 ---
 
 ## CLI Commands
@@ -1845,6 +1887,135 @@ curl "http://localhost:3001/api/v1/identities?status=active&limit=10"
 | `/api/v1/specifications` | Specification management |
 | `/api/v1/review-loops` | Review loop management |
 | `/api/v1/auth` | Authentication |
+
+### Resource Exhaustion REST API
+
+These endpoints require `resourceExhaustion.enabled: true` in configuration.
+
+#### `GET /api/v1/agents/:id/resources`
+
+Get resource metrics for an agent.
+
+**Response**:
+```json
+{
+  "agentId": "uuid-v4",
+  "filesRead": 15,
+  "filesWritten": 3,
+  "filesModified": 2,
+  "apiCallsCount": 25,
+  "subtasksSpawned": 2,
+  "tokensConsumed": 45000,
+  "startedAt": "2024-01-01T00:00:00.000Z",
+  "lastDeliverableAt": "2024-01-01T00:15:00.000Z",
+  "lastActivityAt": "2024-01-01T00:20:00.000Z",
+  "phase": "normal",
+  "pausedAt": null,
+  "pauseReason": null
+}
+```
+
+---
+
+#### `POST /api/v1/agents/:id/deliverable`
+
+Record a deliverable checkpoint for an agent, resetting time-based tracking.
+
+**Request Body**:
+```json
+{
+  "type": "task_completed",
+  "description": "Implemented user authentication",
+  "artifacts": ["src/auth/login.ts", "src/auth/middleware.ts"]
+}
+```
+
+**Valid deliverable types**: `task_completed`, `code_committed`, `tests_passed`, `user_checkpoint`, `artifact_produced`
+
+**Response** (201):
+```json
+{
+  "id": "uuid-v4",
+  "agentId": "agent-uuid",
+  "type": "task_completed",
+  "description": "Implemented user authentication",
+  "artifacts": ["src/auth/login.ts", "src/auth/middleware.ts"],
+  "createdAt": "2024-01-01T00:15:00.000Z"
+}
+```
+
+---
+
+#### `POST /api/v1/agents/:id/pause`
+
+Pause an agent's execution.
+
+**Request Body**:
+```json
+{
+  "reason": "Manual pause for review"
+}
+```
+
+**Response**:
+```json
+{
+  "paused": true,
+  "reason": "Manual pause for review"
+}
+```
+
+---
+
+#### `POST /api/v1/agents/:id/resume`
+
+Resume a paused agent.
+
+**Response**:
+```json
+{
+  "resumed": true
+}
+```
+
+---
+
+#### `GET /api/v1/system/resources`
+
+Get resource exhaustion summary for all agents.
+
+**Response**:
+```json
+{
+  "enabled": true,
+  "config": {
+    "thresholds": {
+      "maxFilesAccessed": 50,
+      "maxApiCalls": 100,
+      "maxSubtasksSpawned": 20,
+      "maxTimeWithoutDeliverableMs": 1800000,
+      "maxTokensConsumed": 500000
+    },
+    "warningThresholdPercent": 0.7,
+    "checkIntervalMs": 10000,
+    "autoTerminate": false,
+    "pauseOnIntervention": true
+  },
+  "metrics": {
+    "totalAgentsTracked": 5,
+    "agentsByPhase": {
+      "normal": 3,
+      "warning": 1,
+      "intervention": 1
+    },
+    "pausedAgents": 1,
+    "totalWarnings": 10,
+    "totalInterventions": 2,
+    "totalTerminations": 0,
+    "recentEvents": []
+  }
+}
+```
 
 ---
 

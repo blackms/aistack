@@ -258,6 +258,64 @@ export class SlackIntegration {
       ],
     });
   }
+
+  async sendResourceWarning(
+    agentId: string,
+    agentType: string,
+    triggeredBy: string,
+    currentValue: number,
+    threshold: number
+  ): Promise<void> {
+    const percentage = Math.round((currentValue / threshold) * 100);
+    await this.sendMessage({
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `:warning: *Resource Warning*\nAgent: \`${agentType}\` (\`${agentId.slice(0, 8)}\`)\nMetric: \`${triggeredBy}\`\nUsage: ${percentage}% of limit`,
+          },
+        },
+      ],
+    });
+  }
+
+  async sendResourceIntervention(
+    agentId: string,
+    agentType: string,
+    triggeredBy: string,
+    reason: string
+  ): Promise<void> {
+    await this.sendMessage({
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `:rotating_light: *Agent Paused - Resource Exhaustion*\nAgent: \`${agentType}\` (\`${agentId.slice(0, 8)}\`)\nTriggered by: \`${triggeredBy}\`\nReason: ${reason}`,
+          },
+        },
+      ],
+    });
+  }
+
+  async sendResourceTermination(
+    agentId: string,
+    agentType: string,
+    reason: string
+  ): Promise<void> {
+    await this.sendMessage({
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `:skull: *Agent Terminated - Resource Exhaustion*\nAgent: \`${agentType}\` (\`${agentId.slice(0, 8)}\`)\nReason: ${reason}`,
+          },
+        },
+      ],
+    });
+  }
 }
 
 // Singleton instance

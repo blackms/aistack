@@ -167,6 +167,69 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_at);
 ```
 
+### Agent Resource Metrics Table
+
+Track resource consumption per agent for exhaustion monitoring.
+
+```sql
+CREATE TABLE IF NOT EXISTS agent_resource_metrics (
+  agent_id TEXT PRIMARY KEY,       -- Agent UUID
+  files_read INTEGER DEFAULT 0,
+  files_written INTEGER DEFAULT 0,
+  files_modified INTEGER DEFAULT 0,
+  api_calls_count INTEGER DEFAULT 0,
+  subtasks_spawned INTEGER DEFAULT 0,
+  tokens_consumed INTEGER DEFAULT 0,
+  started_at INTEGER NOT NULL,     -- Unix timestamp (ms)
+  last_deliverable_at INTEGER,     -- Unix timestamp (ms)
+  last_activity_at INTEGER NOT NULL, -- Unix timestamp (ms)
+  phase TEXT DEFAULT 'normal',     -- 'normal' | 'warning' | 'intervention' | 'termination'
+  paused_at INTEGER,               -- Unix timestamp (ms)
+  pause_reason TEXT,
+  updated_at INTEGER NOT NULL      -- Unix timestamp (ms)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_resource_metrics_phase ON agent_resource_metrics(phase);
+```
+
+### Deliverable Checkpoints Table
+
+Record deliverable checkpoints that reset time-based tracking.
+
+```sql
+CREATE TABLE IF NOT EXISTS agent_deliverable_checkpoints (
+  id TEXT PRIMARY KEY,             -- UUID v4
+  agent_id TEXT NOT NULL,          -- Agent UUID
+  type TEXT NOT NULL,              -- 'task_completed' | 'code_committed' | 'tests_passed' | 'user_checkpoint' | 'artifact_produced'
+  description TEXT,
+  artifacts TEXT,                  -- JSON array of artifact paths
+  created_at INTEGER NOT NULL      -- Unix timestamp (ms)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_deliverable_checkpoints_agent ON agent_deliverable_checkpoints(agent_id);
+```
+
+### Resource Exhaustion Events Table
+
+Audit trail for resource exhaustion events.
+
+```sql
+CREATE TABLE IF NOT EXISTS resource_exhaustion_events (
+  id TEXT PRIMARY KEY,             -- UUID v4
+  agent_id TEXT NOT NULL,
+  agent_type TEXT NOT NULL,
+  phase TEXT NOT NULL,             -- 'normal' | 'warning' | 'intervention' | 'termination'
+  action_taken TEXT NOT NULL,      -- 'allowed' | 'warned' | 'paused' | 'terminated'
+  metrics TEXT NOT NULL,           -- JSON-encoded AgentResourceMetrics
+  thresholds TEXT NOT NULL,        -- JSON-encoded ResourceThresholds
+  triggered_by TEXT NOT NULL,      -- Which threshold triggered: 'maxFilesAccessed', 'maxApiCalls', etc.
+  created_at INTEGER NOT NULL      -- Unix timestamp (ms)
+);
+
+CREATE INDEX IF NOT EXISTS idx_resource_exhaustion_events_agent ON resource_exhaustion_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_resource_exhaustion_events_created ON resource_exhaustion_events(created_at DESC);
+```
+
 ## TypeScript Interfaces
 
 ### Memory Entry
@@ -273,6 +336,59 @@ type AgentType = 'coder' | 'researcher' | 'tester' | 'reviewer' | 'adversarial' 
                  'documentation' | 'security-auditor';
 
 type AgentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'stopped';
+```
+
+### Resource Exhaustion Types
+
+```typescript
+type ResourceExhaustionPhase = 'normal' | 'warning' | 'intervention' | 'termination';
+type ResourceExhaustionAction = 'allowed' | 'warned' | 'paused' | 'terminated';
+type DeliverableType = 'task_completed' | 'code_committed' | 'tests_passed' | 'user_checkpoint' | 'artifact_produced';
+
+interface ResourceThresholds {
+  maxFilesAccessed: number;        // Default: 50
+  maxApiCalls: number;             // Default: 100
+  maxSubtasksSpawned: number;      // Default: 20
+  maxTimeWithoutDeliverableMs: number; // Default: 1800000 (30 min)
+  maxTokensConsumed: number;       // Default: 500000
+}
+
+interface AgentResourceMetrics {
+  agentId: string;
+  filesRead: number;
+  filesWritten: number;
+  filesModified: number;
+  apiCallsCount: number;
+  subtasksSpawned: number;
+  tokensConsumed: number;
+  startedAt: Date;
+  lastDeliverableAt: Date | null;
+  lastActivityAt: Date;
+  phase: ResourceExhaustionPhase;
+  pausedAt: Date | null;
+  pauseReason: string | null;
+}
+
+interface DeliverableCheckpoint {
+  id: string;
+  agentId: string;
+  type: DeliverableType;
+  description?: string;
+  artifacts?: string[];
+  createdAt: Date;
+}
+
+interface ResourceExhaustionEvent {
+  id: string;
+  agentId: string;
+  agentType: string;
+  phase: ResourceExhaustionPhase;
+  actionTaken: ResourceExhaustionAction;
+  metrics: AgentResourceMetrics;
+  thresholds: ResourceThresholds;
+  triggeredBy: keyof ResourceThresholds;
+  createdAt: Date;
+}
 ```
 
 ## Vector Embeddings

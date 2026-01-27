@@ -45,7 +45,7 @@ C4Container
     Person(developer, "Developer", "Uses Claude Code")
 
     System_Boundary(agentstack, "AgentStack") {
-        Container(mcp_server, "MCP Server", "TypeScript", "Exposes 36 tools via MCP protocol")
+        Container(mcp_server, "MCP Server", "TypeScript", "Exposes 41 tools via MCP protocol")
         Container(agent_manager, "Agent Manager", "TypeScript", "Registry and spawner for 11 agent types")
         Container(memory_manager, "Memory Manager", "TypeScript", "Unified storage with FTS and vector search")
         Container(coordination, "Coordination Layer", "TypeScript", "Task queue and message bus")
@@ -103,6 +103,12 @@ flowchart TB
         AP[Anthropic Provider]
         OP[OpenAI Provider]
         OL[Ollama Provider]
+    end
+
+    subgraph "Monitoring Layer"
+        RES[Resource Exhaustion Service]
+        MET[Metrics Collector]
+        HLT[Health Monitor]
     end
 
     subgraph "Extension Layer"
@@ -224,6 +230,13 @@ Clear separation between:
 ### 5. Graceful Degradation
 Optional features (vector search, GitHub integration) degrade gracefully when not configured.
 
+### 6. Resource Exhaustion Monitoring
+Per-agent resource tracking detects runaway agents consuming excessive resources:
+- Phase progression: `normal` → `warning` → `intervention` → `termination`
+- Configurable thresholds (files, API calls, subtasks, time, tokens)
+- Automatic pause/resume with callback mechanism
+- Deliverable checkpoints for progress tracking
+
 ## Technology Stack
 
 | Component | Technology | Purpose |
@@ -252,11 +265,15 @@ src/
 │   └── vector-search.ts
 ├── mcp/               # MCP server and tools
 │   ├── server.ts
-│   └── tools/         # 36 tool implementations
+│   └── tools/         # 41 tool implementations
 ├── coordination/      # Task and message management
 │   ├── task-queue.ts
 │   ├── message-bus.ts
 │   └── topology.ts
+├── monitoring/        # Resource monitoring
+│   ├── resource-exhaustion-service.ts
+│   ├── metrics.ts
+│   └── health.ts
 ├── workflows/         # Multi-phase workflows
 ├── plugins/           # Plugin system
 ├── hooks/             # Lifecycle hooks
