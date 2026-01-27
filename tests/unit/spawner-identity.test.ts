@@ -167,26 +167,29 @@ describe('Spawner Identity Integration', () => {
   });
 
   describe('stopAgent with identity', () => {
-    it('should update identity lastActiveAt when stopping agent', () => {
+    it('should deactivate identity to dormant when stopping agent', () => {
       const identityService = getIdentityService(config);
       const identity = identityService.createIdentity({
         agentType: 'coder',
         autoActivate: true,
       });
-      const initialLastActive = identity.lastActiveAt;
 
-      // Small delay to ensure time difference
+      expect(identity.status).toBe('active');
+
       const agent = spawnAgent('coder', {
         identityId: identity.agentId,
       }, config);
 
-      // Stop after a small delay
+      // Stop agent should transition identity to dormant
       stopAgent(agent.id);
 
       const updatedIdentity = identityService.getIdentity(identity.agentId);
-      expect(updatedIdentity?.lastActiveAt.getTime()).toBeGreaterThanOrEqual(
-        initialLastActive.getTime()
-      );
+      expect(updatedIdentity?.status).toBe('dormant');
+
+      // Should also create a deactivated audit entry
+      const audit = identityService.getAuditTrail(identity.agentId);
+      const deactivateEvent = audit.find(e => e.action === 'deactivated');
+      expect(deactivateEvent).toBeDefined();
     });
 
     it('should not fail when stopping agent without identity', () => {
@@ -247,15 +250,15 @@ describe('Spawner Identity Integration', () => {
   });
 
   describe('Edge cases', () => {
-    it('should handle identity validation failure gracefully', () => {
-      // Create identity but close the database connection to simulate failure
+    it('should successfully spawn agent with valid active identity', () => {
+      // Create and activate identity
       const identityService = getIdentityService(config);
       const identity = identityService.createIdentity({
         agentType: 'coder',
         autoActivate: true,
       });
 
-      // This should work normally
+      // Spawn should succeed with valid active identity
       const agent = spawnAgent('coder', {
         identityId: identity.agentId,
       }, config);

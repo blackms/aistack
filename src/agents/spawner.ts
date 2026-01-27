@@ -212,13 +212,13 @@ export function stopAgent(id: string): boolean {
   activeAgents.delete(id);
   agentsByName.delete(agent.name);
 
-  // Update identity last active time if linked
+  // Deactivate identity (transition to dormant) if linked
   if (configRef && agent.identityId) {
     try {
       const identityService = getIdentityService(configRef);
-      identityService.touchIdentity(agent.identityId);
+      identityService.deactivateIdentity(agent.identityId);
     } catch (error) {
-      log.warn('Failed to touch identity', { identityId: agent.identityId, error: error instanceof Error ? error.message : 'Unknown error' });
+      log.warn('Failed to deactivate identity', { identityId: agent.identityId, error: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 

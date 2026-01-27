@@ -100,10 +100,27 @@ describe('Identity REST API Routes', () => {
         default: 'anthropic',
         anthropic: { apiKey: 'test-key' },
       },
-      mcp: { enabled: true },
-      web: { port: 3000 },
-      agents: [],
-    } as AgentStackConfig;
+      agents: {
+        maxConcurrent: 5,
+        defaultTimeout: 300,
+      },
+      github: {
+        enabled: false,
+      },
+      plugins: {
+        enabled: false,
+        directory: './plugins',
+      },
+      mcp: {
+        transport: 'stdio',
+      },
+      hooks: {
+        sessionStart: false,
+        sessionEnd: false,
+        preTask: false,
+        postTask: false,
+      },
+    };
 
     const mock = createMockRouter();
     router = mock.router;
