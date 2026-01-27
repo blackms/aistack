@@ -1970,9 +1970,13 @@ export class SQLiteStore {
     if (filters?.limit) {
       query += ' LIMIT ?';
       params.push(filters.limit);
-    }
-    if (filters?.offset) {
-      query += ' OFFSET ?';
+      if (filters?.offset) {
+        query += ' OFFSET ?';
+        params.push(filters.offset);
+      }
+    } else if (filters?.offset) {
+      // SQLite requires LIMIT when using OFFSET
+      query += ' LIMIT -1 OFFSET ?';
       params.push(filters.offset);
     }
 
