@@ -103,6 +103,65 @@ interface AgentDefinition {
 3. Behavioral guidelines
 4. Output expectations
 
+### 1.4 Identity Service (`identity-service.ts`)
+
+**Purpose**: Manage persistent agent identities with lifecycle states.
+
+**Data Structures**:
+```typescript
+interface AgentIdentity {
+  agentId: string;           // UUID v4
+  agentType: string;
+  status: AgentIdentityStatus;  // 'created' | 'active' | 'dormant' | 'retired'
+  capabilities: AgentCapability[];
+  version: number;
+  displayName?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+  lastActiveAt: Date;
+  retiredAt?: Date;
+  retirementReason?: string;
+  createdBy?: string;
+  updatedAt: Date;
+}
+```
+
+**Status Transitions**:
+```mermaid
+stateDiagram-v2
+    [*] --> created: create
+    created --> active: activate
+    created --> retired: retire
+    active --> dormant: deactivate
+    active --> retired: retire
+    dormant --> active: reactivate
+    dormant --> retired: retire
+    retired --> [*]
+```
+
+**Key Functions**:
+
+| Function | Description |
+|----------|-------------|
+| `createIdentity(opts)` | Create new identity with UUID |
+| `getIdentity(id)` | Get by ID |
+| `getIdentityByName(name)` | Get by display name |
+| `listIdentities(filters)` | List with status/type filters |
+| `updateIdentity(id, data, actorId)` | Update metadata/capabilities |
+| `activateIdentity(id, actorId)` | Transition to active |
+| `deactivateIdentity(id, reason, actorId)` | Transition to dormant |
+| `retireIdentity(id, reason, actorId)` | Permanent retirement |
+| `getAuditTrail(id, limit)` | Get audit entries |
+
+**Audit Trail**:
+Every identity change is logged with:
+- `action`: created, activated, deactivated, retired, updated, spawned
+- `previousStatus` / `newStatus`
+- `reason`
+- `actorId` (who made the change)
+- `timestamp`
+
 ## 2. Memory Module (`src/memory/`)
 
 ### 2.1 SQLite Store (`sqlite-store.ts`)
@@ -111,7 +170,7 @@ interface AgentDefinition {
 
 **Database Schema**:
 ```sql
--- Memory table
+-- Memory table (with agent scoping support)
 CREATE TABLE IF NOT EXISTS memory (
   id TEXT PRIMARY KEY,
   key TEXT NOT NULL,
@@ -119,6 +178,7 @@ CREATE TABLE IF NOT EXISTS memory (
   content TEXT NOT NULL,
   embedding BLOB,
   metadata TEXT,
+  agent_id TEXT DEFAULT NULL,  -- Agent ownership for scoped memory
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   UNIQUE(namespace, key)
@@ -127,6 +187,7 @@ CREATE TABLE IF NOT EXISTS memory (
 CREATE INDEX IF NOT EXISTS idx_memory_namespace ON memory(namespace);
 CREATE INDEX IF NOT EXISTS idx_memory_key ON memory(key);
 CREATE INDEX IF NOT EXISTS idx_memory_updated ON memory(updated_at);
+CREATE INDEX IF NOT EXISTS idx_memory_agent_id ON memory(agent_id);
 
 -- FTS5 virtual table
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
@@ -311,18 +372,21 @@ interface MCPTool {
 - `agent_update_status`: Change status
 
 **Memory Tools** (`memory-tools.ts`):
-- `memory_store`: Store with key, content, namespace, metadata
-- `memory_search`: Hybrid FTS + vector search
+- `memory_store`: Store with key, content, namespace, metadata, agentId (agent-scoped)
+- `memory_search`: Hybrid FTS + vector search with agentId filter and includeShared option
 - `memory_get`: Retrieve by key
-- `memory_list`: Paginated listing
+- `memory_list`: Paginated listing with agent filtering
 - `memory_delete`: Remove entry
 
 **Task Tools** (`task-tools.ts`):
-- `task_create`: Create task for agent type
+- `task_create`: Create task with optional drift detection (parentTaskId parameter)
 - `task_assign`: Assign to specific agent
 - `task_complete`: Mark complete with output
 - `task_list`: Filter by session/status
 - `task_get`: Get task details
+- `task_check_drift`: Check if input would trigger drift detection
+- `task_get_relationships`: Get task parent/child relationships
+- `task_drift_metrics`: Get drift detection statistics
 
 **Session Tools** (`session-tools.ts`):
 - `session_start`: Create with optional metadata
@@ -344,7 +408,19 @@ interface MCPTool {
 - `github_pr_get`: Get PR details
 - `github_repo_info`: Repository info
 
+**Identity Tools** (`identity-tools.ts`):
+- `identity_create`: Create new persistent identity
+- `identity_get`: Get by ID or display name
+- `identity_list`: List with filters
+- `identity_update`: Update metadata/capabilities
+- `identity_activate`: Transition to active
+- `identity_deactivate`: Transition to dormant
+- `identity_retire`: Permanent retirement
+- `identity_audit`: Get audit trail
+
 **Review Loop Tools** (`review-loop-tools.ts`):
+> Note: These tools are exported but not registered in the MCP server. Use the programmatic API for review loops.
+
 - `review_loop_start`: Start adversarial review loop
 - `review_loop_status`: Get loop status and details
 - `review_loop_abort`: Stop running review loop
@@ -352,7 +428,96 @@ interface MCPTool {
 - `review_loop_list`: List all active review loops
 - `review_loop_get_code`: Get current code from loop
 
-## 4. Coordination Module (`src/coordination/`)
+## 4. Tasks Module (`src/tasks/`)
+
+### 4.1 Drift Detection Service (`drift-detection-service.ts`)
+
+**Purpose**: Detect semantic drift when creating tasks by comparing against ancestor tasks.
+
+**Configuration**:
+```typescript
+interface DriftDetectionConfig {
+  enabled: boolean;           // default: false
+  threshold: number;          // default: 0.95 (block/warn threshold)
+  warningThreshold?: number;  // optional lower threshold
+  ancestorDepth: number;      // default: 3
+  behavior: 'warn' | 'prevent';
+  asyncEmbedding: boolean;    // default: true
+}
+```
+
+**Key Functions**:
+
+| Function | Description |
+|----------|-------------|
+| `checkDrift(input, type, parentId)` | Check task against ancestors |
+| `indexTask(taskId, input)` | Generate and store embedding |
+| `createTaskRelationship(from, to, type)` | Create parent/child link |
+| `getTaskAncestors(taskId, depth)` | Traverse task tree |
+| `getTaskRelationships(taskId, direction)` | Get relationships |
+| `getDriftDetectionMetrics(since)` | Get statistics |
+| `getRecentDriftEvents(limit)` | Get recent events |
+
+**Drift Check Flow**:
+```mermaid
+flowchart TB
+    INPUT[Task Input] --> ENABLED{Enabled?}
+    ENABLED -->|No| ALLOW[Allow]
+    ENABLED -->|Yes| PARENT{Has Parent?}
+    PARENT -->|No| ALLOW
+    PARENT -->|Yes| ANCESTORS[Get Ancestors]
+    ANCESTORS --> EMBED[Generate Embedding]
+    EMBED --> COMPARE[Compare Similarities]
+    COMPARE --> THRESHOLD{Above Threshold?}
+    THRESHOLD -->|No| ALLOW
+    THRESHOLD -->|Yes| BEHAVIOR{Behavior?}
+    BEHAVIOR -->|warn| WARN[Log + Allow]
+    BEHAVIOR -->|prevent| PREVENT[Block Creation]
+```
+
+**Relationship Types**:
+- `parent_of`: Direct parent-child relationship
+- `derived_from`: Task based on another task
+- `depends_on`: Dependency relationship
+- `supersedes`: Task replaces another
+
+**Database Tables**:
+```sql
+-- Task embeddings
+CREATE TABLE task_embeddings (
+  task_id TEXT PRIMARY KEY,
+  embedding BLOB NOT NULL,
+  model TEXT NOT NULL,
+  dimensions INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+-- Task relationships
+CREATE TABLE task_relationships (
+  id TEXT PRIMARY KEY,
+  from_task_id TEXT NOT NULL,
+  to_task_id TEXT NOT NULL,
+  relationship_type TEXT NOT NULL,
+  metadata TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE(from_task_id, to_task_id, relationship_type)
+);
+
+-- Drift events log
+CREATE TABLE drift_detection_events (
+  id TEXT PRIMARY KEY,
+  task_id TEXT,
+  task_type TEXT NOT NULL,
+  ancestor_task_id TEXT NOT NULL,
+  similarity_score REAL NOT NULL,
+  threshold REAL NOT NULL,
+  action_taken TEXT NOT NULL,
+  task_input TEXT,
+  created_at INTEGER NOT NULL
+);
+```
+
+## 5. Coordination Module (`src/coordination/`)
 
 ### 4.1 Task Queue (`task-queue.ts`)
 
@@ -713,9 +878,112 @@ const availability = checkCLIProviders();
 // Returns: { 'claude-code': boolean, 'gemini-cli': boolean, 'codex': boolean }
 ```
 
-## 9. Utils Module (`src/utils/`)
+## 9. CLI Module (`src/cli/`)
 
-### 9.1 Configuration (`config.ts`)
+### 9.1 Agent Watch Command (`cli/commands/agent-watch.ts`)
+
+**Purpose**: Real-time monitoring of agent activity
+
+**Key Types**:
+```typescript
+interface AgentWatchOptions {
+  interval: string;      // Refresh interval in seconds
+  session?: string;      // Optional session filter
+  type?: string;         // Optional agent type filter
+  status?: string;       // Optional status filter (idle/running/completed/failed/stopped)
+  json: boolean;         // JSON snapshot mode
+  clear: boolean;        // Clear screen between refreshes
+}
+
+interface AgentWatchData {
+  agents: SpawnedAgent[];
+  stats: {
+    active: number;
+    maxConcurrent: number;
+    byStatus: Record<AgentStatus, number>;
+  };
+}
+```
+
+**Key Functions**:
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `runAgentWatch` | `(options: AgentWatchOptions, config: AgentStackConfig) => Promise<void>` | Main entry point for watch command |
+| `collectAgentData` | `(options: AgentWatchOptions) => AgentWatchData` | Fetch and filter agent data |
+| `countByStatus` | `(agents: SpawnedAgent[]) => Record<AgentStatus, number>` | Calculate status distribution |
+
+**Execution Flow**:
+1. Parse interval (validate >= 1 second)
+2. If `--json`: collect data, output once, exit
+3. Interactive mode: hide cursor, initial render
+4. Set up refresh interval with cleanup handlers (SIGINT/SIGTERM)
+5. On each tick: collect data, render via `WatchRenderer`
+6. On exit: show cursor, preserve output, print "Watch stopped."
+
+**Dependencies**:
+- `WatchRenderer` class from `cli/utils/watch-renderer.ts` (table formatting)
+- Terminal utilities from `cli/utils/terminal.ts` (cursor, clear screen)
+- Agent functions: `listAgents()`, `getConcurrencyStats()` from `agents/spawner.ts`
+
+**File References**:
+- Implementation: `/src/cli/commands/agent-watch.ts`
+- Integration: `/src/cli/commands/agent.ts:183-195`
+- Renderer: `/src/cli/utils/watch-renderer.ts`
+- Terminal: `/src/cli/utils/terminal.ts`
+
+### 9.2 Terminal Utilities (`cli/utils/terminal.ts`)
+
+**Purpose**: ANSI escape code utilities for terminal control
+
+**Key Functions**:
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `hideCursor` | `() => void` | Hide terminal cursor (ANSI: `\x1b[?25l`) |
+| `showCursor` | `() => void` | Show terminal cursor (ANSI: `\x1b[?25h`) |
+| `clearScreen` | `() => void` | Clear screen and move cursor to top-left |
+| `statusIcon` | `(status: AgentStatus) => string` | Get Unicode icon for status |
+| `statusColor` | `(status: AgentStatus) => string` | Get ANSI color code for status |
+| `statusLabel` | `(status: AgentStatus) => string` | Get short label for status |
+| `formatDuration` | `(ms: number) => string` | Format milliseconds to human-readable duration |
+| `truncate` | `(text: string, maxLen: number) => string` | Truncate text with ellipsis |
+
+### 9.3 Watch Renderer (`cli/utils/watch-renderer.ts`)
+
+**Purpose**: Render agent watch display with table formatting
+
+**Key Class**: `WatchRenderer`
+
+**Constructor Options**:
+```typescript
+interface WatchRendererOptions {
+  clearScreen: boolean;  // Whether to clear screen before each render
+}
+```
+
+**Key Method**:
+- `render(data: AgentWatchData): void` - Render table with agents and stats
+
+**Rendering Logic**:
+1. Optionally clear screen
+2. Print header with timestamp and title
+3. Print summary with active/max concurrent counts and status breakdown
+4. Print table header (STATUS, NAME, TYPE, UPTIME, TASK)
+5. Print separator line
+6. Print agent rows (sorted: running first, then by creation time)
+7. Print footer with exit instruction
+
+**Display Features**:
+- Unicode characters for borders and status icons
+- ANSI colors for status indication
+- Text truncation to fit display width
+- Relative timestamps (e.g., "2m 15s")
+- Dynamic task descriptions from agent metadata
+
+## 10. Utils Module (`src/utils/`)
+
+### 10.1 Configuration (`config.ts`)
 
 **Schema Validation**:
 - Zod schemas for all config sections
@@ -729,7 +997,7 @@ const availability = checkCLIProviders();
 4. Validate with Zod
 5. Cache singleton
 
-### 9.2 Logger (`logger.ts`)
+### 10.2 Logger (`logger.ts`)
 
 **Features**:
 - Hierarchical with `child(prefix)` method
@@ -737,7 +1005,7 @@ const availability = checkCLIProviders();
 - JSON metadata support
 - TTY color detection
 
-### 9.3 Embeddings (`embeddings.ts`)
+### 10.3 Embeddings (`embeddings.ts`)
 
 **Provider Factory**:
 ```typescript
@@ -748,7 +1016,7 @@ function createEmbeddingProvider(config: AgentStackConfig): EmbeddingProvider | 
 }
 ```
 
-## 10. Related Documents
+## 11. Related Documents
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System diagrams
 - [HLD.md](HLD.md) - High-level design

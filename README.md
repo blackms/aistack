@@ -21,7 +21,7 @@
 <br/>
 
 ```
-11 agents · 36 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Adversarial review
+11 agents · 41 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Agent Identity · Drift Detection
 ```
 
 </div>
@@ -170,16 +170,36 @@ Automatic code improvement through iterative feedback:
 
 Result: More robust, secure code with fewer bugs.
 
-### 🎯 36 MCP Tools for Claude Code
+### 🪪 Agent Identity v1
+
+Persistent agent identities with lifecycle management:
+
+- **Stable UUIDs** - Agents have persistent `agent_id` across executions
+- **Lifecycle States** - `created` → `active` → `dormant` → `retired`
+- **Capabilities Tracking** - Store and version agent capabilities
+- **Full Audit Trail** - Every identity change is logged
+- **Agent-Scoped Memory** - Memory namespaces owned by specific agents
+
+### 🎯 Semantic Drift Detection
+
+Detect when task descriptions are semantically similar to ancestors:
+
+- **Embedding-based Similarity** - Uses OpenAI or Ollama embeddings
+- **Configurable Thresholds** - `threshold` (block/warn) and `warningThreshold` (warn only)
+- **Two Behaviors** - `warn` (log and allow) or `prevent` (block creation)
+- **Task Relationships** - Track `parent_of`, `derived_from`, `depends_on`, `supersedes`
+- **Metrics & Events** - Full logging for drift detection analysis
+
+### 🎯 41 MCP Tools for Claude Code
 
 Control aistack directly from Claude Code IDE:
 - 6 agent tools (spawn, list, stop, status, types, update)
-- 5 memory tools (store, search, get, list, delete)
-- 5 task tools (create, assign, complete, list, get)
+- 8 identity tools (create, get, list, update, activate, deactivate, retire, audit)
+- 5 memory tools (store, search, get, list, delete) — with agent-scoped memory support
+- 8 task tools (create, assign, complete, list, get, check_drift, get_relationships, drift_metrics)
 - 4 session tools (start, end, status, active)
 - 3 system tools (status, health, config)
 - 7 GitHub tools (issues, PRs, repo info)
-- 6 review loop tools (start, status, abort, issues, list, get code)
 
 ### 🌐 Web Dashboard
 
@@ -266,7 +286,7 @@ Create `aistack.config.json` in your project root:
 
 ```json
 {
-  "version": "1.0.0",
+  "version": "1.5.0",
   "providers": {
     "default": "anthropic",
     "anthropic": {
@@ -288,6 +308,14 @@ Create `aistack.config.json` in your project root:
       "enabled": false,
       "provider": "openai"
     }
+  },
+  "driftDetection": {
+    "enabled": false,
+    "threshold": 0.95,
+    "warningThreshold": 0.8,
+    "ancestorDepth": 3,
+    "behavior": "warn",
+    "asyncEmbedding": true
   },
   "auth": {
     "enabled": true,
@@ -478,21 +506,37 @@ Then open http://localhost:3001 to:
 
 | Tool | Description | Input | Code |
 |------|-------------|-------|------|
-| `memory_store` | Store memory entry | `{ key, content, namespace?, metadata? }` | `/src/mcp/tools/memory-tools.ts:43` |
-| `memory_search` | Search with FTS5 | `{ query, namespace?, limit? }` | `/src/mcp/tools/memory-tools.ts:86` |
-| `memory_get` | Get by key | `{ key, namespace? }` | `/src/mcp/tools/memory-tools.ts:132` |
-| `memory_list` | List all entries | `{ namespace?, limit?, offset? }` | `/src/mcp/tools/memory-tools.ts:169` |
-| `memory_delete` | Delete entry | `{ key, namespace? }` | `/src/mcp/tools/memory-tools.ts:202` |
+| `memory_store` | Store memory entry | `{ key, content, namespace?, metadata?, agentId? }` | `/src/mcp/tools/memory-tools.ts:48` |
+| `memory_search` | Search with FTS5 | `{ query, namespace?, limit?, agentId?, includeShared? }` | `/src/mcp/tools/memory-tools.ts:94` |
+| `memory_get` | Get by key | `{ key, namespace? }` | `/src/mcp/tools/memory-tools.ts:145` |
+| `memory_list` | List all entries | `{ namespace?, limit?, offset?, agentId?, includeShared? }` | `/src/mcp/tools/memory-tools.ts:182` |
+| `memory_delete` | Delete entry | `{ key, namespace? }` | `/src/mcp/tools/memory-tools.ts:221` |
 
-### Task Tools (5)
+### Identity Tools (8)
 
 | Tool | Description | Input | Code |
 |------|-------------|-------|------|
-| `task_create` | Create a new task | `{ title, description, metadata? }` | `/src/mcp/tools/task-tools.ts:37` |
-| `task_assign` | Assign task to agent | `{ taskId, agentId }` | `/src/mcp/tools/task-tools.ts:78` |
-| `task_complete` | Mark task complete | `{ taskId, result? }` | `/src/mcp/tools/task-tools.ts:109` |
-| `task_list` | List tasks | `{ status?, agentId? }` | `/src/mcp/tools/task-tools.ts:146` |
-| `task_get` | Get task details | `{ taskId }` | `/src/mcp/tools/task-tools.ts:176` |
+| `identity_create` | Create agent identity | `{ agentType, displayName?, capabilities?, metadata? }` | `/src/mcp/tools/identity-tools.ts:98` |
+| `identity_get` | Get identity by ID or name | `{ agentId?, displayName? }` | `/src/mcp/tools/identity-tools.ts:155` |
+| `identity_list` | List identities | `{ status?, agentType?, limit?, offset? }` | `/src/mcp/tools/identity-tools.ts:205` |
+| `identity_update` | Update identity metadata | `{ agentId, displayName?, metadata?, capabilities? }` | `/src/mcp/tools/identity-tools.ts:247` |
+| `identity_activate` | Activate identity | `{ agentId, actorId? }` | `/src/mcp/tools/identity-tools.ts:311` |
+| `identity_deactivate` | Deactivate identity | `{ agentId, reason?, actorId? }` | `/src/mcp/tools/identity-tools.ts:342` |
+| `identity_retire` | Retire identity (permanent) | `{ agentId, reason?, actorId? }` | `/src/mcp/tools/identity-tools.ts:378` |
+| `identity_audit` | Get audit trail | `{ agentId, limit? }` | `/src/mcp/tools/identity-tools.ts:414` |
+
+### Task Tools (8)
+
+| Tool | Description | Input | Code |
+|------|-------------|-------|------|
+| `task_create` | Create task with drift detection | `{ agentType, input?, sessionId?, parentTaskId? }` | `/src/mcp/tools/task-tools.ts:50` |
+| `task_assign` | Assign task to agent | `{ taskId, agentId }` | `/src/mcp/tools/task-tools.ts:138` |
+| `task_complete` | Mark task complete | `{ taskId, output?, status? }` | `/src/mcp/tools/task-tools.ts:169` |
+| `task_list` | List tasks | `{ sessionId?, status? }` | `/src/mcp/tools/task-tools.ts:206` |
+| `task_get` | Get task details | `{ taskId }` | `/src/mcp/tools/task-tools.ts:236` |
+| `task_check_drift` | Check for semantic drift | `{ taskInput, taskType, parentTaskId? }` | `/src/mcp/tools/task-tools.ts:273` |
+| `task_get_relationships` | Get task relationships | `{ taskId, direction? }` | `/src/mcp/tools/task-tools.ts:328` |
+| `task_drift_metrics` | Get drift detection metrics | `{ since? }` | `/src/mcp/tools/task-tools.ts:376` |
 
 ### Session Tools (4)
 
@@ -523,18 +567,9 @@ Then open http://localhost:3001 to:
 | `github_pr_get` | Get PR | `{ owner, repo, number }` | `/src/mcp/tools/github-tools.ts:273` |
 | `github_repo_info` | Get repo info | `{ owner, repo }` | `/src/mcp/tools/github-tools.ts:301` |
 
-### Review Loop Tools (6)
+**Total: 41 MCP Tools**
 
-| Tool | Description | Input | Code |
-|------|-------------|-------|------|
-| `review_loop_start` | Start adversarial review | `{ code, maxIterations?, sessionId? }` | `/src/mcp/tools/review-loop-tools.ts:46` |
-| `review_loop_status` | Get loop status | `{ loopId }` | `/src/mcp/tools/review-loop-tools.ts:84` |
-| `review_loop_abort` | Stop review loop | `{ loopId }` | `/src/mcp/tools/review-loop-tools.ts:121` |
-| `review_loop_issues` | Get review issues | `{ loopId }` | `/src/mcp/tools/review-loop-tools.ts:142` |
-| `review_loop_list` | List active loops | `{}` | `/src/mcp/tools/review-loop-tools.ts:188` |
-| `review_loop_get_code` | Get loop code | `{ loopId }` | `/src/mcp/tools/review-loop-tools.ts:205` |
-
-**Total: 36 MCP Tools**
+> **Note:** Review loop functionality is available via the programmatic API (`createReviewLoop`) and CLI, but not exposed as MCP tools.
 
 ---
 
@@ -602,11 +637,12 @@ const agentTypes = listAgentTypes();
 ```
 aistack/
 ├── src/
-│   ├── agents/          # 11 agent types with system prompts
-│   ├── mcp/             # MCP server + 36 tools
+│   ├── agents/          # 11 agent types with system prompts + identity service
+│   ├── mcp/             # MCP server + 41 tools
 │   ├── memory/          # SQLite + FTS5 + vector search
+│   ├── tasks/           # Drift detection service
 │   ├── coordination/    # Task queue, message bus, review loop
-│   ├── web/             # REST API + WebSocket server
+│   ├── web/             # REST API + WebSocket server + identity routes
 │   ├── providers/       # 6 LLM provider integrations
 │   ├── workflows/       # Multi-phase workflow engine
 │   ├── auth/            # JWT + RBAC authentication
@@ -621,6 +657,7 @@ aistack/
 │       ├── components/  # React components
 │       └── stores/      # Zustand state management
 │
+├── migrations/          # Database migrations
 ├── tests/               # Unit + integration tests
 ├── docs/                # Technical documentation
 └── .github/workflows/   # CI/CD pipeline
@@ -734,6 +771,6 @@ aistack is designed as a **local-first, NPM-distributed package** for developer 
 
 <br/>
 
-<sub>✅ **README verified against codebase v1.3.1** - All claims backed by implemented code with file:line references</sub>
+<sub>✅ **README verified against codebase v1.5.0** - All claims backed by implemented code with file:line references</sub>
 
 </div>

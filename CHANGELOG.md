@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `EmbeddingProvider` interface now exposes `model` property
 - Config validation ensures `warningThreshold < threshold`
+- **Documentation Sync**: Updated all documentation to v1.5.0
+  - README.md: Updated tool count to 41, added Agent Identity and Drift Detection features
+  - docs/API.md: Added Identity Tools (8), drift detection tools (3), REST API section
+  - docs/LLD.md: Added Identity Service, Drift Detection Service, updated schema documentation
 
 ## [1.4.0] - 2026-01-27
 

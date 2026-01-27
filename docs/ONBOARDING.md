@@ -274,6 +274,41 @@ npm run test:watch       # Watch mode
 npm run test:coverage    # With coverage
 ```
 
+### Testing Agent Watch Command
+
+The agent watch command provides real-time monitoring of agent activity. To test locally:
+
+1. **Start some agents**:
+   ```bash
+   npx aistack agent spawn -t coder -n test-coder-1
+   npx aistack agent spawn -t tester -n test-tester-1
+   npx aistack agent spawn -t reviewer -n test-reviewer-1
+   ```
+
+2. **Watch in real-time**:
+   ```bash
+   npx aistack agent watch
+   # Or with filters
+   npx aistack agent watch --type coder --interval 1
+   ```
+
+3. **Test JSON mode**:
+   ```bash
+   npx aistack agent watch --json | jq '.stats'
+   ```
+
+4. **Verify filters**:
+   - Session filter: `--session <session-id>`
+   - Type filter: `--type coder`
+   - Status filter: `--status running`
+
+5. **Test cleanup** (Ctrl+C should restore cursor and preserve output)
+
+**Key Files**:
+- Command: `/src/cli/commands/agent-watch.ts`
+- Renderer: `/src/cli/utils/watch-renderer.ts`
+- Terminal: `/src/cli/utils/terminal.ts`
+
 ## Debugging
 
 ### Enable Debug Logging

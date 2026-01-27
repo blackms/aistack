@@ -6,9 +6,10 @@
 
 AgentStack provides three API surfaces:
 
-1. **MCP Tools** - 36 tools exposed via Model Context Protocol for Claude Code
+1. **MCP Tools** - 41 tools exposed via Model Context Protocol for Claude Code
 2. **Programmatic API** - TypeScript/JavaScript library exports
 3. **CLI Commands** - Command-line interface
+4. **REST API** - HTTP endpoints for web dashboard and integrations
 
 ## MCP Tools Reference
 
@@ -212,11 +213,230 @@ Update an agent's status.
 
 ---
 
+### Identity Tools
+
+Agent Identity v1 provides persistent identity management for agents with lifecycle states and audit trails.
+
+#### `identity_create`
+
+Create a new persistent agent identity.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "agentType": {
+      "type": "string",
+      "description": "Type of agent (e.g., coder, researcher)"
+    },
+    "displayName": {
+      "type": "string",
+      "description": "Human-readable name for the identity"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of the identity"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "enabled": { "type": "boolean" }
+        }
+      }
+    },
+    "metadata": { "type": "object" },
+    "autoActivate": {
+      "type": "boolean",
+      "description": "Automatically activate after creation"
+    }
+  },
+  "required": ["agentType"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "identity": {
+    "agentId": "uuid-v4",
+    "agentType": "coder",
+    "status": "created",
+    "capabilities": [],
+    "version": 1,
+    "displayName": "My Coder",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "lastActiveAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### `identity_get`
+
+Get an identity by ID or display name.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "agentId": { "type": "string", "description": "Identity UUID" },
+    "displayName": { "type": "string", "description": "Display name lookup" }
+  }
+}
+```
+
+---
+
+#### `identity_list`
+
+List identities with optional filters.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["created", "active", "dormant", "retired"]
+    },
+    "agentType": { "type": "string" },
+    "limit": { "type": "number" },
+    "offset": { "type": "number" }
+  }
+}
+```
+
+---
+
+#### `identity_update`
+
+Update identity metadata (not status).
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "agentId": { "type": "string" },
+    "displayName": { "type": "string" },
+    "description": { "type": "string" },
+    "metadata": { "type": "object" },
+    "capabilities": { "type": "array" }
+  },
+  "required": ["agentId"]
+}
+```
+
+---
+
+#### `identity_activate`
+
+Transition identity from `created` or `dormant` to `active`.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "agentId": { "type": "string" },
+    "actorId": { "type": "string", "description": "Actor making the change" }
+  },
+  "required": ["agentId"]
+}
+```
+
+---
+
+#### `identity_deactivate`
+
+Transition identity from `active` to `dormant`.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "agentId": { "type": "string" },
+    "reason": { "type": "string" },
+    "actorId": { "type": "string" }
+  },
+  "required": ["agentId"]
+}
+```
+
+---
+
+#### `identity_retire`
+
+Permanently retire an identity (terminal state).
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "agentId": { "type": "string" },
+    "reason": { "type": "string" },
+    "actorId": { "type": "string" }
+  },
+  "required": ["agentId"]
+}
+```
+
+---
+
+#### `identity_audit`
+
+Get the audit trail for an identity.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "agentId": { "type": "string" },
+    "limit": { "type": "number", "default": 100 }
+  },
+  "required": ["agentId"]
+}
+```
+
+**Response**:
+```json
+{
+  "agentId": "uuid-v4",
+  "count": 3,
+  "entries": [
+    {
+      "id": "audit-uuid",
+      "action": "created",
+      "previousStatus": null,
+      "newStatus": "created",
+      "reason": null,
+      "actorId": null,
+      "timestamp": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
 ### Memory Tools
 
 #### `memory_store`
 
-Store a key-value entry.
+Store a key-value entry with optional agent ownership.
 
 **Input Schema**:
 ```json
@@ -242,6 +462,10 @@ Store a key-value entry.
     "generateEmbedding": {
       "type": "boolean",
       "description": "Generate vector embedding"
+    },
+    "agentId": {
+      "type": "string",
+      "description": "Agent ID to associate this memory with (for scoped memory)"
     }
   },
   "required": ["key", "content"]
@@ -267,7 +491,7 @@ Store a key-value entry.
 
 #### `memory_search`
 
-Search memory with hybrid FTS + vector search.
+Search memory with hybrid FTS + vector search, with optional agent scoping.
 
 **Input Schema**:
 ```json
@@ -293,6 +517,14 @@ Search memory with hybrid FTS + vector search.
     "useVector": {
       "type": "boolean",
       "description": "Enable vector search"
+    },
+    "agentId": {
+      "type": "string",
+      "description": "Filter by agent ownership"
+    },
+    "includeShared": {
+      "type": "boolean",
+      "description": "Include shared memory (agent_id = NULL), default: true"
     }
   },
   "required": ["query"]
@@ -377,7 +609,7 @@ Delete an entry.
 
 #### `task_create`
 
-Create a task for an agent type.
+Create a task for an agent type with optional drift detection.
 
 **Input Schema**:
 ```json
@@ -395,6 +627,10 @@ Create a task for an agent type.
     "sessionId": {
       "type": "string",
       "description": "Session to associate with"
+    },
+    "parentTaskId": {
+      "type": "string",
+      "description": "Parent task ID for drift detection"
     }
   },
   "required": ["agentType"]
@@ -410,7 +646,13 @@ Create a task for an agent type.
     "agentType": "coder",
     "status": "pending",
     "input": "Implement feature X",
-    "createdAt": "2024-01-01T00:00:00.000Z"
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "parentTaskId": "parent-uuid"
+  },
+  "drift": {
+    "isDrift": false,
+    "highestSimilarity": 0.45,
+    "action": "allowed"
   }
 }
 ```
@@ -485,6 +727,148 @@ Get task details.
     "taskId": { "type": "string" }
   },
   "required": ["taskId"]
+}
+```
+
+---
+
+#### `task_check_drift`
+
+Check if a task description would trigger drift detection against ancestors.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "taskInput": {
+      "type": "string",
+      "description": "Task input/description to check"
+    },
+    "taskType": {
+      "type": "string",
+      "description": "Agent type for this task"
+    },
+    "parentTaskId": {
+      "type": "string",
+      "description": "Parent task ID to check against"
+    }
+  },
+  "required": ["taskInput", "taskType"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "result": {
+    "isDrift": true,
+    "highestSimilarity": 0.97,
+    "mostSimilarTaskId": "ancestor-uuid",
+    "mostSimilarTaskInput": "Similar task description...",
+    "action": "warned",
+    "checkedAncestors": 3
+  },
+  "config": {
+    "enabled": true,
+    "threshold": 0.95,
+    "warningThreshold": 0.8,
+    "behavior": "warn"
+  }
+}
+```
+
+---
+
+#### `task_get_relationships`
+
+Get relationships for a task (parent/child, dependencies).
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "taskId": { "type": "string" },
+    "direction": {
+      "type": "string",
+      "enum": ["outgoing", "incoming", "both"],
+      "default": "both"
+    }
+  },
+  "required": ["taskId"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "count": 2,
+  "relationships": [
+    {
+      "id": "rel-uuid",
+      "fromTaskId": "parent-uuid",
+      "toTaskId": "task-uuid",
+      "relationshipType": "parent_of",
+      "metadata": null,
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+Relationship types: `parent_of`, `derived_from`, `depends_on`, `supersedes`
+
+---
+
+#### `task_drift_metrics`
+
+Get drift detection metrics and statistics.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "since": {
+      "type": "string",
+      "description": "ISO date string to filter metrics since"
+    }
+  }
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "metrics": {
+    "totalEvents": 50,
+    "allowedCount": 40,
+    "warnedCount": 8,
+    "preventedCount": 2,
+    "averageSimilarity": 0.65
+  },
+  "recentEvents": [
+    {
+      "id": "event-uuid",
+      "taskId": "task-uuid",
+      "taskType": "coder",
+      "ancestorTaskId": "ancestor-uuid",
+      "similarityScore": 0.97,
+      "actionTaken": "warned",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "config": {
+    "enabled": true,
+    "threshold": 0.95,
+    "warningThreshold": 0.8,
+    "ancestorDepth": 3,
+    "behavior": "warn"
+  }
 }
 ```
 
@@ -764,9 +1148,11 @@ Get repository information.
 
 ---
 
-### Review Loop Tools
+### Review Loop (Programmatic API)
 
-#### `review_loop_start`
+> **Note:** Review loop functionality is available via the programmatic API (`createReviewLoop`) and CLI (`workflow run adversarial-review`), but not exposed as MCP tools. Use the TypeScript SDK for full review loop capabilities.
+
+#### `review_loop_start` (Programmatic)
 
 Start a new adversarial review loop where a coder agent generates code and an adversarial agent reviews it iteratively.
 
@@ -1295,6 +1681,37 @@ npx aistack agent exec -n my-coder -p @task.txt --context @code.ts --provider an
 - `--context <context>`: Additional context (use `@file` to read from file)
 - `--show-prompt`: Display agent system prompt before execution
 
+```bash
+# Watch agent activity (real-time monitoring)
+npx aistack agent watch
+npx aistack agent watch --interval 5
+npx aistack agent watch --session session-1 --type coder
+npx aistack agent watch --status running --json
+npx aistack agent watch --no-clear
+```
+
+**Agent watch options**:
+- `-i, --interval <seconds>`: Refresh interval in seconds (default: 2, minimum: 1)
+- `-s, --session <id>`: Filter by session ID
+- `-t, --type <type>`: Filter by agent type (coder, tester, etc.)
+- `--status <status>`: Filter by status (idle, running, completed, failed, stopped)
+- `--json`: Output as JSON snapshot (no watch mode)
+- `--no-clear`: Do not clear screen between refreshes
+
+**Example output**:
+```
+AISTACK Agent Monitor                                     Last updated: 14:32:45
+═══════════════════════════════════════════════════════════════════════════════
+Agents: 3 active (1 running, 1 idle, 1 completed)                     Limit: 10
+───────────────────────────────────────────────────────────────────────────────
+STATUS   NAME                 TYPE         UPTIME     TASK
+● RUN    my-coder             coder        2m 15s     Processing...
+○ IDLE   test-agent           tester       5m 30s     —
+✓ DONE   code-reviewer        reviewer     10m 45s    Done
+───────────────────────────────────────────────────────────────────────────────
+Press Ctrl+C to exit
+```
+
 ### `aistack memory`
 
 Memory operations.
@@ -1379,6 +1796,57 @@ try {
   console.error('Failed to spawn agent:', error.message);
 }
 ```
+
+---
+
+## REST API
+
+The web server provides REST API endpoints for the dashboard and external integrations.
+
+### Identity REST API
+
+Base path: `/api/v1/identities`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/identities` | Create new identity |
+| `GET` | `/api/v1/identities` | List identities with filters |
+| `GET` | `/api/v1/identities/:id` | Get identity by ID |
+| `GET` | `/api/v1/identities/name/:name` | Get identity by display name |
+| `PATCH` | `/api/v1/identities/:id` | Update identity metadata |
+| `POST` | `/api/v1/identities/:id/activate` | Activate identity |
+| `POST` | `/api/v1/identities/:id/deactivate` | Deactivate identity |
+| `POST` | `/api/v1/identities/:id/retire` | Retire identity (permanent) |
+| `GET` | `/api/v1/identities/:id/audit` | Get audit trail |
+
+**Example: Create Identity**
+```bash
+curl -X POST http://localhost:3001/api/v1/identities \
+  -H "Content-Type: application/json" \
+  -d '{"agentType": "coder", "displayName": "My Coder", "autoActivate": true}'
+```
+
+**Example: List Active Identities**
+```bash
+curl "http://localhost:3001/api/v1/identities?status=active&limit=10"
+```
+
+### Other REST Endpoints
+
+| Path Prefix | Description |
+|-------------|-------------|
+| `/api/v1/agents` | Agent management |
+| `/api/v1/memory` | Memory operations |
+| `/api/v1/tasks` | Task management |
+| `/api/v1/sessions` | Session management |
+| `/api/v1/system` | System status and health |
+| `/api/v1/workflows` | Workflow operations |
+| `/api/v1/projects` | Project management |
+| `/api/v1/specifications` | Specification management |
+| `/api/v1/review-loops` | Review loop management |
+| `/api/v1/auth` | Authentication |
+
+---
 
 ## Related Documents
 

@@ -248,6 +248,47 @@ Log levels: `debug` < `info` < `warn` < `error`
 [2024-01-01T00:00:01.000Z] [DEBUG] [mcp] Calling tool {"name":"agent_spawn","args":{...}}
 ```
 
+### Real-Time Agent Monitoring
+
+Use `agent watch` command for live monitoring of agent activity:
+
+```bash
+# Basic monitoring (2-second refresh)
+npx aistack agent watch
+
+# Fast refresh (1-second interval)
+npx aistack agent watch --interval 1
+
+# Monitor specific session
+npx aistack agent watch --session <session-id>
+
+# Monitor only running agents
+npx aistack agent watch --status running
+
+# JSON output for scripting
+npx aistack agent watch --json
+```
+
+**What You See**:
+- Active agent count vs. max concurrent limit
+- Agent table: name, type, status, uptime, current task
+- Status distribution: idle, running, completed, failed, stopped
+- Auto-refresh indicator
+
+**Use Cases**:
+- **Development**: Monitor agent spawning during development
+- **Debugging**: Track agent status transitions in real-time
+- **Load Testing**: Verify concurrency limits are enforced
+- **Scripting**: Use `--json` mode for automated monitoring
+
+**Keyboard Controls**:
+- `Ctrl+C` - Stop watching and exit (preserves output)
+
+**Tips**:
+- Use `--no-clear` to avoid screen clearing (useful for terminal multiplexers)
+- Combine with `--type` and `--status` filters to focus on specific agents
+- Minimum refresh interval is 1 second to prevent excessive CPU usage
+
 ## Troubleshooting
 
 ### Common Issues
