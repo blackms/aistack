@@ -10,6 +10,8 @@ export interface FTSSearchOptions {
   limit?: number;
   highlightStart?: string;
   highlightEnd?: string;
+  agentId?: string;
+  includeShared?: boolean;
 }
 
 interface FTSRow {
@@ -19,6 +21,7 @@ interface FTSRow {
   content: string;
   embedding: Buffer | null;
   metadata: string | null;
+  agent_id: string | null;
   created_at: number;
   updated_at: number;
   rank: number;
@@ -41,6 +44,8 @@ export class FTSSearch {
       limit = 10,
       highlightStart = '<b>',
       highlightEnd = '</b>',
+      agentId,
+      includeShared = true,
     } = options;
 
     // Escape FTS5 special characters in query
@@ -48,7 +53,7 @@ export class FTSSearch {
 
     let sql = `
       SELECT
-        m.id, m.key, m.namespace, m.content, m.embedding, m.metadata,
+        m.id, m.key, m.namespace, m.content, m.embedding, m.metadata, m.agent_id,
         m.created_at, m.updated_at,
         bm25(memory_fts) as rank,
         snippet(memory_fts, 1, ?, ?, '...', 32) as snippet
@@ -62,6 +67,17 @@ export class FTSSearch {
     if (namespace) {
       sql += ' AND m.namespace = ?';
       params.push(namespace);
+    }
+
+    // Agent filtering
+    if (agentId) {
+      if (includeShared) {
+        sql += ' AND (m.agent_id = ? OR m.agent_id IS NULL)';
+        params.push(agentId);
+      } else {
+        sql += ' AND m.agent_id = ?';
+        params.push(agentId);
+      }
     }
 
     sql += ' ORDER BY rank LIMIT ?';
@@ -176,6 +192,7 @@ export class FTSSearch {
         ? new Float32Array(row.embedding.buffer)
         : undefined,
       metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined,
+      agentId: row.agent_id ?? undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     };

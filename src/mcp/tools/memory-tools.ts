@@ -12,6 +12,7 @@ const StoreInputSchema = z.object({
   namespace: z.string().min(1).max(100).optional().describe('Namespace for organization'),
   metadata: z.record(z.unknown()).optional().describe('Additional metadata'),
   generateEmbedding: z.boolean().optional().describe('Generate embedding for vector search'),
+  agentId: z.string().uuid().optional().describe('Agent ID to associate this memory with'),
 });
 
 const SearchInputSchema = z.object({
@@ -20,6 +21,8 @@ const SearchInputSchema = z.object({
   limit: z.number().min(1).max(100).optional().describe('Maximum results'),
   threshold: z.number().min(0).max(1).optional().describe('Minimum similarity score'),
   useVector: z.boolean().optional().describe('Use vector search if available'),
+  agentId: z.string().uuid().optional().describe('Filter by agent ownership'),
+  includeShared: z.boolean().optional().describe('Include shared memory (agent_id = NULL)'),
 });
 
 const GetInputSchema = z.object({
@@ -31,6 +34,8 @@ const ListInputSchema = z.object({
   namespace: z.string().optional().describe('Filter by namespace'),
   limit: z.number().min(1).max(1000).optional().describe('Maximum results'),
   offset: z.number().min(0).optional().describe('Offset for pagination'),
+  agentId: z.string().uuid().optional().describe('Filter by agent ownership'),
+  includeShared: z.boolean().optional().describe('Include shared memory (agent_id = NULL)'),
 });
 
 const DeleteInputSchema = z.object({
@@ -51,6 +56,7 @@ export function createMemoryTools(memory: MemoryManager) {
           namespace: { type: 'string', description: 'Namespace for organization' },
           metadata: { type: 'object', description: 'Additional metadata' },
           generateEmbedding: { type: 'boolean', description: 'Generate embedding for vector search' },
+          agentId: { type: 'string', description: 'Agent ID to associate this memory with' },
         },
         required: ['key', 'content'],
       },
@@ -62,6 +68,7 @@ export function createMemoryTools(memory: MemoryManager) {
             namespace: input.namespace,
             metadata: input.metadata,
             generateEmbedding: input.generateEmbedding,
+            agentId: input.agentId,
           });
 
           return {
@@ -70,6 +77,7 @@ export function createMemoryTools(memory: MemoryManager) {
               id: entry.id,
               key: entry.key,
               namespace: entry.namespace,
+              agentId: entry.agentId,
               createdAt: entry.createdAt.toISOString(),
               updatedAt: entry.updatedAt.toISOString(),
             },
@@ -94,6 +102,8 @@ export function createMemoryTools(memory: MemoryManager) {
           limit: { type: 'number', description: 'Maximum results' },
           threshold: { type: 'number', description: 'Minimum similarity score (0-1)' },
           useVector: { type: 'boolean', description: 'Use vector search if available' },
+          agentId: { type: 'string', description: 'Filter by agent ownership' },
+          includeShared: { type: 'boolean', description: 'Include shared memory (agent_id = NULL)' },
         },
         required: ['query'],
       },
@@ -106,6 +116,8 @@ export function createMemoryTools(memory: MemoryManager) {
             limit: input.limit,
             threshold: input.threshold,
             useVector: input.useVector,
+            agentId: input.agentId,
+            includeShared: input.includeShared,
           });
 
           return {
@@ -114,6 +126,7 @@ export function createMemoryTools(memory: MemoryManager) {
               key: r.entry.key,
               content: r.entry.content,
               namespace: r.entry.namespace,
+              agentId: r.entry.agentId,
               score: r.score,
               matchType: r.matchType,
               metadata: r.entry.metadata,
@@ -175,11 +188,16 @@ export function createMemoryTools(memory: MemoryManager) {
           namespace: { type: 'string', description: 'Filter by namespace' },
           limit: { type: 'number', description: 'Maximum results' },
           offset: { type: 'number', description: 'Offset for pagination' },
+          agentId: { type: 'string', description: 'Filter by agent ownership' },
+          includeShared: { type: 'boolean', description: 'Include shared memory (agent_id = NULL)' },
         },
       },
       handler: async (params: Record<string, unknown>) => {
         const input = ListInputSchema.parse(params);
-        const entries = memory.list(input.namespace, input.limit, input.offset);
+        const entries = memory.list(input.namespace, input.limit, input.offset, {
+          agentId: input.agentId,
+          includeShared: input.includeShared,
+        });
         const total = memory.count(input.namespace);
 
         return {
@@ -190,6 +208,7 @@ export function createMemoryTools(memory: MemoryManager) {
             id: e.id,
             key: e.key,
             namespace: e.namespace,
+            agentId: e.agentId,
             contentPreview: e.content.slice(0, 200) + (e.content.length > 200 ? '...' : ''),
             metadata: e.metadata,
             createdAt: e.createdAt.toISOString(),

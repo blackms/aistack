@@ -10,6 +10,7 @@ import { ClaudeCodeProvider, GeminiCLIProvider, CodexProvider } from '../provide
 import { logger } from '../utils/logger.js';
 import { getMemoryManager } from '../memory/index.js';
 import { Semaphore, AgentPool } from '../utils/semaphore.js';
+import { getIdentityService } from './identity-service.js';
 
 const log = logger.child('spawner');
 
@@ -33,6 +34,8 @@ export interface SpawnOptions {
   name?: string;
   sessionId?: string;
   metadata?: Record<string, unknown>;
+  identityId?: string;      // Use existing identity
+  createIdentity?: boolean; // Auto-create ephemeral identity (default: false for backward compat)
 }
 
 /**
@@ -70,6 +73,51 @@ export function spawnAgent(
     throw new Error(`Agent with name '${name}' already exists`);
   }
 
+  // Handle identity
+  let identityId = options.identityId;
+
+  if (configRef) {
+    // Validate existing identity if provided
+    if (identityId) {
+      try {
+        const identityService = getIdentityService(configRef);
+        const identity = identityService.getIdentity(identityId);
+        if (!identity) {
+          throw new Error(`Identity not found: ${identityId}`);
+        }
+        if (identity.status === 'retired') {
+          throw new Error(`Cannot spawn with retired identity: ${identityId}`);
+        }
+        if (identity.status !== 'active') {
+          throw new Error(`Identity must be active to spawn, current status: ${identity.status}`);
+        }
+        // Record spawn event
+        identityService.recordSpawn(identityId, id);
+      } catch (error) {
+        if (error instanceof Error && (error.message.includes('Identity not found') ||
+            error.message.includes('Cannot spawn') || error.message.includes('Identity must be'))) {
+          throw error;
+        }
+        log.warn('Failed to validate identity', { identityId, error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    } else if (options.createIdentity) {
+      // Create ephemeral identity if requested
+      try {
+        const identityService = getIdentityService(configRef);
+        const identity = identityService.createIdentity({
+          agentType: type,
+          displayName: name,
+          autoActivate: true,
+          metadata: { ephemeral: true, spawnId: id },
+        });
+        identityId = identity.agentId;
+        identityService.recordSpawn(identityId, id);
+      } catch (error) {
+        log.warn('Failed to create ephemeral identity', { error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+  }
+
   const agent: SpawnedAgent = {
     id,
     type,
@@ -78,6 +126,7 @@ export function spawnAgent(
     createdAt: new Date(),
     sessionId: options.sessionId,
     metadata: options.metadata,
+    identityId,
   };
 
   activeAgents.set(id, agent);
@@ -93,7 +142,7 @@ export function spawnAgent(
     }
   }
 
-  log.info('Spawned agent', { id, type, name });
+  log.info('Spawned agent', { id, type, name, identityId });
 
   return agent;
 }
@@ -163,6 +212,16 @@ export function stopAgent(id: string): boolean {
   activeAgents.delete(id);
   agentsByName.delete(agent.name);
 
+  // Deactivate identity (transition to dormant) if linked
+  if (configRef && agent.identityId) {
+    try {
+      const identityService = getIdentityService(configRef);
+      identityService.deactivateIdentity(agent.identityId);
+    } catch (error) {
+      log.warn('Failed to deactivate identity', { identityId: agent.identityId, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+
   // Delete from database
   if (configRef) {
     try {
@@ -173,7 +232,7 @@ export function stopAgent(id: string): boolean {
     }
   }
 
-  log.info('Stopped agent', { id, name: agent.name });
+  log.info('Stopped agent', { id, name: agent.name, identityId: agent.identityId });
   return true;
 }
 

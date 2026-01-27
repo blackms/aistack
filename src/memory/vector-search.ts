@@ -14,6 +14,8 @@ export interface VectorSearchOptions {
   namespace?: string;
   limit?: number;
   threshold?: number;
+  agentId?: string;
+  includeShared?: boolean;
 }
 
 export class VectorSearch {
@@ -103,14 +105,17 @@ export class VectorSearch {
       return [];
     }
 
-    const { namespace, limit = 10, threshold = 0.7 } = options;
+    const { namespace, limit = 10, threshold = 0.7, agentId, includeShared = true } = options;
 
     try {
       // Generate query embedding
       const queryEmbedding = await this.embedder.embed(query);
 
-      // Get all entries with embeddings
-      const entriesWithEmbeddings = this.store.getEntriesWithEmbeddings(namespace);
+      // Get all entries with embeddings (with agent filtering)
+      const entriesWithEmbeddings = this.store.getEntriesWithEmbeddings(namespace, {
+        agentId,
+        includeShared,
+      });
 
       if (entriesWithEmbeddings.length === 0) {
         log.debug('No entries with embeddings found');
@@ -148,6 +153,7 @@ export class VectorSearch {
         query: query.slice(0, 50),
         candidates: entriesWithEmbeddings.length,
         results: results.length,
+        agentId,
       });
 
       return results;
