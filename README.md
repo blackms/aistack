@@ -16,7 +16,7 @@
 
 <br/>
 
-[Quick Start](#-quick-start) · [Architecture](#-architecture) · [MCP Tools](#-mcp-tools) · [Web Dashboard](#-web-dashboard) · [API Reference](#-programmatic-api)
+[Quick Start](#-quick-start) · [What It Does](#what-it-does) · [Features](#-features) · [Documentation](#-documentation)
 
 <br/>
 
@@ -28,9 +28,45 @@
 
 ---
 
-## Why aistack?
+## What It Does
 
-Coordinate specialized AI agents through Claude Code with **adversarial validation**, persistent context, hierarchical task management, and seamless extensibility. Built for production workflows with comprehensive testing, CI/CD, and NPM distribution.
+aistack helps you **coordinate multiple specialized AI agents** to work together on complex tasks. Think of it as a team of AI specialists:
+
+**Instead of asking one AI to do everything, you can:**
+- Spawn a **Coder** agent to write code
+- Spawn an **Adversarial** agent to review and break it
+- Spawn a **Tester** agent to write tests
+- Spawn a **Documentation** agent to document it
+- Store learnings in **persistent memory** for future use
+
+**How it works:**
+1. **Spawn specialized agents** - Each agent has specific expertise (coding, testing, reviewing, etc.)
+2. **They communicate through a message bus** - Agents can coordinate and share information
+3. **Memory persists across sessions** - Agents remember patterns, decisions, and learnings
+4. **Adversarial validation** - Code is automatically reviewed and improved through iterative feedback
+5. **Integrate with Claude Code** - Use agents directly from your IDE via MCP protocol
+
+**Perfect for:**
+- Code generation with automatic review cycles
+- Multi-step development workflows (design → code → test → document)
+- Building institutional knowledge that persists across projects
+- Automating complex tasks that need different types of expertise
+
+### Example Workflow
+
+```
+You ask: "Create a login API endpoint with tests"
+
+aistack:
+1. Spawns a Coder agent → writes the API code
+2. Spawns an Adversarial agent → tries to break it, finds security issues
+3. Coder fixes the issues
+4. Spawns a Tester agent → writes comprehensive tests
+5. Spawns a Documentation agent → generates API docs
+6. Stores patterns in memory → "Always use bcrypt for passwords"
+
+Next time: The memory helps agents make better decisions automatically
+```
 
 ---
 
@@ -95,224 +131,102 @@ Coordinate specialized AI agents through Claude Code with **adversarial validati
 
 ---
 
-## Architecture
+## ✨ Features
 
-### System Overview
+### 🤖 11 Specialized Agent Types
 
-```mermaid
-graph TB
-    subgraph Clients["Client Layer"]
-        CC[Claude Code IDE]
-        CLI[CLI Tool]
-        WEB[Web Dashboard]
-    end
+Each agent has specific expertise and capabilities:
 
-    subgraph Transport["Transport Layer"]
-        MCP["MCP Server<br/><small>stdio transport</small>"]
-        HTTP["HTTP Server<br/><small>REST API</small>"]
-        WS["WebSocket<br/><small>Real-time events</small>"]
-    end
+- **Coder** - Write, edit, and refactor code
+- **Researcher** - Search and analyze codebases, gather information
+- **Tester** - Write and run tests, coverage analysis
+- **Reviewer** - Code review and best practices
+- **Adversarial** - Attack code to find vulnerabilities (used in review loops)
+- **Architect** - System design and technical decisions
+- **Coordinator** - Orchestrate multiple agents for complex tasks
+- **Analyst** - Data analysis and performance profiling
+- **DevOps** - Deployment, infrastructure, monitoring
+- **Documentation** - Generate and maintain documentation
+- **Security Auditor** - Security audits, compliance, threat modeling
 
-    subgraph Services["Service Layer"]
-        AM[Agent Manager]
-        MM[Memory Manager]
-        TQ[Task Queue]
-        MB[Message Bus]
-        WE[Workflow Engine]
-        RL[Review Loop]
-    end
+### 💾 Persistent Memory System
 
-    subgraph Agents["Agent Pool (11 Types)"]
-        direction LR
-        A1[Coder]
-        A2[Researcher]
-        A3[Tester]
-        A4[Reviewer]
-        A5[Adversarial]
-        A6[Architect]
-        A7[Coordinator]
-        A8[Analyst]
-        A9[DevOps]
-        A10[Documentation]
-        A11[Security Auditor]
-    end
+Knowledge that survives across sessions:
 
-    subgraph Storage["Storage Layer"]
-        SQL[(SQLite)]
-        FTS[FTS5 Search]
-        VEC[Vector Store]
-        AUTH[JWT + RBAC]
-    end
+- **SQLite with FTS5** - Fast full-text search across all memory
+- **Vector Embeddings** - Optional semantic search (OpenAI/Ollama)
+- **Namespaces & Tags** - Organize memory by project, topic, or team
+- **Version History** - Track changes and rollback if needed
+- **Memory Relationships** - Link related concepts together
 
-    subgraph Providers["LLM Providers (6)"]
-        ANT[Anthropic API]
-        OAI[OpenAI API]
-        OLL[Ollama API]
-        CLC[ClaudeCode CLI]
-        GEM[Gemini CLI]
-        CDX[Codex CLI]
-    end
+### 🔄 Adversarial Review Loop
 
-    CC <-->|MCP/stdio| MCP
-    CLI <-->|HTTP| HTTP
-    WEB <-->|HTTP + WS| HTTP & WS
+Automatic code improvement through iterative feedback:
 
-    MCP & HTTP --> AM & MM
-    WS --> MB
-    AM --> TQ --> MB
-    MB --> A1 & A2 & A3 & A4 & A5 & A6 & A7 & A8 & A9 & A10 & A11
-    MM --> SQL --> FTS & VEC
-    SQL --> AUTH
-    AM --> RL
-    RL --> A1 & A5
-    AM -.-> ANT & OAI & OLL & CLC & GEM & CDX
-```
+1. Coder agent generates code
+2. Adversarial agent reviews and tries to break it
+3. Coder fixes issues
+4. Repeat up to 3 times until approved
 
-**Code:** `/src/agents/registry.ts:24-36`, `/src/mcp/server.ts`, `/src/web/server.ts`, `/src/memory/sqlite-store.ts`
+Result: More robust, secure code with fewer bugs.
 
-### Adversarial Review Loop
+### 🎯 36 MCP Tools for Claude Code
 
-```mermaid
-sequenceDiagram
-    participant User as User
-    participant MCP as MCP Server
-    participant RL as Review Loop
-    participant Coder as Coder Agent
-    participant Adv as Adversarial Agent
-    participant DB as SQLite
+Control aistack directly from Claude Code IDE:
+- 6 agent tools (spawn, list, stop, status, types, update)
+- 5 memory tools (store, search, get, list, delete)
+- 5 task tools (create, assign, complete, list, get)
+- 4 session tools (start, end, status, active)
+- 3 system tools (status, health, config)
+- 7 GitHub tools (issues, PRs, repo info)
+- 6 review loop tools (start, status, abort, issues, list, get code)
 
-    User->>MCP: review_loop_start(code)
-    MCP->>RL: createReviewLoop()
-    RL->>Coder: spawn("coder")
-    RL->>Adv: spawn("adversarial")
+### 🌐 Web Dashboard
 
-    loop Max 3 iterations
-        RL->>Coder: generate_code(task)
-        Coder-->>RL: code_v1
-        RL->>Adv: review(code_v1)
-        Adv-->>RL: verdict + issues
+Real-time monitoring and control:
+- Visual agent management
+- Memory browser with search
+- Task queue visualization
+- Live WebSocket updates
+- React 18 + Material-UI
+- Dark mode support
 
-        alt APPROVED
-            RL->>DB: persist(APPROVED)
-            RL-->>MCP: final_code
-        else REJECTED
-            RL->>Coder: fix(issues)
-            Note over RL,Coder: Iterate
-        end
-    end
+### 🔌 6 LLM Providers
 
-    RL->>DB: persist(final_state)
-    MCP-->>User: { status, code, reviews }
-```
+Choose your preferred AI:
+- **Anthropic** - Claude Sonnet 4 (recommended)
+- **OpenAI** - GPT-4o + embeddings
+- **Ollama** - Local models (llama3.2)
+- **ClaudeCode CLI** - Direct Claude Code integration
+- **Gemini CLI** - Google Gemini 2.0
+- **Codex** - GitHub Codex
 
-**Code:** `/src/coordination/review-loop.ts`, `/src/mcp/tools/review-loop-tools.ts`, `/src/agents/definitions/adversarial.ts`
+### 🔐 Security & Auth
 
-### MCP Integration Flow
-
-```mermaid
-sequenceDiagram
-    participant CC as Claude Code
-    participant MCP as MCP Server
-    participant AM as Agent Manager
-    participant MM as Memory
-    participant DB as SQLite
-
-    CC->>MCP: agent_spawn("coder")
-    MCP->>AM: spawnAgent("coder")
-    AM-->>MCP: SpawnedAgent
-    MCP-->>CC: { id, type, status }
-
-    CC->>MCP: memory_store(key, content)
-    MCP->>MM: store(key, content)
-    MM->>DB: INSERT/UPDATE
-    DB-->>MM: MemoryEntry
-    MM-->>MCP: { success: true }
-    MCP-->>CC: { entry }
-
-    CC->>MCP: memory_search(query)
-    MCP->>MM: search(query)
-    MM->>DB: FTS5 MATCH
-    DB-->>MM: Results
-    MM-->>MCP: SearchResults
-    MCP-->>CC: { results }
-```
-
-**Code:** `/src/mcp/server.ts`, `/src/agents/spawner.ts`, `/src/memory/sqlite-store.ts`
+Production-ready security:
+- JWT authentication
+- BCrypt password hashing
+- Role-based access control (Admin, Developer, Viewer)
+- Security Auditor agent for code review
 
 ---
 
-## Features
+## 📚 Documentation
 
-### Agent System
+- **[GitHub Wiki](https://github.com/blackms/aistack/wiki)** - Comprehensive user guide (54 pages)
+  - Getting Started tutorials
+  - Agent guides for all 11 types
+  - MCP tools reference
+  - Practical recipes and examples
+  - Advanced topics (plugins, custom agents, workflows)
+  - Complete API reference
 
-| Feature | Implementation | Code Reference |
-|---------|---------------|----------------|
-| **11 Agent Types** | coder, researcher, tester, reviewer, adversarial, architect, coordinator, analyst, devops, documentation, security-auditor | `/src/agents/registry.ts:24-36` |
-| **Agent Spawning** | Unique IDs, session association, metadata | `/src/agents/spawner.ts` |
-| **Agent Lifecycle** | Active, idle, stopped states with transitions | `/src/agents/spawner.ts:50-120` |
-| **Agent Definitions** | System prompts, capabilities, provider selection | `/src/agents/definitions/` |
-| **Custom Agents** | Plugin system for registering custom agent types | `/src/agents/registry.ts:92-104` |
-
-### Memory & Knowledge
-
-| Feature | Implementation | Code Reference |
-|---------|---------------|----------------|
-| **SQLite Storage** | Persistent memory with ACID guarantees | `/src/memory/sqlite-store.ts` |
-| **FTS5 Full-Text Search** | Fast semantic search across memory entries | `/src/memory/sqlite-store.ts:30-126` |
-| **Vector Embeddings** | Optional vector search with OpenAI/Ollama embeddings | `/src/memory/sqlite-store.ts:37`, `/src/providers/index.ts:185-213` |
-| **Memory Relationships** | Graph-like memory with typed relationships | `/src/memory/sqlite-store.ts:71-86` |
-| **Memory Versions** | Full version history with rollback support | `/src/memory/sqlite-store.ts:88-100` |
-| **Namespaces & Tags** | Organize memory with namespaces and tagging | `/src/memory/sqlite-store.ts:33-69` |
-
-### Coordination
-
-| Feature | Implementation | Code Reference |
-|---------|---------------|----------------|
-| **Adversarial Review Loop** | Coder ↔ Adversarial iterative validation (max 3 iterations) | `/src/coordination/review-loop.ts` |
-| **Task Queue** | Priority queue with assignment and completion tracking | `/src/coordination/task-queue.ts` |
-| **Message Bus** | Event-driven communication between agents | `/src/coordination/message-bus.ts` |
-| **Workflow Engine** | Multi-phase workflows with state transitions | `/src/workflows/` |
-| **Coordinator Pattern** | Hierarchical agent orchestration | `/src/agents/definitions/coordinator.ts` |
-
-### Web Dashboard
-
-| Feature | Implementation | Code Reference |
-|---------|---------------|----------------|
-| **11 Dashboard Pages** | Dashboard, Agents, Memory, Tasks, TaskDetail, Projects, ProjectDetail, Sessions, Workflows, Chat, Settings | `/web/src/pages/*.tsx` |
-| **Real-Time Updates** | WebSocket events for live status updates | `/src/web/websocket/` |
-| **React 18 + Material-UI** | Modern responsive UI with dark mode | `/web/src/` |
-| **Zustand State Management** | Client-side state with persistence | `/web/src/stores/` |
-| **Agent Spawning UI** | Visual agent creation and management | `/web/src/pages/AgentsPage.tsx` |
-
-### Authentication & Security
-
-| Feature | Implementation | Code Reference |
-|---------|---------------|----------------|
-| **JWT Authentication** | Token-based auth with expiration | `/src/auth/service.ts:6-23` |
-| **BCrypt Password Hashing** | Secure password storage (10 salt rounds) | `/src/auth/service.ts:7,21` |
-| **Role-Based Access Control** | User roles: ADMIN, DEVELOPER, VIEWER | `/src/auth/types.ts:16-20` |
-| **Security Auditor Agent** | Dedicated agent for security review | `/src/agents/definitions/security-auditor.ts` |
-
-### API & Integration
-
-| Feature | Implementation | Code Reference |
-|---------|---------------|----------------|
-| **REST API** | HTTP endpoints across 12 route modules | `/src/web/routes/` |
-| **WebSocket Events** | Real-time event streaming with event bridge | `/src/web/websocket/` |
-| **MCP Protocol** | 36 MCP tools for Claude Code integration | `/src/mcp/tools/` |
-| **GitHub Integration** | Issue/PR creation, repo info, webhooks | `/src/github/`, `/src/mcp/tools/github-tools.ts` |
-| **Plugin System** | Runtime extensibility for agents, tools, hooks | `/src/plugins/` |
-
-### LLM Providers
-
-| Provider | Type | Default Model | Embeddings | Code Reference |
-|----------|------|---------------|------------|----------------|
-| **Anthropic** | API | claude-sonnet-4-20250514 | - | `/src/providers/index.ts:33-113` |
-| **OpenAI** | API | gpt-4o | text-embedding-3-small | `/src/providers/index.ts:118-214` |
-| **Ollama** | API | llama3.2 | nomic-embed-text | `/src/providers/index.ts:219-311` |
-| **ClaudeCode** | CLI | sonnet | - | `/src/providers/cli-providers.ts` |
-| **Gemini** | CLI | gemini-2.0-flash | - | `/src/providers/cli-providers.ts` |
-| **Codex** | CLI | - | - | `/src/providers/cli-providers.ts` |
+- **[Technical Docs](./docs)** - Architecture and implementation details
+  - [API.md](./docs/API.md) - MCP tools and programmatic API
+  - [ARCHITECTURE.md](./docs/ARCHITECTURE.md) - System architecture
+  - [DATA.md](./docs/DATA.md) - Database schemas
+  - [SECURITY.md](./docs/SECURITY.md) - Security model
+  - [ONBOARDING.md](./docs/ONBOARDING.md) - Developer guide
 
 ---
 
@@ -541,51 +455,28 @@ const agentTypes = listAgentTypes();
 ```
 aistack/
 ├── src/
-│   ├── agents/              # Agent registry, spawner, definitions (11 types)
-│   │   ├── registry.ts      # Core agent types (CORE_AGENTS Map)
-│   │   ├── spawner.ts       # Agent lifecycle management
-│   │   └── definitions/     # System prompts & capabilities
-│   ├── cli/                 # CLI commands (15+ commands)
-│   ├── coordination/        # Task queue, message bus, review loop
-│   │   ├── review-loop.ts   # Adversarial validation loop
-│   │   ├── task-queue.ts    # Priority task queue
-│   │   └── message-bus.ts   # Event-driven communication
-│   ├── github/              # GitHub integration (issues, PRs, webhooks)
-│   ├── hooks/               # Lifecycle hooks (pre/post agent spawn, etc.)
-│   ├── mcp/                 # MCP server and 36 tools
-│   │   ├── server.ts        # stdio MCP server
-│   │   └── tools/           # 7 tool categories
-│   ├── memory/              # SQLite, FTS5, vector search
-│   │   ├── sqlite-store.ts  # Schema + CRUD operations
-│   │   └── index.ts         # Memory manager interface
-│   ├── plugins/             # Plugin loader and registry
-│   ├── providers/           # LLM provider implementations (6 providers)
-│   │   ├── index.ts         # Anthropic, OpenAI, Ollama
-│   │   └── cli-providers.ts # ClaudeCode, Gemini, Codex
-│   ├── web/                 # REST API routes + WebSocket
-│   │   ├── server.ts        # HTTP + WebSocket server
-│   │   ├── routes/          # 12 route modules (agents, auth, memory, tasks, etc.)
-│   │   └── websocket/       # Real-time event system
-│   ├── workflows/           # Workflow engine (multi-phase execution)
-│   ├── auth/                # JWT + RBAC (service, types)
-│   └── utils/               # Config, logger, validation, retry, circuit breaker
+│   ├── agents/          # 11 agent types with system prompts
+│   ├── mcp/             # MCP server + 36 tools
+│   ├── memory/          # SQLite + FTS5 + vector search
+│   ├── coordination/    # Task queue, message bus, review loop
+│   ├── web/             # REST API + WebSocket server
+│   ├── providers/       # 6 LLM provider integrations
+│   ├── workflows/       # Multi-phase workflow engine
+│   ├── auth/            # JWT + RBAC authentication
+│   ├── github/          # GitHub issues/PRs integration
+│   ├── plugins/         # Plugin system
+│   ├── hooks/           # Lifecycle hooks
+│   └── cli/             # Command-line interface
 │
-├── web/                     # React 18 web dashboard
-│   ├── src/
-│   │   ├── pages/           # 11 dashboard pages
-│   │   ├── components/      # React components
-│   │   ├── hooks/           # Custom React hooks
-│   │   └── stores/          # Zustand state management
-│   └── public/              # Static assets
+├── web/                 # React 18 dashboard
+│   └── src/
+│       ├── pages/       # 11 dashboard pages
+│       ├── components/  # React components
+│       └── stores/      # Zustand state management
 │
-├── tests/                   # Unit + integration tests
-│   ├── unit/                # Unit tests (agents, memory, mcp)
-│   ├── integration/         # Integration tests (e2e workflows)
-│   └── e2e/                 # End-to-end tests
-│
-├── templates/               # Project templates (empty - for future use)
-├── .github/workflows/       # CI/CD (5 parallel jobs: lint, typecheck, unit, integration, build)
-└── package.json             # v1.3.1
+├── tests/               # Unit + integration tests
+├── docs/                # Technical documentation
+└── .github/workflows/   # CI/CD pipeline
 ```
 
 ---
@@ -686,7 +577,7 @@ aistack is designed as a **local-first, NPM-distributed package** for developer 
 
 <div align="center">
 
-**[Documentation](./docs)** · **[Issues](https://github.com/blackms/aistack/issues)** · **[Discussions](https://github.com/blackms/aistack/discussions)** · **[NPM Package](https://www.npmjs.com/package/@blackms/aistack)**
+**[Wiki](https://github.com/blackms/aistack/wiki)** · **[Documentation](./docs)** · **[Issues](https://github.com/blackms/aistack/issues)** · **[Discussions](https://github.com/blackms/aistack/discussions)** · **[NPM Package](https://www.npmjs.com/package/@blackms/aistack)**
 
 <sub>Built with TypeScript · Made for Claude Code · Distributed via NPM</sub>
 
