@@ -4,12 +4,14 @@
 
 import { z } from 'zod';
 import type { MemoryManager } from '../../memory/index.js';
+import type { DriftDetectionService } from '../../tasks/drift-detection-service.js';
 
 // Input schemas
 const CreateInputSchema = z.object({
   agentType: z.string().min(1).describe('Agent type for this task'),
   input: z.string().optional().describe('Task input/description'),
   sessionId: z.string().uuid().optional().describe('Session to associate with'),
+  parentTaskId: z.string().uuid().optional().describe('Parent task ID for drift detection'),
 });
 
 const AssignInputSchema = z.object({
@@ -32,17 +34,29 @@ const GetInputSchema = z.object({
   taskId: z.string().uuid().describe('Task ID'),
 });
 
-export function createTaskTools(memory: MemoryManager) {
+const CheckDriftInputSchema = z.object({
+  taskInput: z.string().min(1).describe('Task input/description to check'),
+  taskType: z.string().min(1).describe('Agent type for this task'),
+  parentTaskId: z.string().uuid().optional().describe('Parent task ID to check against'),
+});
+
+const GetRelationshipsInputSchema = z.object({
+  taskId: z.string().uuid().describe('Task ID'),
+  direction: z.enum(['outgoing', 'incoming', 'both']).optional().describe('Relationship direction'),
+});
+
+export function createTaskTools(memory: MemoryManager, driftService?: DriftDetectionService) {
   return {
     task_create: {
       name: 'task_create',
-      description: 'Create a new task',
+      description: 'Create a new task with optional drift detection',
       inputSchema: {
         type: 'object',
         properties: {
           agentType: { type: 'string', description: 'Agent type for this task' },
           input: { type: 'string', description: 'Task input/description' },
           sessionId: { type: 'string', description: 'Session to associate with' },
+          parentTaskId: { type: 'string', description: 'Parent task ID for drift detection' },
         },
         required: ['agentType'],
       },
@@ -50,11 +64,50 @@ export function createTaskTools(memory: MemoryManager) {
         const input = CreateInputSchema.parse(params);
 
         try {
+          // Check for drift if service is available and input is provided
+          let driftResult = null;
+          if (driftService && input.input && input.parentTaskId) {
+            driftResult = await driftService.checkDrift(
+              input.input,
+              input.agentType,
+              input.parentTaskId
+            );
+
+            // If drift prevention is enabled and drift was detected, block creation
+            if (driftResult.action === 'prevented') {
+              return {
+                success: false,
+                error: 'Task creation prevented due to semantic drift',
+                drift: {
+                  isDrift: true,
+                  highestSimilarity: driftResult.highestSimilarity,
+                  mostSimilarTaskId: driftResult.mostSimilarTaskId,
+                  mostSimilarTaskInput: driftResult.mostSimilarTaskInput,
+                  action: driftResult.action,
+                },
+              };
+            }
+          }
+
           const task = memory.createTask(
             input.agentType,
             input.input,
             input.sessionId
           );
+
+          // Index the task for future drift detection
+          if (driftService && input.input) {
+            await driftService.indexTask(task.id, input.input);
+          }
+
+          // Create relationship with parent if provided
+          if (driftService && input.parentTaskId) {
+            driftService.createTaskRelationship(
+              input.parentTaskId,
+              task.id,
+              'parent_of'
+            );
+          }
 
           return {
             success: true,
@@ -64,7 +117,14 @@ export function createTaskTools(memory: MemoryManager) {
               status: task.status,
               createdAt: task.createdAt.toISOString(),
               sessionId: task.sessionId,
+              parentTaskId: input.parentTaskId,
             },
+            drift: driftResult ? {
+              isDrift: driftResult.isDrift,
+              highestSimilarity: driftResult.highestSimilarity,
+              mostSimilarTaskId: driftResult.mostSimilarTaskId,
+              action: driftResult.action,
+            } : undefined,
           };
         } catch (error) {
           return {
@@ -207,6 +267,166 @@ export function createTaskTools(memory: MemoryManager) {
             sessionId: task.sessionId,
           },
         };
+      },
+    },
+
+    task_check_drift: {
+      name: 'task_check_drift',
+      description: 'Check if a task description would trigger drift detection against ancestors',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          taskInput: { type: 'string', description: 'Task input/description to check' },
+          taskType: { type: 'string', description: 'Agent type for this task' },
+          parentTaskId: { type: 'string', description: 'Parent task ID to check against' },
+        },
+        required: ['taskInput', 'taskType'],
+      },
+      handler: async (params: Record<string, unknown>) => {
+        if (!driftService) {
+          return {
+            success: false,
+            error: 'Drift detection service not available',
+          };
+        }
+
+        const input = CheckDriftInputSchema.parse(params);
+
+        try {
+          const result = await driftService.checkDrift(
+            input.taskInput,
+            input.taskType,
+            input.parentTaskId
+          );
+
+          return {
+            success: true,
+            result: {
+              isDrift: result.isDrift,
+              highestSimilarity: result.highestSimilarity,
+              mostSimilarTaskId: result.mostSimilarTaskId,
+              mostSimilarTaskInput: result.mostSimilarTaskInput,
+              action: result.action,
+              checkedAncestors: result.checkedAncestors,
+            },
+            config: {
+              enabled: driftService.isEnabled(),
+              threshold: driftService.getConfig().threshold,
+              warningThreshold: driftService.getConfig().warningThreshold,
+              behavior: driftService.getConfig().behavior,
+            },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    },
+
+    task_get_relationships: {
+      name: 'task_get_relationships',
+      description: 'Get relationships for a task (parent/child, dependencies)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'Task ID' },
+          direction: { type: 'string', enum: ['outgoing', 'incoming', 'both'], description: 'Relationship direction' },
+        },
+        required: ['taskId'],
+      },
+      handler: async (params: Record<string, unknown>) => {
+        if (!driftService) {
+          return {
+            success: false,
+            error: 'Drift detection service not available',
+          };
+        }
+
+        const input = GetRelationshipsInputSchema.parse(params);
+
+        try {
+          const relationships = driftService.getTaskRelationships(
+            input.taskId,
+            input.direction ?? 'both'
+          );
+
+          return {
+            success: true,
+            count: relationships.length,
+            relationships: relationships.map(r => ({
+              id: r.id,
+              fromTaskId: r.fromTaskId,
+              toTaskId: r.toTaskId,
+              relationshipType: r.relationshipType,
+              metadata: r.metadata,
+              createdAt: r.createdAt.toISOString(),
+            })),
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    },
+
+    task_drift_metrics: {
+      name: 'task_drift_metrics',
+      description: 'Get drift detection metrics and statistics',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          since: { type: 'string', description: 'ISO date string to filter metrics since' },
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        if (!driftService) {
+          return {
+            success: false,
+            error: 'Drift detection service not available',
+          };
+        }
+
+        try {
+          const since = params.since ? new Date(params.since as string) : undefined;
+          const metrics = driftService.getDriftDetectionMetrics(since);
+          const recentEvents = driftService.getRecentDriftEvents(10);
+
+          return {
+            success: true,
+            metrics: {
+              totalEvents: metrics.totalEvents,
+              allowedCount: metrics.allowedCount,
+              warnedCount: metrics.warnedCount,
+              preventedCount: metrics.preventedCount,
+              averageSimilarity: metrics.averageSimilarity,
+            },
+            recentEvents: recentEvents.map(e => ({
+              id: e.id,
+              taskId: e.taskId,
+              taskType: e.taskType,
+              ancestorTaskId: e.ancestorTaskId,
+              similarityScore: e.similarityScore,
+              actionTaken: e.actionTaken,
+              createdAt: e.createdAt.toISOString(),
+            })),
+            config: {
+              enabled: driftService.isEnabled(),
+              threshold: driftService.getConfig().threshold,
+              warningThreshold: driftService.getConfig().warningThreshold,
+              ancestorDepth: driftService.getConfig().ancestorDepth,
+              behavior: driftService.getConfig().behavior,
+            },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
       },
     },
   };

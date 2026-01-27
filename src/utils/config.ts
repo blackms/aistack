@@ -84,6 +84,21 @@ const SlackConfigSchema = z.object({
   notifyOnReviewLoop: z.boolean().default(true),
 });
 
+const DriftDetectionConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  threshold: z.number().min(0).max(1).default(0.95),
+  warningThreshold: z.number().min(0).max(1).optional(),
+  ancestorDepth: z.number().min(1).max(10).default(3),
+  behavior: z.enum(['warn', 'prevent']).default('warn'),
+  asyncEmbedding: z.boolean().default(true),
+}).refine(
+  (data) => !data.warningThreshold || data.warningThreshold < data.threshold,
+  {
+    message: 'warningThreshold must be less than threshold',
+    path: ['warningThreshold'],
+  }
+);
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -94,6 +109,7 @@ const ConfigSchema = z.object({
   mcp: MCPConfigSchema.default({}),
   hooks: HooksConfigSchema.default({}),
   slack: SlackConfigSchema.default({}),
+  driftDetection: DriftDetectionConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';

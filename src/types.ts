@@ -286,6 +286,7 @@ export interface AgentStackConfig {
   mcp: MCPConfig;
   hooks: HooksConfig;
   slack?: SlackConfig;
+  driftDetection?: DriftDetectionConfig;
 }
 
 export interface MemoryConfig {
@@ -478,3 +479,56 @@ export const IDENTITY_STATUS_TRANSITIONS: Record<AgentIdentityStatus, AgentIdent
   dormant: ['active', 'retired'],
   retired: [], // Terminal state - no transitions allowed
 };
+
+// Drift Detection types
+export type TaskRelationshipType = 'parent_of' | 'derived_from' | 'depends_on' | 'supersedes';
+
+export interface TaskRelationship {
+  id: string;
+  fromTaskId: string;
+  toTaskId: string;
+  relationshipType: TaskRelationshipType;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface TaskEmbedding {
+  taskId: string;
+  embedding: number[];
+  model: string;
+  dimensions: number;
+  createdAt: Date;
+}
+
+export type DriftDetectionBehavior = 'warn' | 'prevent';
+export type DriftDetectionAction = 'allowed' | 'warned' | 'prevented';
+
+export interface DriftDetectionConfig {
+  enabled: boolean;
+  threshold: number;
+  warningThreshold?: number;
+  ancestorDepth: number;
+  behavior: DriftDetectionBehavior;
+  asyncEmbedding: boolean;
+}
+
+export interface DriftDetectionResult {
+  isDrift: boolean;
+  highestSimilarity: number;
+  mostSimilarTaskId?: string;
+  mostSimilarTaskInput?: string;
+  action: DriftDetectionAction;
+  checkedAncestors: number;
+}
+
+export interface DriftDetectionEvent {
+  id: string;
+  taskId?: string;
+  taskType: string;
+  ancestorTaskId: string;
+  similarityScore: number;
+  threshold: number;
+  actionTaken: DriftDetectionAction;
+  taskInput?: string;
+  createdAt: Date;
+}

@@ -12,6 +12,7 @@ export interface EmbeddingProvider {
   embed(text: string): Promise<number[]>;
   embedBatch(texts: string[]): Promise<number[][]>;
   dimensions: number;
+  model: string;
 }
 
 /**
@@ -19,7 +20,7 @@ export interface EmbeddingProvider {
  */
 class OpenAIEmbeddings implements EmbeddingProvider {
   private apiKey: string;
-  private model: string;
+  model: string;
   dimensions: number;
 
   constructor(apiKey: string, model: string = 'text-embedding-3-small') {
@@ -70,7 +71,7 @@ class OpenAIEmbeddings implements EmbeddingProvider {
  */
 class OllamaEmbeddings implements EmbeddingProvider {
   private baseUrl: string;
-  private model: string;
+  model: string;
   dimensions: number;
 
   constructor(baseUrl: string = 'http://localhost:11434', model: string = 'nomic-embed-text') {

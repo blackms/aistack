@@ -357,6 +357,90 @@ describe('Config File Discovery', () => {
   });
 });
 
+describe('Drift Detection Config Validation', () => {
+  it('should accept valid drift detection config', () => {
+    const result = validateConfig({
+      driftDetection: {
+        enabled: true,
+        threshold: 0.95,
+        warningThreshold: 0.8,
+        ancestorDepth: 3,
+        behavior: 'warn',
+      },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it('should reject warningThreshold >= threshold', () => {
+    const resultEqual = validateConfig({
+      driftDetection: {
+        enabled: true,
+        threshold: 0.9,
+        warningThreshold: 0.9, // Equal to threshold
+      },
+    });
+    expect(resultEqual.valid).toBe(false);
+    expect(resultEqual.errors).toBeDefined();
+    expect(resultEqual.errors?.some(e => e.includes('warningThreshold'))).toBe(true);
+
+    const resultHigher = validateConfig({
+      driftDetection: {
+        enabled: true,
+        threshold: 0.8,
+        warningThreshold: 0.9, // Higher than threshold
+      },
+    });
+    expect(resultHigher.valid).toBe(false);
+  });
+
+  it('should accept config without warningThreshold', () => {
+    const result = validateConfig({
+      driftDetection: {
+        enabled: true,
+        threshold: 0.95,
+        // No warningThreshold
+      },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it('should validate threshold range', () => {
+    const resultLow = validateConfig({
+      driftDetection: {
+        enabled: true,
+        threshold: -0.1, // Invalid
+      },
+    });
+    expect(resultLow.valid).toBe(false);
+
+    const resultHigh = validateConfig({
+      driftDetection: {
+        enabled: true,
+        threshold: 1.5, // Invalid
+      },
+    });
+    expect(resultHigh.valid).toBe(false);
+  });
+
+  it('should validate behavior enum', () => {
+    const resultWarn = validateConfig({
+      driftDetection: {
+        enabled: true,
+        behavior: 'warn',
+      },
+    });
+    expect(resultWarn.valid).toBe(true);
+
+    const resultPrevent = validateConfig({
+      driftDetection: {
+        enabled: true,
+        behavior: 'prevent',
+      },
+    });
+    expect(resultPrevent.valid).toBe(true);
+  });
+});
+
 describe('Config Validation Edge Cases', () => {
   let testDir: string;
   let configPath: string;
