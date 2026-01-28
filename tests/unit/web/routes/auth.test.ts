@@ -221,6 +221,77 @@ describe('Auth Routes', () => {
       const response = JSON.parse(resBody);
       expect(response.error).toBe('Registration failed');
     });
+
+    it('should handle missing email field', async () => {
+      vi.mocked(authService.register).mockRejectedValue(new Error('Email is required'));
+
+      mockReq = createMockRequest({
+        username: 'testuser',
+        password: 'password123',
+      });
+
+      await routes.register(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(400);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Email is required');
+    });
+
+    it('should handle missing username field', async () => {
+      vi.mocked(authService.register).mockRejectedValue(new Error('Username is required'));
+
+      mockReq = createMockRequest({
+        email: 'test@example.com',
+        password: 'password123',
+      });
+
+      await routes.register(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(400);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Username is required');
+    });
+
+    it('should handle missing password field', async () => {
+      vi.mocked(authService.register).mockRejectedValue(new Error('Password is required'));
+
+      mockReq = createMockRequest({
+        email: 'test@example.com',
+        username: 'testuser',
+      });
+
+      await routes.register(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(400);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Password is required');
+    });
+
+    it('should handle empty request body', async () => {
+      vi.mocked(authService.register).mockRejectedValue(new Error('All fields are required'));
+
+      mockReq = createMockRequest({});
+
+      await routes.register(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(400);
+    });
+
+    it('should handle invalid email format', async () => {
+      vi.mocked(authService.register).mockRejectedValue(new Error('Invalid email format'));
+
+      mockReq = createMockRequest({
+        email: 'not-an-email',
+        username: 'testuser',
+        password: 'password123',
+      });
+
+      await routes.register(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(400);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Invalid email format');
+    });
   });
 
   describe('login', () => {
@@ -342,6 +413,52 @@ describe('Auth Routes', () => {
       const response = JSON.parse(resBody);
       expect(response.error).toBe('Invalid refresh token');
     });
+
+    it('should handle expired refresh token', async () => {
+      vi.mocked(authService.refreshAccessToken).mockRejectedValue(
+        new Error('Refresh token expired')
+      );
+
+      mockReq = createMockRequest({
+        refreshToken: 'expired-token',
+      });
+
+      await routes.refresh(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(401);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Refresh token expired');
+    });
+
+    it('should handle malformed refresh token', async () => {
+      vi.mocked(authService.refreshAccessToken).mockRejectedValue(
+        new Error('Malformed token')
+      );
+
+      mockReq = createMockRequest({
+        refreshToken: 'malformed.token.here',
+      });
+
+      await routes.refresh(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(401);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Malformed token');
+    });
+
+    it('should handle unknown refresh errors', async () => {
+      vi.mocked(authService.refreshAccessToken).mockRejectedValue('Unknown error');
+
+      mockReq = createMockRequest({
+        refreshToken: 'some-token',
+      });
+
+      await routes.refresh(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(401);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Token refresh failed');
+    });
   });
 
   describe('logout', () => {
@@ -459,6 +576,40 @@ describe('Auth Routes', () => {
       expect(resStatus).toBe(400);
       const response = JSON.parse(resBody);
       expect(response.error).toBe('Invalid old password');
+    });
+
+    it('should handle same old/new password error', async () => {
+      vi.mocked(authService.changePassword).mockRejectedValue(
+        new Error('New password must be different from old password')
+      );
+
+      mockReq = createMockRequest({
+        oldPassword: 'samepassword',
+        newPassword: 'samepassword',
+      });
+      mockReq.headers = { authorization: 'Bearer valid-token' };
+
+      await routes.changePassword(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(400);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('New password must be different from old password');
+    });
+
+    it('should handle unknown password change errors', async () => {
+      vi.mocked(authService.changePassword).mockRejectedValue('Unknown error');
+
+      mockReq = createMockRequest({
+        oldPassword: 'old123',
+        newPassword: 'new123',
+      });
+      mockReq.headers = { authorization: 'Bearer valid-token' };
+
+      await routes.changePassword(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(400);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Password change failed');
     });
   });
 
@@ -582,6 +733,48 @@ describe('Auth Routes', () => {
       const response = JSON.parse(resBody);
       expect(response.error).toBe('User not found');
     });
+
+    it('should handle invalid role value', async () => {
+      vi.mocked(authService.updateUserRole).mockImplementation(() => {
+        throw new Error('Invalid role');
+      });
+
+      mockReq = createMockRequest({
+        role: 'invalid-role',
+      });
+      mockReq.headers = { authorization: 'Bearer admin-token' };
+
+      await routes.updateUserRole(
+        mockReq as IncomingMessage,
+        mockRes as ServerResponse,
+        'user-456'
+      );
+
+      expect(resStatus).toBe(400);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Invalid role');
+    });
+
+    it('should handle unknown role update errors', async () => {
+      vi.mocked(authService.updateUserRole).mockImplementation(() => {
+        throw 'Unknown error';
+      });
+
+      mockReq = createMockRequest({
+        role: 'admin',
+      });
+      mockReq.headers = { authorization: 'Bearer admin-token' };
+
+      await routes.updateUserRole(
+        mockReq as IncomingMessage,
+        mockRes as ServerResponse,
+        'user-456'
+      );
+
+      expect(resStatus).toBe(400);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Role update failed');
+    });
   });
 
   describe('deleteUser', () => {
@@ -636,6 +829,41 @@ describe('Auth Routes', () => {
       expect(resStatus).toBe(400);
       const response = JSON.parse(resBody);
       expect(response.error).toBe('User not found');
+    });
+
+    it('should handle unknown deletion errors', async () => {
+      vi.mocked(authService.deleteUser).mockImplementation(() => {
+        throw 'Unknown error';
+      });
+
+      mockReq = {} as any;
+      mockReq.headers = { authorization: 'Bearer admin-token' };
+
+      await routes.deleteUser(
+        mockReq as IncomingMessage,
+        mockRes as ServerResponse,
+        'user-456'
+      );
+
+      expect(resStatus).toBe(400);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('User deletion failed');
+    });
+  });
+
+  describe('logout - additional cases', () => {
+    it('should handle unknown logout errors', async () => {
+      vi.mocked(authService.logout).mockRejectedValue('Unknown error');
+
+      mockReq = createMockRequest({
+        refreshToken: 'refresh-token',
+      });
+
+      await routes.logout(mockReq as IncomingMessage, mockRes as ServerResponse);
+
+      expect(resStatus).toBe(500);
+      const response = JSON.parse(resBody);
+      expect(response.error).toBe('Logout failed');
     });
   });
 });

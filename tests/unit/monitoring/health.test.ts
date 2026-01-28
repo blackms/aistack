@@ -502,5 +502,188 @@ describe('HealthMonitor', () => {
       expect(result.checks.providers.status).toBe('pass');
       expect(result.checks.providers.details?.defaultProvider).toBe('openai');
     });
+
+    it('should handle unknown default provider', async () => {
+      const configUnknown = {
+        ...mockConfig,
+        providers: {
+          default: 'bedrock',
+          bedrock: { apiKey: 'test-key' },
+        },
+      };
+
+      const monitor = new HealthMonitor(configUnknown);
+      const result = await monitor.performHealthCheck();
+
+      // Unknown providers should pass as long as they have some configuration
+      expect(result.checks.providers.status).toBe('pass');
+      expect(result.checks.providers.details?.defaultProvider).toBe('bedrock');
+    });
+
+    it('should handle provider with empty apiKey string', async () => {
+      const configEmptyKey = {
+        ...mockConfig,
+        providers: {
+          default: 'anthropic',
+          anthropic: { apiKey: '' },
+        },
+      };
+
+      const monitor = new HealthMonitor(configEmptyKey);
+      const result = await monitor.performHealthCheck();
+
+      expect(result.checks.providers.status).toBe('warn');
+      expect(result.checks.providers.message).toContain('Default provider (Anthropic) not configured');
+    });
+  });
+
+  describe('checkMemory edge cases', () => {
+    it('should verify percentage rounding', async () => {
+      const originalMemoryUsage = process.memoryUsage;
+      process.memoryUsage = vi.fn().mockReturnValue({
+        heapUsed: 333 * 1024 * 1024,
+        heapTotal: 1000 * 1024 * 1024,
+        external: 0,
+        rss: 500 * 1024 * 1024,
+        arrayBuffers: 0,
+      });
+
+      const monitor = new HealthMonitor(mockConfig);
+      const result = await monitor.performHealthCheck();
+
+      // 33.3% should be rounded to 33
+      expect(result.checks.memory.details?.heapUsedPercent).toBe(33);
+
+      process.memoryUsage = originalMemoryUsage;
+    });
+
+    it('should handle exact 75% boundary (warn threshold)', async () => {
+      const originalMemoryUsage = process.memoryUsage;
+      process.memoryUsage = vi.fn().mockReturnValue({
+        heapUsed: 750 * 1024 * 1024,
+        heapTotal: 1000 * 1024 * 1024,
+        external: 0,
+        rss: 1000 * 1024 * 1024,
+        arrayBuffers: 0,
+      });
+
+      const monitor = new HealthMonitor(mockConfig);
+      const result = await monitor.performHealthCheck();
+
+      // Exactly 75% should NOT trigger warning (> 75 is the condition)
+      expect(result.checks.memory.status).toBe('pass');
+
+      process.memoryUsage = originalMemoryUsage;
+    });
+
+    it('should handle just above 75% boundary', async () => {
+      const originalMemoryUsage = process.memoryUsage;
+      process.memoryUsage = vi.fn().mockReturnValue({
+        heapUsed: 760 * 1024 * 1024,
+        heapTotal: 1000 * 1024 * 1024,
+        external: 0,
+        rss: 1000 * 1024 * 1024,
+        arrayBuffers: 0,
+      });
+
+      const monitor = new HealthMonitor(mockConfig);
+      const result = await monitor.performHealthCheck();
+
+      expect(result.checks.memory.status).toBe('warn');
+
+      process.memoryUsage = originalMemoryUsage;
+    });
+
+    it('should handle exact 90% boundary (fail threshold)', async () => {
+      const originalMemoryUsage = process.memoryUsage;
+      process.memoryUsage = vi.fn().mockReturnValue({
+        heapUsed: 900 * 1024 * 1024,
+        heapTotal: 1000 * 1024 * 1024,
+        external: 0,
+        rss: 1000 * 1024 * 1024,
+        arrayBuffers: 0,
+      });
+
+      const monitor = new HealthMonitor(mockConfig);
+      const result = await monitor.performHealthCheck();
+
+      // Exactly 90% should NOT trigger fail (> 90 is the condition)
+      expect(result.checks.memory.status).toBe('warn');
+
+      process.memoryUsage = originalMemoryUsage;
+    });
+  });
+
+  describe('checkSystem edge cases', () => {
+    it('should include platform in details when status is pass', async () => {
+      const monitor = new HealthMonitor(mockConfig);
+      const result = await monitor.performHealthCheck();
+
+      // Platform is only included when status is 'pass' (normal resources)
+      // When status is 'warn' (high CPU), only cpuPercent and uptime are included
+      if (result.checks.system.status === 'pass') {
+        expect(result.checks.system.details?.platform).toBe(process.platform);
+      } else {
+        expect(result.checks.system.details?.cpuPercent).toBeDefined();
+      }
+    });
+
+    it('should include nodeVersion in details when status is pass', async () => {
+      const monitor = new HealthMonitor(mockConfig);
+      const result = await monitor.performHealthCheck();
+
+      // nodeVersion is only included when status is 'pass' (normal resources)
+      if (result.checks.system.status === 'pass') {
+        expect(result.checks.system.details?.nodeVersion).toBe(process.version);
+      } else {
+        expect(result.checks.system.details?.uptime).toBeDefined();
+      }
+    });
+  });
+
+  describe('performHealthCheck integration', () => {
+    it('should verify timestamp format is ISO 8601', async () => {
+      const monitor = new HealthMonitor(mockConfig);
+      const result = await monitor.performHealthCheck();
+
+      // ISO 8601 format validation
+      const isoDateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+      expect(result.timestamp).toMatch(isoDateRegex);
+    });
+
+    it('should verify uptime is calculated correctly', async () => {
+      const monitor = new HealthMonitor(mockConfig);
+
+      // Wait a known amount of time
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const result = await monitor.performHealthCheck();
+
+      // Uptime should be at least 0.05 seconds
+      expect(result.uptime).toBeGreaterThanOrEqual(0.05);
+    });
+
+    it('should include all required check categories', async () => {
+      const monitor = new HealthMonitor(mockConfig);
+      const result = await monitor.performHealthCheck();
+
+      expect(result.checks).toHaveProperty('database');
+      expect(result.checks).toHaveProperty('memory');
+      expect(result.checks).toHaveProperty('providers');
+      expect(result.checks).toHaveProperty('disk');
+      expect(result.checks).toHaveProperty('system');
+    });
+
+    it('should return version from config', async () => {
+      const configWithVersion = {
+        ...mockConfig,
+        version: '2.5.0',
+      };
+
+      const monitor = new HealthMonitor(configWithVersion);
+      const result = await monitor.performHealthCheck();
+
+      expect(result.version).toBe('2.5.0');
+    });
   });
 });
