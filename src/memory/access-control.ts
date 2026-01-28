@@ -143,8 +143,6 @@ export class MemoryAccessControl {
       throw new Error('sessionId is required for memory access');
     }
 
-    const sessionNamespace = this.getSessionNamespace(context.sessionId);
-
     // If the namespace is a session namespace, verify it matches the context's session
     if (this.isSessionNamespace(namespace)) {
       const namespaceSessionId = this.extractSessionId(namespace);
