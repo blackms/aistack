@@ -262,7 +262,8 @@ src/
 ├── memory/            # Persistent storage
 │   ├── sqlite-store.ts
 │   ├── fts-search.ts
-│   └── vector-search.ts
+│   ├── vector-search.ts
+│   └── access-control.ts  # Session-based isolation (v1.5.2+)
 ├── mcp/               # MCP server and tools
 │   ├── server.ts
 │   └── tools/         # 41 tool implementations

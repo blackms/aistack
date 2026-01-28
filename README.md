@@ -297,7 +297,7 @@ Create `aistack.config.json` in your project root:
 
 ```json
 {
-  "version": "1.5.0",
+  "version": "1.5.2",
   "providers": {
     "default": "anthropic",
     "anthropic": {
@@ -798,6 +798,6 @@ aistack is designed as a **local-first, NPM-distributed package** for developer 
 
 <br/>
 
-<sub>✅ **README verified against codebase v1.5.0+** - All claims backed by implemented code with file:line references (includes Resource Exhaustion Monitoring)</sub>
+<sub>✅ **README verified against codebase v1.5.2** - All claims backed by implemented code with file:line references (includes Resource Exhaustion Monitoring and Session-based Memory Isolation)</sub>
 
 </div>

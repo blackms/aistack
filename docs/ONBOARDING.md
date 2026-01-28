@@ -71,11 +71,12 @@ agentstack/
 │   ├── memory/               # Persistence layer
 │   │   ├── sqlite-store.ts   # SQLite operations
 │   │   ├── fts-search.ts     # Full-text search
-│   │   └── vector-search.ts  # Embedding search
+│   │   ├── vector-search.ts  # Embedding search
+│   │   └── access-control.ts # Session-based isolation
 │   │
 │   ├── mcp/                  # MCP integration
 │   │   ├── server.ts         # MCP server
-│   │   └── tools/            # 36 tool implementations
+│   │   └── tools/            # 41 tool implementations
 │   │
 │   ├── coordination/         # Task management
 │   │   ├── task-queue.ts     # Priority queue

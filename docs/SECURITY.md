@@ -124,6 +124,35 @@ execFileSync('gh', ['issue', 'create', '--title', title], {
 - Timeout on all subprocess calls
 - No shell interpolation (execFileSync)
 
+### Session-Based Memory Isolation
+
+**Purpose**: Prevent agents in different sessions from accessing each other's memory (cross-session contamination).
+
+**Implementation** (v1.5.2+):
+- Each session gets a dedicated namespace: `session:{sessionId}`
+- Memory operations are scoped to the caller's session
+- Cross-session access attempts are blocked and logged
+- `sessionId` is required for all write/delete operations
+
+**Access Control** (`src/memory/access-control.ts`):
+```typescript
+// Validate that memory operations stay within session boundaries
+validateAccess(context: MemoryAccessContext, namespace: string, operation: 'read'|'write'|'delete'): void
+
+// Check if context can access a specific entry
+canAccessEntry(context: MemoryAccessContext, entryNamespace: string, entryAgentId?: string): boolean
+```
+
+**Session Cleanup**:
+- When a session ends, all session-scoped memory is automatically deleted
+- Agents in the session are stopped
+- Audit logging tracks cleanup operations
+
+**REST API Protection**:
+- `POST /api/v1/memory` requires `sessionId` for write operations
+- `DELETE /api/v1/memory/:key` requires `sessionId` for delete operations
+- Read operations can optionally filter by session
+
 ### MCP Protocol Security
 
 **Transport**:
@@ -205,11 +234,12 @@ execFileSync('gh', ['issue', 'create', '--title', title], {
 - Embeddings stored as plaintext BLOBs
 - Mitigation: Use filesystem encryption
 
-### No Access Control
+### Session-Level Access Control Only
 
-- All tools available to any MCP client
-- No user authentication
-- Mitigation: Process-level access control
+- Session-based memory isolation prevents cross-session contamination (v1.5.2+)
+- All MCP tools available to any MCP client (no per-tool ACLs)
+- No user authentication at the protocol level
+- Mitigation: Process-level access control, session-based isolation
 
 ### Plugin Trust
 

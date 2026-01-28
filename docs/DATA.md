@@ -21,10 +21,11 @@ Primary key-value storage with metadata support.
 CREATE TABLE IF NOT EXISTS memory (
   id TEXT PRIMARY KEY,           -- UUID v4
   key TEXT NOT NULL,             -- User-defined key
-  namespace TEXT DEFAULT 'default', -- Logical grouping
+  namespace TEXT DEFAULT 'default', -- Logical grouping (session:xxx for isolation)
   content TEXT NOT NULL,         -- Stored content
   embedding BLOB,                -- Optional Float32Array as bytes
   metadata TEXT,                 -- JSON-encoded metadata
+  agent_id TEXT DEFAULT NULL,    -- Agent ownership for scoped memory
   created_at INTEGER NOT NULL,   -- Unix timestamp (ms)
   updated_at INTEGER NOT NULL,   -- Unix timestamp (ms)
   UNIQUE(namespace, key)         -- Compound unique constraint
@@ -34,7 +35,13 @@ CREATE TABLE IF NOT EXISTS memory (
 CREATE INDEX IF NOT EXISTS idx_memory_namespace ON memory(namespace);
 CREATE INDEX IF NOT EXISTS idx_memory_key ON memory(key);
 CREATE INDEX IF NOT EXISTS idx_memory_updated ON memory(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_agent_id ON memory(agent_id);
 ```
+
+**Session-Based Namespaces** (v1.5.2+):
+- Session memory uses namespace format: `session:{sessionId}`
+- Prevents cross-session memory contamination
+- Automatically cleaned up when session ends
 
 ### FTS5 Virtual Table
 
@@ -238,10 +245,11 @@ CREATE INDEX IF NOT EXISTS idx_resource_exhaustion_events_created ON resource_ex
 interface MemoryEntry {
   id: string;                           // UUID v4
   key: string;                          // User-defined key
-  namespace: string;                    // Namespace (default: 'default')
+  namespace: string;                    // Namespace (default: 'default', session: 'session:{sessionId}')
   content: string;                      // Stored content
   embedding?: Float32Array;             // Optional vector embedding
   metadata?: Record<string, unknown>;   // JSON metadata
+  agentId?: string;                     // Agent ownership for scoped memory
   createdAt: Date;                      // Creation timestamp
   updatedAt: Date;                      // Last update timestamp
 }
@@ -262,9 +270,10 @@ interface MemorySearchResult {
 
 ```typescript
 interface MemoryStoreOptions {
-  namespace?: string;                   // Target namespace
+  namespace?: string;                   // Target namespace (derived from sessionId if not specified)
   metadata?: Record<string, unknown>;   // Metadata to store
   generateEmbedding?: boolean;          // Generate vector embedding
+  agentId?: string;                     // Agent ownership for scoped memory
 }
 ```
 
@@ -276,6 +285,8 @@ interface MemorySearchOptions {
   limit?: number;                       // Max results (default: 10)
   threshold?: number;                   // Vector similarity threshold (default: 0.7)
   useVector?: boolean;                  // Enable vector search
+  agentId?: string;                     // Filter by agent ownership
+  includeShared?: boolean;              // Include shared memory (agentId = NULL), default: true
 }
 ```
 

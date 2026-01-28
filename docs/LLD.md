@@ -330,6 +330,48 @@ async search(query: string, options: MemorySearchOptions): Promise<MemorySearchR
 }
 ```
 
+### 2.5 Access Control (`access-control.ts`)
+
+**Purpose**: Enforce session-based memory isolation to prevent cross-session contamination.
+
+**Data Structures**:
+```typescript
+interface MemoryAccessContext {
+  sessionId: string;        // Required - enforced namespace based on session
+  agentId?: string;         // Optional - scoping within session
+  includeShared?: boolean;  // Include shared memory (agent_id = NULL), default: true
+}
+```
+
+**Key Functions**:
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `getSessionNamespace` | `(sessionId: string) => string` | Returns `session:{sessionId}` namespace |
+| `isSessionNamespace` | `(namespace: string) => boolean` | Check if namespace is session-scoped |
+| `extractSessionId` | `(namespace: string) => string \| null` | Extract sessionId from namespace |
+| `validateAccess` | `(context, namespace, operation) => void` | Throws if cross-session access attempted |
+| `canAccessEntry` | `(context, entryNamespace, entryAgentId?) => boolean` | Non-throwing access check |
+| `deriveNamespace` | `(context, explicitNamespace?) => string` | Get namespace for operation |
+
+**Access Validation Flow**:
+```mermaid
+flowchart TB
+    REQ[Request] --> CTX{Has sessionId?}
+    CTX -->|No| DENY[Throw Error]
+    CTX -->|Yes| NS{Is session namespace?}
+    NS -->|No| ALLOW[Allow]
+    NS -->|Yes| MATCH{Session matches?}
+    MATCH -->|No| LOG[Log Warning]
+    LOG --> DENY
+    MATCH -->|Yes| ALLOW
+```
+
+**Session Cleanup**:
+- On session end, `deleteByNamespace(session:{sessionId})` is called
+- All memory entries in the session namespace are deleted
+- Cascades to related tables (versions, tags, relationships)
+
 ## 3. MCP Module (`src/mcp/`)
 
 ### 3.1 MCP Server (`server.ts`)
