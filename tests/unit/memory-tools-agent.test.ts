@@ -14,6 +14,7 @@ describe('Memory MCP Tools with Agent ID', () => {
   let config: AgentStackConfig;
   let memory: MemoryManager;
   let tools: ReturnType<typeof createMemoryTools>;
+  let testSessionId: string;
 
   beforeEach(() => {
     // Clean up any existing test database
@@ -22,6 +23,7 @@ describe('Memory MCP Tools with Agent ID', () => {
     }
 
     resetMemoryManager();
+    testSessionId = randomUUID();
 
     config = {
       version: '1.0.0',
@@ -59,6 +61,7 @@ describe('Memory MCP Tools with Agent ID', () => {
       const agentId = randomUUID();
 
       const result = await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'test-key',
         content: 'test content',
         agentId,
@@ -70,6 +73,7 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     it('should store memory without agentId', async () => {
       const result = await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'shared-key',
         content: 'shared content',
       });
@@ -91,16 +95,19 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     beforeEach(async () => {
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'agent1-doc',
         content: 'programming guide for agent 1',
         agentId: agent1Id,
       });
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'agent2-doc',
         content: 'programming tutorial for agent 2',
         agentId: agent2Id,
       });
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'shared-doc',
         content: 'general programming concepts',
       });
@@ -108,6 +115,7 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     it('should search within agent scope', async () => {
       const result = await tools.memory_search.handler({
+        sessionId: testSessionId,
         query: 'programming',
         agentId: agent1Id,
         includeShared: false,
@@ -119,6 +127,7 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     it('should include shared memory when includeShared is true', async () => {
       const result = await tools.memory_search.handler({
+        sessionId: testSessionId,
         query: 'programming',
         agentId: agent1Id,
         includeShared: true,
@@ -132,6 +141,7 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     it('should search all when no agentId provided', async () => {
       const result = await tools.memory_search.handler({
+        sessionId: testSessionId,
         query: 'programming',
       });
 
@@ -140,6 +150,7 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     it('should include agentId in search results', async () => {
       const result = await tools.memory_search.handler({
+        sessionId: testSessionId,
         query: 'programming',
       });
 
@@ -162,16 +173,19 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     beforeEach(async () => {
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'agent-key1',
         content: 'agent content 1',
         agentId,
       });
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'agent-key2',
         content: 'agent content 2',
         agentId,
       });
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'shared-key',
         content: 'shared content',
       });
@@ -179,6 +193,7 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     it('should list only agent memory when includeShared is false', async () => {
       const result = await tools.memory_list.handler({
+        sessionId: testSessionId,
         agentId,
         includeShared: false,
       });
@@ -189,6 +204,7 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     it('should include shared when includeShared is true', async () => {
       const result = await tools.memory_list.handler({
+        sessionId: testSessionId,
         agentId,
         includeShared: true,
       });
@@ -196,14 +212,17 @@ describe('Memory MCP Tools with Agent ID', () => {
       expect(result.count).toBe(3);
     });
 
-    it('should list all when no filters provided', async () => {
-      const result = await tools.memory_list.handler({});
+    it('should list all when no filters provided (with sessionId)', async () => {
+      const result = await tools.memory_list.handler({
+        sessionId: testSessionId,
+      });
 
       expect(result.total).toBeGreaterThanOrEqual(3);
     });
 
     it('should include agentId in list entries', async () => {
       const result = await tools.memory_list.handler({
+        sessionId: testSessionId,
         agentId,
         includeShared: true,
       });
@@ -223,12 +242,14 @@ describe('Memory MCP Tools with Agent ID', () => {
     it('should return agentId for owned memory', async () => {
       const agentId = randomUUID();
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'owned-key',
         content: 'owned content',
         agentId,
       });
 
       const result = await tools.memory_get.handler({
+        sessionId: testSessionId,
         key: 'owned-key',
       });
 
@@ -238,11 +259,13 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     it('should work for shared memory', async () => {
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'shared-key',
         content: 'shared content',
       });
 
       const result = await tools.memory_get.handler({
+        sessionId: testSessionId,
         key: 'shared-key',
       });
 
@@ -255,12 +278,14 @@ describe('Memory MCP Tools with Agent ID', () => {
     it('should delete agent-owned memory', async () => {
       const agentId = randomUUID();
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'to-delete',
         content: 'will be deleted',
         agentId,
       });
 
       const result = await tools.memory_delete.handler({
+        sessionId: testSessionId,
         key: 'to-delete',
       });
 
@@ -268,6 +293,7 @@ describe('Memory MCP Tools with Agent ID', () => {
 
       // Verify deletion
       const check = await tools.memory_get.handler({
+        sessionId: testSessionId,
         key: 'to-delete',
       });
       expect(check.found).toBe(false);
@@ -275,11 +301,13 @@ describe('Memory MCP Tools with Agent ID', () => {
 
     it('should delete shared memory', async () => {
       await tools.memory_store.handler({
+        sessionId: testSessionId,
         key: 'shared-to-delete',
         content: 'will be deleted',
       });
 
       const result = await tools.memory_delete.handler({
+        sessionId: testSessionId,
         key: 'shared-to-delete',
       });
 

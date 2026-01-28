@@ -5,6 +5,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { sessionStartHook, sessionEndHook } from '../../src/hooks/session.js';
 import { MemoryManager, resetMemoryManager } from '../../src/memory/index.js';
+import { spawnAgent, clearAgents, listAgents, getAgent } from '../../src/agents/spawner.js';
+import { registerAgent, unregisterAgent } from '../../src/agents/registry.js';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -153,6 +155,72 @@ describe('Session Hooks', () => {
       };
 
       await expect(sessionEndHook(context, memory, config)).resolves.not.toThrow();
+    });
+
+    it('should stop agents in session when session ends', async () => {
+      // Register a test agent type
+      registerAgent({
+        type: 'test-session-agent',
+        name: 'Test Session Agent',
+        description: 'Test agent for session cleanup',
+        systemPrompt: 'Test prompt',
+        capabilities: ['test'],
+      });
+
+      // Create a session
+      const session = memory.createSession();
+
+      // Spawn agents with this sessionId
+      const agent1 = spawnAgent('test-session-agent', { sessionId: session.id }, config);
+      const agent2 = spawnAgent('test-session-agent', { sessionId: session.id }, config);
+
+      // Verify agents are in the session
+      const sessionAgents = listAgents(session.id);
+      expect(sessionAgents.length).toBe(2);
+
+      // End the session
+      const context: HookContext = {
+        event: 'session-end',
+        sessionId: session.id,
+        data: {},
+      };
+
+      await sessionEndHook(context, memory, config);
+
+      // Verify agents were stopped
+      expect(getAgent(agent1.id)).toBeNull();
+      expect(getAgent(agent2.id)).toBeNull();
+
+      // Cleanup
+      unregisterAgent('test-session-agent');
+      clearAgents();
+    });
+
+    it('should clean up session memory when session ends', async () => {
+      // Create a session
+      const session = memory.createSession();
+      const sessionNamespace = `session:${session.id}`;
+
+      // Store some memory in the session namespace
+      await memory.store('test-key-1', 'test content 1', { namespace: sessionNamespace });
+      await memory.store('test-key-2', 'test content 2', { namespace: sessionNamespace });
+
+      // Verify memory exists
+      expect(memory.get('test-key-1', sessionNamespace)).not.toBeNull();
+      expect(memory.get('test-key-2', sessionNamespace)).not.toBeNull();
+
+      // End the session
+      const context: HookContext = {
+        event: 'session-end',
+        sessionId: session.id,
+        data: {},
+      };
+
+      await sessionEndHook(context, memory, config);
+
+      // Verify memory was cleaned up
+      expect(memory.get('test-key-1', sessionNamespace)).toBeNull();
+      expect(memory.get('test-key-2', sessionNamespace)).toBeNull();
     });
   });
 });

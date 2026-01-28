@@ -8,7 +8,7 @@ import { getAgentDefinition, hasAgentType } from './registry.js';
 import { getProvider } from '../providers/index.js';
 import { ClaudeCodeProvider, GeminiCLIProvider, CodexProvider } from '../providers/cli-providers.js';
 import { logger } from '../utils/logger.js';
-import { getMemoryManager } from '../memory/index.js';
+import { getMemoryManager, getAccessControl } from '../memory/index.js';
 import { Semaphore, AgentPool } from '../utils/semaphore.js';
 import { getIdentityService } from './identity-service.js';
 import { getResourceExhaustionService } from '../monitoring/resource-exhaustion-service.js';
@@ -119,13 +119,21 @@ export function spawnAgent(
     }
   }
 
+  // Generate memory namespace for session isolation
+  // Use provided sessionId if available, otherwise generate a unique namespace based on agent ID
+  const accessControl = getAccessControl();
+  const memoryNamespace = options.sessionId
+    ? accessControl.getSessionNamespace(options.sessionId)
+    : accessControl.getSessionNamespace(id);  // Use agent ID as fallback for isolated namespace
+
   const agent: SpawnedAgent = {
     id,
     type,
     name,
     status: 'idle',
     createdAt: new Date(),
-    sessionId: options.sessionId,
+    sessionId: options.sessionId,  // Keep optional - only set if explicitly provided
+    memoryNamespace,
     metadata: options.metadata,
     identityId,
   };
