@@ -409,6 +409,7 @@ describe('Memory Routes', () => {
   describe('POST /api/v1/memory', () => {
     it('should store new entry', async () => {
       const req = createMockRequest('POST', '/api/v1/memory', {
+        sessionId: '123e4567-e89b-12d3-a456-426614174000',
         key: 'test-key',
         content: 'test content',
       });
@@ -424,6 +425,7 @@ describe('Memory Routes', () => {
 
     it('should return error for missing key', async () => {
       const req = createMockRequest('POST', '/api/v1/memory', {
+        sessionId: '123e4567-e89b-12d3-a456-426614174000',
         content: 'test content',
       });
       const res = createMockResponse();
@@ -432,6 +434,20 @@ describe('Memory Routes', () => {
 
       const body = res.getBody();
       expect(body.success).toBe(false);
+    });
+
+    it('should return error for missing sessionId', async () => {
+      const req = createMockRequest('POST', '/api/v1/memory', {
+        key: 'test-key',
+        content: 'test content',
+      });
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(false);
+      expect(body.error).toContain('sessionId');
     });
   });
 
@@ -463,10 +479,12 @@ describe('Memory Routes', () => {
 
   describe('DELETE /api/v1/memory/:key', () => {
     it('should delete entry', async () => {
+      const sessionId = '123e4567-e89b-12d3-a456-426614174000';
+      const namespace = `session:${sessionId}`;
       const manager = getMemoryManager(mockConfig);
-      await manager.store('delete-me', 'content');
+      await manager.store('delete-me', 'content', { namespace });
 
-      const req = createMockRequest('DELETE', '/api/v1/memory/delete-me');
+      const req = createMockRequest('DELETE', `/api/v1/memory/delete-me?sessionId=${sessionId}`);
       const res = createMockResponse();
 
       await router.handle(req, res);
@@ -477,12 +495,24 @@ describe('Memory Routes', () => {
     });
 
     it('should return 404 for unknown key', async () => {
-      const req = createMockRequest('DELETE', '/api/v1/memory/unknown');
+      const sessionId = '123e4567-e89b-12d3-a456-426614174000';
+      const req = createMockRequest('DELETE', `/api/v1/memory/unknown?sessionId=${sessionId}`);
       const res = createMockResponse();
 
       await router.handle(req, res);
 
       expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+    });
+
+    it('should return error for missing sessionId', async () => {
+      const req = createMockRequest('DELETE', '/api/v1/memory/some-key');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody();
+      expect(body.success).toBe(false);
+      expect(body.error).toContain('sessionId');
     });
   });
 
@@ -610,10 +640,11 @@ describe('Memory Routes', () => {
 
   describe('DELETE /api/v1/memory/:key with namespace', () => {
     it('should delete entry with namespace', async () => {
+      const sessionId = '123e4567-e89b-12d3-a456-426614174000';
       const manager = getMemoryManager(mockConfig);
       await manager.store('delete-ns-key', 'content', { namespace: 'delete-ns' });
 
-      const req = createMockRequest('DELETE', '/api/v1/memory/delete-ns-key?namespace=delete-ns');
+      const req = createMockRequest('DELETE', `/api/v1/memory/delete-ns-key?sessionId=${sessionId}&namespace=delete-ns`);
       const res = createMockResponse();
 
       await router.handle(req, res);

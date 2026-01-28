@@ -66,6 +66,7 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
   });
 
   // POST /api/v1/memory - Store entry
+  // Requires sessionId for session-based isolation
   router.post('/api/v1/memory', async (_req, res, params) => {
     const body = params.body as (MemoryStoreRequest & { sessionId?: string; agentId?: string }) | undefined;
 
@@ -76,8 +77,12 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
       throw badRequest('Content is required');
     }
 
-    const manager = getManager();
     const sessionId = body.sessionId ?? params.query.sessionId;
+    if (!sessionId) {
+      throw badRequest('sessionId is required for write operations');
+    }
+
+    const manager = getManager();
     const namespace = deriveNamespace(sessionId, body.namespace);
 
     setSessionContext(manager, sessionId, body.agentId);
@@ -204,6 +209,7 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
   });
 
   // DELETE /api/v1/memory/:key - Delete entry
+  // Requires sessionId for session-based isolation
   router.delete('/api/v1/memory/:key', (_req, res, params) => {
     const key = params.path[0];
     if (!key) {
@@ -211,6 +217,10 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
     }
 
     const sessionId = params.query.sessionId;
+    if (!sessionId) {
+      throw badRequest('sessionId is required for delete operations');
+    }
+
     const namespace = deriveNamespace(sessionId, params.query.namespace);
     const manager = getManager();
 

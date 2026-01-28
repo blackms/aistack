@@ -86,7 +86,12 @@ export async function sessionEndHook(
     const accessControl = getAccessControl();
     const sessionNamespace = accessControl.getSessionNamespace(context.sessionId);
     const deletedCount = memory.getStore().deleteByNamespace(sessionNamespace);
-    log.info('Session memory cleaned', { sessionId: context.sessionId, deletedEntries: deletedCount });
+    // Use debug level when no entries deleted to reduce log noise
+    if (deletedCount > 0) {
+      log.info('Session memory cleaned', { sessionId: context.sessionId, deletedEntries: deletedCount });
+    } else {
+      log.debug('Session memory cleanup complete (no entries)', { sessionId: context.sessionId });
+    }
 
     // Stop all agents in this session
     const sessionAgents = listAgents(context.sessionId);

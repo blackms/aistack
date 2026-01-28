@@ -54,6 +54,22 @@ const DeleteInputSchema = z.object({
 export function createMemoryTools(memory: MemoryManager) {
   const accessControl = getAccessControl();
 
+  /**
+   * Helper to execute an operation with proper context management.
+   * Ensures context is always cleared, even on error.
+   */
+  async function withContext<T>(
+    context: { sessionId: string; agentId?: string; includeShared?: boolean },
+    operation: () => T | Promise<T>
+  ): Promise<T> {
+    memory.setAgentContext(context);
+    try {
+      return await operation();
+    } finally {
+      memory.clearAgentContext();
+    }
+  }
+
   return {
     memory_store: {
       name: 'memory_store',
@@ -75,25 +91,17 @@ export function createMemoryTools(memory: MemoryManager) {
         const input = StoreInputSchema.parse(params);
 
         try {
-          // Derive namespace from sessionId if not provided
           const namespace = input.namespace ?? accessControl.getSessionNamespace(input.sessionId);
 
-          // Set agent context for this operation
-          // Only set agentId if explicitly provided, otherwise entry will be shared within session
-          memory.setAgentContext({
-            agentId: input.agentId,  // undefined if not provided - will be treated as session-level
-            sessionId: input.sessionId,
-          });
-
-          const entry = await memory.store(input.key, input.content, {
-            namespace,
-            metadata: input.metadata,
-            generateEmbedding: input.generateEmbedding,
-            agentId: input.agentId,  // Pass through explicit agentId only
-          });
-
-          // Clear context after operation
-          memory.clearAgentContext();
+          const entry = await withContext(
+            { sessionId: input.sessionId, agentId: input.agentId },
+            () => memory.store(input.key, input.content, {
+              namespace,
+              metadata: input.metadata,
+              generateEmbedding: input.generateEmbedding,
+              agentId: input.agentId,
+            })
+          );
 
           return {
             success: true,
@@ -107,7 +115,6 @@ export function createMemoryTools(memory: MemoryManager) {
             },
           };
         } catch (error) {
-          memory.clearAgentContext();
           return {
             success: false,
             error: error instanceof Error ? error.message : String(error),
@@ -137,28 +144,20 @@ export function createMemoryTools(memory: MemoryManager) {
         const input = SearchInputSchema.parse(params);
 
         try {
-          // Derive namespace from sessionId if not provided
           const namespace = input.namespace ?? accessControl.getSessionNamespace(input.sessionId);
+          const includeShared = input.includeShared ?? true;
 
-          // Set agent context for this operation
-          // Only set agentId if explicitly provided for filtering
-          memory.setAgentContext({
-            agentId: input.agentId,  // undefined if not provided
-            sessionId: input.sessionId,
-            includeShared: input.includeShared ?? true,  // Default to including shared
-          });
-
-          const results = await memory.search(input.query, {
-            namespace,
-            limit: input.limit,
-            threshold: input.threshold,
-            useVector: input.useVector,
-            agentId: input.agentId,
-            includeShared: input.includeShared ?? true,  // Default to including shared
-          });
-
-          // Clear context after operation
-          memory.clearAgentContext();
+          const results = await withContext(
+            { sessionId: input.sessionId, agentId: input.agentId, includeShared },
+            () => memory.search(input.query, {
+              namespace,
+              limit: input.limit,
+              threshold: input.threshold,
+              useVector: input.useVector,
+              agentId: input.agentId,
+              includeShared,
+            })
+          );
 
           return {
             count: results.length,
@@ -173,7 +172,6 @@ export function createMemoryTools(memory: MemoryManager) {
             })),
           };
         } catch (error) {
-          memory.clearAgentContext();
           return {
             count: 0,
             results: [],
@@ -197,19 +195,12 @@ export function createMemoryTools(memory: MemoryManager) {
       },
       handler: async (params: Record<string, unknown>) => {
         const input = GetInputSchema.parse(params);
-
-        // Derive namespace from sessionId if not provided
         const namespace = input.namespace ?? accessControl.getSessionNamespace(input.sessionId);
 
-        // Set agent context for this operation
-        memory.setAgentContext({
-          sessionId: input.sessionId,
-        });
-
-        const entry = memory.get(input.key, namespace);
-
-        // Clear context after operation
-        memory.clearAgentContext();
+        const entry = await withContext(
+          { sessionId: input.sessionId },
+          () => memory.get(input.key, namespace)
+        );
 
         if (!entry) {
           return {
@@ -250,26 +241,19 @@ export function createMemoryTools(memory: MemoryManager) {
       },
       handler: async (params: Record<string, unknown>) => {
         const input = ListInputSchema.parse(params);
-
-        // Derive namespace from sessionId if not provided
         const namespace = input.namespace ?? accessControl.getSessionNamespace(input.sessionId);
+        const includeShared = input.includeShared ?? true;
 
-        // Set agent context for this operation
-        // Only set agentId if explicitly provided for filtering
-        memory.setAgentContext({
-          agentId: input.agentId,  // undefined if not provided
-          sessionId: input.sessionId,
-          includeShared: input.includeShared ?? true,  // Default to including shared
-        });
-
-        const entries = memory.list(namespace, input.limit, input.offset, {
-          agentId: input.agentId,
-          includeShared: input.includeShared ?? true,  // Default to including shared
-        });
-        const total = memory.count(namespace);
-
-        // Clear context after operation
-        memory.clearAgentContext();
+        const { entries, total } = await withContext(
+          { sessionId: input.sessionId, agentId: input.agentId, includeShared },
+          () => ({
+            entries: memory.list(namespace, input.limit, input.offset, {
+              agentId: input.agentId,
+              includeShared,
+            }),
+            total: memory.count(namespace),
+          })
+        );
 
         return {
           total,
@@ -303,19 +287,12 @@ export function createMemoryTools(memory: MemoryManager) {
       },
       handler: async (params: Record<string, unknown>) => {
         const input = DeleteInputSchema.parse(params);
-
-        // Derive namespace from sessionId if not provided
         const namespace = input.namespace ?? accessControl.getSessionNamespace(input.sessionId);
 
-        // Set agent context for this operation
-        memory.setAgentContext({
-          sessionId: input.sessionId,
-        });
-
-        const deleted = memory.delete(input.key, namespace);
-
-        // Clear context after operation
-        memory.clearAgentContext();
+        const deleted = await withContext(
+          { sessionId: input.sessionId },
+          () => memory.delete(input.key, namespace)
+        );
 
         return {
           success: deleted,
