@@ -2,7 +2,7 @@
  * MCP Memory Tools tests
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryTools } from '../../src/mcp/tools/memory-tools.js';
 import { MemoryManager, resetMemoryManager } from '../../src/memory/index.js';
 import { existsSync, unlinkSync } from 'node:fs';
@@ -474,6 +474,88 @@ describe('MCP Memory Tools', () => {
       expect(tools.memory_delete.name).toBe('memory_delete');
       expect(tools.memory_delete.inputSchema.required).toContain('sessionId');
       expect(tools.memory_delete.inputSchema.required).toContain('key');
+    });
+  });
+
+  describe('error handling', () => {
+    it('should handle memory_store errors gracefully', async () => {
+      // Mock memory.store to throw an error
+      const originalStore = memory.store.bind(memory);
+      vi.spyOn(memory, 'store').mockImplementation(() => {
+        throw new Error('Storage failure');
+      });
+
+      const result = await tools.memory_store.handler({
+        sessionId: testSessionId,
+        key: 'error-key',
+        content: 'error content',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Storage failure');
+
+      // Restore original
+      vi.spyOn(memory, 'store').mockImplementation(originalStore);
+    });
+
+    it('should handle memory_store errors with non-Error types', async () => {
+      // Mock memory.store to throw a string
+      const originalStore = memory.store.bind(memory);
+      vi.spyOn(memory, 'store').mockImplementation(() => {
+        throw 'String error';
+      });
+
+      const result = await tools.memory_store.handler({
+        sessionId: testSessionId,
+        key: 'error-key',
+        content: 'error content',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('String error');
+
+      // Restore original
+      vi.spyOn(memory, 'store').mockImplementation(originalStore);
+    });
+
+    it('should handle memory_search errors gracefully', async () => {
+      // Mock memory.search to throw an error
+      const originalSearch = memory.search.bind(memory);
+      vi.spyOn(memory, 'search').mockImplementation(() => {
+        throw new Error('Search failure');
+      });
+
+      const result = await tools.memory_search.handler({
+        sessionId: testSessionId,
+        query: 'test query',
+      });
+
+      expect(result.count).toBe(0);
+      expect(result.results).toEqual([]);
+      expect(result.error).toBe('Search failure');
+
+      // Restore original
+      vi.spyOn(memory, 'search').mockImplementation(originalSearch);
+    });
+
+    it('should handle memory_search errors with non-Error types', async () => {
+      // Mock memory.search to throw a string
+      const originalSearch = memory.search.bind(memory);
+      vi.spyOn(memory, 'search').mockImplementation(() => {
+        throw 'String search error';
+      });
+
+      const result = await tools.memory_search.handler({
+        sessionId: testSessionId,
+        query: 'test query',
+      });
+
+      expect(result.count).toBe(0);
+      expect(result.results).toEqual([]);
+      expect(result.error).toBe('String search error');
+
+      // Restore original
+      vi.spyOn(memory, 'search').mockImplementation(originalSearch);
     });
   });
 });
