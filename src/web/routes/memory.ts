@@ -1,26 +1,57 @@
 /**
  * Memory routes
+ *
+ * All operations support optional sessionId query parameter for session-based isolation.
+ * When sessionId is provided, operations are scoped to the session namespace.
  */
 
 import type { AgentStackConfig } from '../../types.js';
 import type { Router } from '../router.js';
 import { sendJson, sendPaginated } from '../router.js';
 import { badRequest, notFound } from '../middleware/error.js';
-import { getMemoryManager } from '../../memory/index.js';
+import { getMemoryManager, getAccessControl } from '../../memory/index.js';
 import type { MemoryStoreRequest, MemorySearchRequest } from '../types.js';
 
 export function registerMemoryRoutes(router: Router, config: AgentStackConfig): void {
   const getManager = () => getMemoryManager(config);
+  const accessControl = getAccessControl();
+
+  /**
+   * Helper to set session context on memory manager
+   */
+  function setSessionContext(manager: ReturnType<typeof getManager>, sessionId?: string, agentId?: string) {
+    if (sessionId) {
+      manager.setAgentContext({
+        agentId: agentId ?? sessionId,
+        sessionId,
+      });
+    }
+  }
+
+  /**
+   * Helper to derive namespace from sessionId
+   */
+  function deriveNamespace(sessionId?: string, explicitNamespace?: string): string | undefined {
+    if (explicitNamespace) return explicitNamespace;
+    if (sessionId) return accessControl.getSessionNamespace(sessionId);
+    return undefined;
+  }
 
   // GET /api/v1/memory - List memory entries
   router.get('/api/v1/memory', (_req, res, params) => {
-    const namespace = params.query.namespace;
+    const sessionId = params.query.sessionId;
+    const namespace = deriveNamespace(sessionId, params.query.namespace);
     const limit = parseInt(params.query.limit || '50', 10);
     const offset = parseInt(params.query.offset || '0', 10);
+    const agentId = params.query.agentId;
 
     const manager = getManager();
-    const entries = manager.list(namespace, limit, offset);
+    setSessionContext(manager, sessionId, agentId);
+
+    const entries = manager.list(namespace, limit, offset, { agentId });
     const total = manager.count(namespace);
+
+    manager.clearAgentContext();
 
     sendPaginated(
       res,
@@ -36,7 +67,7 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
 
   // POST /api/v1/memory - Store entry
   router.post('/api/v1/memory', async (_req, res, params) => {
-    const body = params.body as MemoryStoreRequest | undefined;
+    const body = params.body as (MemoryStoreRequest & { sessionId?: string; agentId?: string }) | undefined;
 
     if (!body?.key) {
       throw badRequest('Key is required');
@@ -46,11 +77,19 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
     }
 
     const manager = getManager();
+    const sessionId = body.sessionId ?? params.query.sessionId;
+    const namespace = deriveNamespace(sessionId, body.namespace);
+
+    setSessionContext(manager, sessionId, body.agentId);
+
     const entry = await manager.store(body.key, body.content, {
-      namespace: body.namespace,
+      namespace,
       metadata: body.metadata,
       generateEmbedding: body.generateEmbedding,
+      agentId: body.agentId,
     });
+
+    manager.clearAgentContext();
 
     sendJson(res, {
       ...entry,
@@ -67,18 +106,25 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
       throw badRequest('Query (q) is required');
     }
 
-    const namespace = params.query.namespace;
+    const sessionId = params.query.sessionId;
+    const namespace = deriveNamespace(sessionId, params.query.namespace);
     const limit = parseInt(params.query.limit || '10', 10);
     const threshold = parseFloat(params.query.threshold || '0.7');
     const useVector = params.query.useVector === 'true';
+    const agentId = params.query.agentId;
 
     const manager = getManager();
+    setSessionContext(manager, sessionId, agentId);
+
     const results = await manager.search(query, {
       namespace,
       limit,
       threshold,
       useVector,
+      agentId,
     });
+
+    manager.clearAgentContext();
 
     sendJson(res, results.map(result => ({
       entry: {
@@ -94,19 +140,27 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
 
   // POST /api/v1/memory/search - Search memory (POST version for complex queries)
   router.post('/api/v1/memory/search', async (_req, res, params) => {
-    const body = params.body as MemorySearchRequest | undefined;
+    const body = params.body as (MemorySearchRequest & { sessionId?: string; agentId?: string }) | undefined;
 
     if (!body?.query) {
       throw badRequest('Query is required');
     }
 
     const manager = getManager();
+    const sessionId = body.sessionId ?? params.query.sessionId;
+    const namespace = deriveNamespace(sessionId, body.namespace);
+
+    setSessionContext(manager, sessionId, body.agentId);
+
     const results = await manager.search(body.query, {
-      namespace: body.namespace,
+      namespace,
       limit: body.limit,
       threshold: body.threshold,
       useVector: body.useVector,
+      agentId: body.agentId,
     });
+
+    manager.clearAgentContext();
 
     sendJson(res, results.map(result => ({
       entry: {
@@ -127,9 +181,15 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
       throw badRequest('Key is required');
     }
 
-    const namespace = params.query.namespace;
+    const sessionId = params.query.sessionId;
+    const namespace = deriveNamespace(sessionId, params.query.namespace);
     const manager = getManager();
+
+    setSessionContext(manager, sessionId);
+
     const entry = manager.get(key, namespace);
+
+    manager.clearAgentContext();
 
     if (!entry) {
       throw notFound('Memory entry');
@@ -150,9 +210,15 @@ export function registerMemoryRoutes(router: Router, config: AgentStackConfig): 
       throw badRequest('Key is required');
     }
 
-    const namespace = params.query.namespace;
+    const sessionId = params.query.sessionId;
+    const namespace = deriveNamespace(sessionId, params.query.namespace);
     const manager = getManager();
+
+    setSessionContext(manager, sessionId);
+
     const success = manager.delete(key, namespace);
+
+    manager.clearAgentContext();
 
     if (!success) {
       throw notFound('Memory entry');

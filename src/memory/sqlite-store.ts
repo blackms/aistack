@@ -283,6 +283,7 @@ CREATE TABLE IF NOT EXISTS active_agents (
   name TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL,
   session_id TEXT,
+  memory_namespace TEXT,
   identity_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -532,6 +533,48 @@ export class SQLiteStore {
       .run(id);
 
     return result.changes > 0;
+  }
+
+  /**
+   * Delete all memory entries in a namespace
+   * Handles FK constraints by deleting related data first
+   * @returns Number of entries deleted
+   */
+  deleteByNamespace(namespace: string): number {
+    if (!namespace) {
+      throw new Error('Namespace is required for deleteByNamespace');
+    }
+
+    return this.transaction((db) => {
+      // Get all memory IDs in this namespace
+      const memoryIds = db
+        .prepare('SELECT id FROM memory WHERE namespace = ?')
+        .all(namespace) as Array<{ id: string }>;
+
+      if (memoryIds.length === 0) {
+        return 0;
+      }
+
+      const ids = memoryIds.map(m => m.id);
+
+      // Delete memory_tags (junction table)
+      const placeholders = ids.map(() => '?').join(',');
+      db.prepare(`DELETE FROM memory_tags WHERE memory_id IN (${placeholders})`).run(...ids);
+
+      // Delete memory_versions
+      db.prepare(`DELETE FROM memory_versions WHERE memory_id IN (${placeholders})`).run(...ids);
+
+      // Delete memory_relationships (both directions)
+      db.prepare(`DELETE FROM memory_relationships WHERE from_id IN (${placeholders}) OR to_id IN (${placeholders})`).run(...ids, ...ids);
+
+      // Delete the memory entries themselves
+      const result = db
+        .prepare('DELETE FROM memory WHERE namespace = ?')
+        .run(namespace);
+
+      log.info('Deleted memory by namespace', { namespace, count: result.changes });
+      return result.changes;
+    });
   }
 
   list(
@@ -1687,7 +1730,7 @@ export class SQLiteStore {
       this.db
         .prepare(`
           UPDATE active_agents
-          SET type = ?, name = ?, status = ?, session_id = ?, identity_id = ?, updated_at = ?, metadata = ?
+          SET type = ?, name = ?, status = ?, session_id = ?, memory_namespace = ?, identity_id = ?, updated_at = ?, metadata = ?
           WHERE id = ?
         `)
         .run(
@@ -1695,6 +1738,7 @@ export class SQLiteStore {
           agent.name,
           agent.status,
           agent.sessionId ?? null,
+          agent.memoryNamespace ?? null,
           agent.identityId ?? null,
           now,
           metadataJson,
@@ -1703,8 +1747,8 @@ export class SQLiteStore {
     } else {
       this.db
         .prepare(`
-          INSERT INTO active_agents (id, type, name, status, session_id, identity_id, created_at, updated_at, metadata)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO active_agents (id, type, name, status, session_id, memory_namespace, identity_id, created_at, updated_at, metadata)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(
           agent.id,
@@ -1712,6 +1756,7 @@ export class SQLiteStore {
           agent.name,
           agent.status,
           agent.sessionId ?? null,
+          agent.memoryNamespace ?? null,
           agent.identityId ?? null,
           agent.createdAt.getTime(),
           now,
@@ -1734,6 +1779,7 @@ export class SQLiteStore {
       name: row.name,
       status: row.status as AgentStatus,
       sessionId: row.session_id ?? undefined,
+      memoryNamespace: row.memory_namespace ?? undefined,
       identityId: row.identity_id ?? undefined,
       createdAt: new Date(row.created_at),
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,

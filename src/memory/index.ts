@@ -21,12 +21,14 @@ import type {
 import { SQLiteStore } from './sqlite-store.js';
 import { FTSSearch } from './fts-search.js';
 import { VectorSearch } from './vector-search.js';
+import { MemoryAccessControl, getAccessControl } from './access-control.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('memory');
 
 export interface AgentContext {
-  agentId: string;
+  agentId?: string;         // Optional - scoping within session
+  sessionId: string;        // Required for session-based isolation
   includeShared?: boolean;
 }
 
@@ -36,6 +38,7 @@ export class MemoryManager {
   private vector: VectorSearch;
   private config: AgentStackConfig;
   private agentContext: AgentContext | null = null;
+  private accessControl: MemoryAccessControl;
 
   constructor(config: AgentStackConfig) {
     this.config = config;
@@ -43,6 +46,7 @@ export class MemoryManager {
     // @ts-expect-error - accessing internal db for FTS
     this.fts = new FTSSearch(this.sqliteStore.db);
     this.vector = new VectorSearch(this.sqliteStore, config);
+    this.accessControl = getAccessControl();
 
     log.info('Memory manager initialized', {
       path: config.memory.path,
@@ -57,7 +61,7 @@ export class MemoryManager {
    */
   setAgentContext(context: AgentContext | null): void {
     this.agentContext = context;
-    log.debug('Agent context set', { agentId: context?.agentId });
+    log.debug('Agent context set', { agentId: context?.agentId, sessionId: context?.sessionId });
   }
 
   /**
@@ -85,7 +89,23 @@ export class MemoryManager {
     content: string,
     options: MemoryStoreOptions = {}
   ): Promise<MemoryEntry> {
-    const namespace = options.namespace ?? this.config.memory.defaultNamespace;
+    // Derive namespace from context if not explicitly provided
+    let namespace = options.namespace;
+    if (!namespace && this.agentContext?.sessionId) {
+      namespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
+    } else if (!namespace) {
+      namespace = this.config.memory.defaultNamespace;
+    }
+
+    // Validate access if we have a context
+    if (this.agentContext?.sessionId) {
+      this.accessControl.validateAccess(
+        { sessionId: this.agentContext.sessionId, agentId: this.agentContext.agentId },
+        namespace,
+        'write'
+      );
+    }
+
     // Use explicit agentId if provided, otherwise use context
     const agentId = options.agentId ?? this.agentContext?.agentId;
     const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId });
@@ -101,13 +121,30 @@ export class MemoryManager {
 
   /**
    * Store explicitly shared memory (agent_id = NULL)
+   * Shared within the session namespace
    */
   async storeShared(
     key: string,
     content: string,
     options: Omit<MemoryStoreOptions, 'agentId'> = {}
   ): Promise<MemoryEntry> {
-    const namespace = options.namespace ?? this.config.memory.defaultNamespace;
+    // Derive namespace from context if not explicitly provided
+    let namespace = options.namespace;
+    if (!namespace && this.agentContext?.sessionId) {
+      namespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
+    } else if (!namespace) {
+      namespace = this.config.memory.defaultNamespace;
+    }
+
+    // Validate access if we have a context
+    if (this.agentContext?.sessionId) {
+      this.accessControl.validateAccess(
+        { sessionId: this.agentContext.sessionId },
+        namespace,
+        'write'
+      );
+    }
+
     // Explicitly set agentId to undefined to ensure shared memory
     const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId: undefined });
 
@@ -124,21 +161,73 @@ export class MemoryManager {
    * Get a memory entry by key
    */
   get(key: string, namespace?: string): MemoryEntry | null {
-    return this.sqliteStore.get(key, namespace ?? this.config.memory.defaultNamespace);
+    // Derive namespace from context if not explicitly provided
+    let effectiveNamespace = namespace;
+    if (!effectiveNamespace && this.agentContext?.sessionId) {
+      effectiveNamespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
+    } else if (!effectiveNamespace) {
+      effectiveNamespace = this.config.memory.defaultNamespace;
+    }
+
+    // Validate access if we have a context
+    if (this.agentContext?.sessionId) {
+      this.accessControl.validateAccess(
+        { sessionId: this.agentContext.sessionId, agentId: this.agentContext.agentId },
+        effectiveNamespace,
+        'read'
+      );
+    }
+
+    return this.sqliteStore.get(key, effectiveNamespace);
   }
 
   /**
    * Get a memory entry by ID
    */
   getById(id: string): MemoryEntry | null {
-    return this.sqliteStore.getById(id);
+    const entry = this.sqliteStore.getById(id);
+
+    // Validate access if we have a context
+    if (entry && this.agentContext?.sessionId) {
+      if (!this.accessControl.canAccessEntry(
+        { sessionId: this.agentContext.sessionId, agentId: this.agentContext.agentId, includeShared: this.agentContext.includeShared },
+        entry.namespace,
+        entry.agentId
+      )) {
+        log.warn('Access denied to memory entry', {
+          entryId: id,
+          entryNamespace: entry.namespace,
+          contextSessionId: this.agentContext.sessionId,
+        });
+        return null;  // Deny access by returning null
+      }
+    }
+
+    return entry;
   }
 
   /**
    * Delete a memory entry
    */
   delete(key: string, namespace?: string): boolean {
-    return this.sqliteStore.delete(key, namespace ?? this.config.memory.defaultNamespace);
+    // Derive namespace from context if not explicitly provided
+    let effectiveNamespace = namespace;
+    if (!effectiveNamespace && this.agentContext?.sessionId) {
+      effectiveNamespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
+    } else if (!effectiveNamespace) {
+      effectiveNamespace = this.config.memory.defaultNamespace;
+    }
+
+    // Validate access if we have a context
+    if (this.agentContext?.sessionId) {
+      this.accessControl.validateAccess(
+        { sessionId: this.agentContext.sessionId, agentId: this.agentContext.agentId },
+        effectiveNamespace,
+        'delete'
+      );
+    }
+
+    return this.sqliteStore.delete(key, effectiveNamespace);
   }
 
   /**
@@ -150,10 +239,25 @@ export class MemoryManager {
     offset?: number,
     options?: { agentId?: string; includeShared?: boolean }
   ): MemoryEntry[] {
+    // Derive namespace from context if not explicitly provided (for session isolation)
+    let effectiveNamespace = namespace;
+    if (!effectiveNamespace && this.agentContext?.sessionId) {
+      effectiveNamespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
+    }
+
+    // Validate access if we have a context and a namespace
+    if (this.agentContext?.sessionId && effectiveNamespace) {
+      this.accessControl.validateAccess(
+        { sessionId: this.agentContext.sessionId, agentId: this.agentContext.agentId },
+        effectiveNamespace,
+        'read'
+      );
+    }
+
     // Use explicit agentId if provided, otherwise use context
     const agentId = options?.agentId ?? this.agentContext?.agentId;
     const includeShared = options?.includeShared ?? this.agentContext?.includeShared ?? true;
-    return this.sqliteStore.list(namespace, limit, offset, { agentId, includeShared });
+    return this.sqliteStore.list(effectiveNamespace, limit, offset, { agentId, includeShared });
   }
 
   /**
@@ -298,7 +402,23 @@ export class MemoryManager {
     query: string,
     options: MemorySearchOptions = {}
   ): Promise<MemorySearchResult[]> {
-    const { namespace, limit = 10, threshold = 0.7, useVector } = options;
+    const { limit = 10, threshold = 0.7, useVector } = options;
+
+    // Derive namespace from context if not explicitly provided (for session isolation)
+    let namespace = options.namespace;
+    if (!namespace && this.agentContext?.sessionId) {
+      namespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
+    }
+
+    // Validate access if we have a context and a namespace
+    if (this.agentContext?.sessionId && namespace) {
+      this.accessControl.validateAccess(
+        { sessionId: this.agentContext.sessionId, agentId: this.agentContext.agentId },
+        namespace,
+        'read'
+      );
+    }
+
     // Use explicit agentId if provided, otherwise use context
     const agentId = options.agentId ?? this.agentContext?.agentId;
     const includeShared = options.includeShared ?? this.agentContext?.includeShared ?? true;
@@ -334,6 +454,7 @@ export class MemoryManager {
     log.debug('Search completed', {
       query: query.slice(0, 50),
       results: results.length,
+      namespace,
       agentId,
     });
 
@@ -563,6 +684,8 @@ export class MemoryManager {
 export { SQLiteStore } from './sqlite-store.js';
 export { FTSSearch } from './fts-search.js';
 export { VectorSearch } from './vector-search.js';
+export { MemoryAccessControl, getAccessControl, resetAccessControl } from './access-control.js';
+export type { MemoryAccessContext } from './access-control.js';
 
 // Singleton instance
 let instance: MemoryManager | null = null;

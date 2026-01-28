@@ -31,6 +31,7 @@ export interface SpawnedAgent {
   status: AgentStatus;
   createdAt: Date;
   sessionId?: string;
+  memoryNamespace?: string;  // Session-based memory namespace for isolation
   metadata?: Record<string, unknown>;
   identityId?: string;  // Link to persistent AgentIdentity
 }
