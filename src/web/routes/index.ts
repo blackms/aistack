@@ -14,3 +14,4 @@ export { registerSpecificationRoutes } from './specifications.js';
 export { registerFilesystemRoutes } from './filesystem.js';
 export { createAuthRoutes } from './auth.js';
 export { registerIdentityRoutes } from './identities.js';
+export { registerConsensusRoutes } from './consensus.js';

@@ -126,9 +126,61 @@ export interface Task {
   output?: string;
   createdAt: Date;
   completedAt?: Date;
+  riskLevel?: TaskRiskLevel;
+  consensusCheckpointId?: string;
+  parentTaskId?: string;
+  depth?: number;
 }
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+// Task Risk Levels and Consensus Types
+export type TaskRiskLevel = 'low' | 'medium' | 'high';
+export type ConsensusStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+export type ReviewerStrategy = 'adversarial' | 'different-model' | 'human';
+
+// Consensus Configuration
+export interface ConsensusConfig {
+  enabled: boolean;
+  requireForRiskLevels: TaskRiskLevel[];
+  reviewerStrategy: ReviewerStrategy;
+  timeout: number;
+  maxDepth: number;
+  autoReject: boolean;
+}
+
+// Consensus Checkpoint
+export interface ConsensusCheckpoint {
+  id: string;
+  taskId: string;
+  parentTaskId?: string;
+  proposedSubtasks: ProposedSubtask[];
+  riskLevel: TaskRiskLevel;
+  status: ConsensusStatus;
+  reviewerStrategy: ReviewerStrategy;
+  reviewerId?: string;
+  reviewerType?: 'agent' | 'human';
+  decision?: ConsensusDecision;
+  createdAt: Date;
+  expiresAt: Date;
+  decidedAt?: Date;
+}
+
+export interface ProposedSubtask {
+  id: string;
+  agentType: string;
+  input: string;
+  estimatedRiskLevel: TaskRiskLevel;
+  parentTaskId: string;
+}
+
+export interface ConsensusDecision {
+  approved: boolean;
+  rejectedSubtaskIds?: string[];
+  feedback?: string;
+  reviewedBy: string;
+  reviewerType: 'agent' | 'human';
+}
 
 // Project types
 export interface Project {
@@ -289,6 +341,7 @@ export interface AgentStackConfig {
   slack?: SlackConfig;
   driftDetection?: DriftDetectionConfig;
   resourceExhaustion?: ResourceExhaustionConfig;
+  consensus?: ConsensusConfig;
 }
 
 export interface MemoryConfig {

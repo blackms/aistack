@@ -112,6 +112,29 @@ export interface AgentProgressEvent {
   message?: string;
 }
 
+// Consensus checkpoint events
+export interface ConsensusCheckpointCreatedEvent {
+  checkpointId: string;
+  taskId: string;
+  riskLevel: string;
+  subtaskCount: number;
+}
+
+export interface ConsensusCheckpointApprovedEvent {
+  checkpointId: string;
+  reviewedBy: string;
+}
+
+export interface ConsensusCheckpointRejectedEvent {
+  checkpointId: string;
+  reviewedBy: string;
+  rejectedSubtaskIds?: string[];
+}
+
+export interface ConsensusCheckpointExpiredEvent {
+  checkpointId: string;
+}
+
 // Event names
 export type EventName =
   | 'agent:spawned'
@@ -132,7 +155,11 @@ export type EventName =
   | 'project:task:created'
   | 'project:task:phase'
   | 'spec:created'
-  | 'spec:status';
+  | 'spec:status'
+  | 'consensus:checkpoint:created'
+  | 'consensus:checkpoint:approved'
+  | 'consensus:checkpoint:rejected'
+  | 'consensus:checkpoint:expired';
 
 // Event bridge class for managing WebSocket subscriptions
 export class EventBridge {
@@ -160,6 +187,10 @@ export class EventBridge {
       'project:task:phase',
       'spec:created',
       'spec:status',
+      'consensus:checkpoint:created',
+      'consensus:checkpoint:approved',
+      'consensus:checkpoint:rejected',
+      'consensus:checkpoint:expired',
     ];
 
     for (const event of events) {

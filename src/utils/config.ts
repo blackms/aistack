@@ -119,6 +119,15 @@ const ResourceExhaustionConfigSchema = z.object({
   pauseOnIntervention: z.boolean().default(true),
 });
 
+const ConsensusConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  requireForRiskLevels: z.array(z.enum(['low', 'medium', 'high'])).default(['high', 'medium']),
+  reviewerStrategy: z.enum(['adversarial', 'different-model', 'human']).default('adversarial'),
+  timeout: z.number().min(30000).max(3600000).default(300000),
+  maxDepth: z.number().min(1).max(10).default(5),
+  autoReject: z.boolean().default(false),
+});
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -131,6 +140,7 @@ const ConfigSchema = z.object({
   slack: SlackConfigSchema.default({}),
   driftDetection: DriftDetectionConfigSchema.default({}),
   resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
+  consensus: ConsensusConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';

@@ -3,8 +3,11 @@
  */
 
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import type { MemoryManager } from '../../memory/index.js';
 import type { DriftDetectionService } from '../../tasks/drift-detection-service.js';
+import type { ConsensusService } from '../../tasks/consensus-service.js';
+import type { TaskRiskLevel, ProposedSubtask } from '../../types.js';
 
 // Input schemas
 const CreateInputSchema = z.object({
@@ -12,6 +15,7 @@ const CreateInputSchema = z.object({
   input: z.string().optional().describe('Task input/description'),
   sessionId: z.string().uuid().optional().describe('Session to associate with'),
   parentTaskId: z.string().uuid().optional().describe('Parent task ID for drift detection'),
+  riskLevel: z.enum(['low', 'medium', 'high']).optional().describe('Risk level for consensus checking'),
 });
 
 const AssignInputSchema = z.object({
@@ -45,11 +49,15 @@ const GetRelationshipsInputSchema = z.object({
   direction: z.enum(['outgoing', 'incoming', 'both']).optional().describe('Relationship direction'),
 });
 
-export function createTaskTools(memory: MemoryManager, driftService?: DriftDetectionService) {
+export function createTaskTools(
+  memory: MemoryManager,
+  driftService?: DriftDetectionService,
+  consensusService?: ConsensusService
+) {
   return {
     task_create: {
       name: 'task_create',
-      description: 'Create a new task with optional drift detection',
+      description: 'Create a new task with optional drift detection and consensus checking',
       inputSchema: {
         type: 'object',
         properties: {
@@ -57,6 +65,7 @@ export function createTaskTools(memory: MemoryManager, driftService?: DriftDetec
           input: { type: 'string', description: 'Task input/description' },
           sessionId: { type: 'string', description: 'Session to associate with' },
           parentTaskId: { type: 'string', description: 'Parent task ID for drift detection' },
+          riskLevel: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Risk level for consensus checking' },
         },
         required: ['agentType'],
       },
@@ -89,10 +98,74 @@ export function createTaskTools(memory: MemoryManager, driftService?: DriftDetec
             }
           }
 
+          // Check for consensus if service is available
+          if (consensusService && consensusService.isEnabled()) {
+            // Estimate or use provided risk level
+            const riskLevel: TaskRiskLevel = input.riskLevel ||
+              consensusService.estimateRiskLevel(input.agentType, input.input);
+
+            // Calculate depth
+            const depth = consensusService.calculateTaskDepth(input.parentTaskId);
+
+            // Check if consensus is required
+            const consensusCheck = consensusService.requiresConsensus(
+              riskLevel,
+              depth,
+              input.parentTaskId
+            );
+
+            if (consensusCheck.requiresConsensus) {
+              // Create a checkpoint instead of the task
+              const subtaskId = randomUUID();
+              const proposedSubtask: ProposedSubtask = {
+                id: subtaskId,
+                agentType: input.agentType,
+                input: input.input || '',
+                estimatedRiskLevel: riskLevel,
+                parentTaskId: input.parentTaskId || '',
+              };
+
+              // Create a temporary task ID for the checkpoint
+              const pendingTaskId = randomUUID();
+
+              const checkpoint = consensusService.createCheckpoint({
+                taskId: pendingTaskId,
+                parentTaskId: input.parentTaskId,
+                proposedSubtasks: [proposedSubtask],
+                riskLevel,
+              });
+
+              return {
+                success: false,
+                consensusRequired: true,
+                checkpointId: checkpoint.id,
+                status: 'pending',
+                reason: consensusCheck.reason,
+                checkpoint: {
+                  id: checkpoint.id,
+                  taskId: checkpoint.taskId,
+                  riskLevel: checkpoint.riskLevel,
+                  status: checkpoint.status,
+                  expiresAt: checkpoint.expiresAt.toISOString(),
+                },
+              };
+            }
+          }
+
+          // Get risk level and depth for task creation
+          const riskLevel: TaskRiskLevel | undefined = input.riskLevel ||
+            (consensusService ? consensusService.estimateRiskLevel(input.agentType, input.input) : undefined);
+          const depth = consensusService?.calculateTaskDepth(input.parentTaskId);
+
           const task = memory.createTask(
             input.agentType,
             input.input,
-            input.sessionId
+            input.sessionId,
+            {
+              riskLevel,
+              parentTaskId: input.parentTaskId,
+              depth,
+            }
           );
 
           // Index the task for future drift detection
@@ -118,6 +191,8 @@ export function createTaskTools(memory: MemoryManager, driftService?: DriftDetec
               createdAt: task.createdAt.toISOString(),
               sessionId: task.sessionId,
               parentTaskId: input.parentTaskId,
+              riskLevel: task.riskLevel,
+              depth: task.depth,
             },
             drift: driftResult ? {
               isDrift: driftResult.isDrift,
@@ -420,6 +495,276 @@ export function createTaskTools(memory: MemoryManager, driftService?: DriftDetec
               ancestorDepth: driftService.getConfig().ancestorDepth,
               behavior: driftService.getConfig().behavior,
             },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    },
+
+    // Consensus tools
+    consensus_check: {
+      name: 'consensus_check',
+      description: 'Check if a task would require consensus before creation',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agentType: { type: 'string', description: 'Agent type for this task' },
+          input: { type: 'string', description: 'Task input/description' },
+          parentTaskId: { type: 'string', description: 'Parent task ID' },
+          riskLevel: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Risk level override' },
+        },
+        required: ['agentType'],
+      },
+      handler: async (params: Record<string, unknown>) => {
+        if (!consensusService) {
+          return {
+            success: false,
+            error: 'Consensus service not available',
+          };
+        }
+
+        try {
+          const agentType = params.agentType as string;
+          const input = params.input as string | undefined;
+          const parentTaskId = params.parentTaskId as string | undefined;
+          const riskLevelOverride = params.riskLevel as TaskRiskLevel | undefined;
+
+          const riskLevel = riskLevelOverride ||
+            consensusService.estimateRiskLevel(agentType, input);
+          const depth = consensusService.calculateTaskDepth(parentTaskId);
+          const result = consensusService.requiresConsensus(riskLevel, depth, parentTaskId);
+
+          return {
+            success: true,
+            requiresConsensus: result.requiresConsensus,
+            reason: result.reason,
+            riskLevel,
+            depth,
+            config: {
+              enabled: consensusService.isEnabled(),
+              requireForRiskLevels: consensusService.getConfig().requireForRiskLevels,
+              maxDepth: consensusService.getConfig().maxDepth,
+            },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    },
+
+    consensus_list_pending: {
+      name: 'consensus_list_pending',
+      description: 'List pending consensus checkpoints',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max checkpoints to return' },
+          offset: { type: 'number', description: 'Offset for pagination' },
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        if (!consensusService) {
+          return {
+            success: false,
+            error: 'Consensus service not available',
+          };
+        }
+
+        try {
+          const limit = params.limit as number | undefined;
+          const offset = params.offset as number | undefined;
+          const checkpoints = consensusService.listPendingCheckpoints({ limit, offset });
+
+          return {
+            success: true,
+            count: checkpoints.length,
+            checkpoints: checkpoints.map(cp => ({
+              id: cp.id,
+              taskId: cp.taskId,
+              parentTaskId: cp.parentTaskId,
+              riskLevel: cp.riskLevel,
+              status: cp.status,
+              reviewerStrategy: cp.reviewerStrategy,
+              subtaskCount: cp.proposedSubtasks.length,
+              createdAt: cp.createdAt.toISOString(),
+              expiresAt: cp.expiresAt.toISOString(),
+            })),
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    },
+
+    consensus_get: {
+      name: 'consensus_get',
+      description: 'Get a consensus checkpoint by ID',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          checkpointId: { type: 'string', description: 'Checkpoint ID' },
+        },
+        required: ['checkpointId'],
+      },
+      handler: async (params: Record<string, unknown>) => {
+        if (!consensusService) {
+          return {
+            success: false,
+            error: 'Consensus service not available',
+          };
+        }
+
+        try {
+          const checkpointId = params.checkpointId as string;
+          const checkpoint = consensusService.getCheckpoint(checkpointId);
+
+          if (!checkpoint) {
+            return {
+              success: false,
+              error: 'Checkpoint not found',
+            };
+          }
+
+          return {
+            success: true,
+            checkpoint: {
+              id: checkpoint.id,
+              taskId: checkpoint.taskId,
+              parentTaskId: checkpoint.parentTaskId,
+              proposedSubtasks: checkpoint.proposedSubtasks,
+              riskLevel: checkpoint.riskLevel,
+              status: checkpoint.status,
+              reviewerStrategy: checkpoint.reviewerStrategy,
+              reviewerId: checkpoint.reviewerId,
+              reviewerType: checkpoint.reviewerType,
+              decision: checkpoint.decision,
+              createdAt: checkpoint.createdAt.toISOString(),
+              expiresAt: checkpoint.expiresAt.toISOString(),
+              decidedAt: checkpoint.decidedAt?.toISOString(),
+            },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    },
+
+    consensus_approve: {
+      name: 'consensus_approve',
+      description: 'Approve a consensus checkpoint',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          checkpointId: { type: 'string', description: 'Checkpoint ID' },
+          reviewedBy: { type: 'string', description: 'Reviewer ID' },
+          feedback: { type: 'string', description: 'Optional feedback' },
+        },
+        required: ['checkpointId', 'reviewedBy'],
+      },
+      handler: async (params: Record<string, unknown>) => {
+        if (!consensusService) {
+          return {
+            success: false,
+            error: 'Consensus service not available',
+          };
+        }
+
+        try {
+          const checkpointId = params.checkpointId as string;
+          const reviewedBy = params.reviewedBy as string;
+          const feedback = params.feedback as string | undefined;
+
+          const result = consensusService.approveCheckpoint(checkpointId, reviewedBy, feedback);
+
+          if (!result.success) {
+            return {
+              success: false,
+              error: result.error,
+            };
+          }
+
+          return {
+            success: true,
+            checkpoint: result.checkpoint ? {
+              id: result.checkpoint.id,
+              status: result.checkpoint.status,
+              decidedAt: result.checkpoint.decidedAt?.toISOString(),
+            } : undefined,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    },
+
+    consensus_reject: {
+      name: 'consensus_reject',
+      description: 'Reject a consensus checkpoint',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          checkpointId: { type: 'string', description: 'Checkpoint ID' },
+          reviewedBy: { type: 'string', description: 'Reviewer ID' },
+          feedback: { type: 'string', description: 'Rejection reason' },
+          rejectedSubtaskIds: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Specific subtask IDs to reject (partial rejection)',
+          },
+        },
+        required: ['checkpointId', 'reviewedBy'],
+      },
+      handler: async (params: Record<string, unknown>) => {
+        if (!consensusService) {
+          return {
+            success: false,
+            error: 'Consensus service not available',
+          };
+        }
+
+        try {
+          const checkpointId = params.checkpointId as string;
+          const reviewedBy = params.reviewedBy as string;
+          const feedback = params.feedback as string | undefined;
+          const rejectedSubtaskIds = params.rejectedSubtaskIds as string[] | undefined;
+
+          const result = consensusService.rejectCheckpoint(
+            checkpointId,
+            reviewedBy,
+            feedback,
+            rejectedSubtaskIds
+          );
+
+          if (!result.success) {
+            return {
+              success: false,
+              error: result.error,
+            };
+          }
+
+          return {
+            success: true,
+            checkpoint: result.checkpoint ? {
+              id: result.checkpoint.id,
+              status: result.checkpoint.status,
+              decidedAt: result.checkpoint.decidedAt?.toISOString(),
+            } : undefined,
           };
         } catch (error) {
           return {

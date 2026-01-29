@@ -33,6 +33,12 @@ import type {
   ResourceExhaustionEvent,
   ResourceExhaustionAction,
   ResourceThresholds,
+  ConsensusCheckpoint,
+  ConsensusStatus,
+  TaskRiskLevel,
+  ReviewerStrategy,
+  ProposedSubtask,
+  ConsensusDecision,
 } from '../types.js';
 import { logger } from '../utils/logger.js';
 
@@ -162,7 +168,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   output TEXT,
   created_at INTEGER NOT NULL,
   completed_at INTEGER,
-  FOREIGN KEY (session_id) REFERENCES sessions(id)
+  risk_level TEXT CHECK (risk_level IS NULL OR risk_level IN ('low', 'medium', 'high')),
+  parent_task_id TEXT,
+  depth INTEGER,
+  consensus_checkpoint_id TEXT,
+  FOREIGN KEY (session_id) REFERENCES sessions(id),
+  FOREIGN KEY (parent_task_id) REFERENCES tasks(id),
+  FOREIGN KEY (consensus_checkpoint_id) REFERENCES consensus_checkpoints(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
@@ -412,6 +424,42 @@ CREATE TABLE IF NOT EXISTS resource_exhaustion_events (
 
 CREATE INDEX IF NOT EXISTS idx_resource_exhaustion_events_agent ON resource_exhaustion_events(agent_id);
 CREATE INDEX IF NOT EXISTS idx_resource_exhaustion_events_created ON resource_exhaustion_events(created_at DESC);
+
+-- Consensus Checkpoints
+CREATE TABLE IF NOT EXISTS consensus_checkpoints (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  parent_task_id TEXT,
+  proposed_subtasks TEXT NOT NULL,
+  risk_level TEXT NOT NULL CHECK (risk_level IN ('low', 'medium', 'high')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
+  reviewer_strategy TEXT NOT NULL CHECK (reviewer_strategy IN ('adversarial', 'different-model', 'human')),
+  reviewer_id TEXT,
+  reviewer_type TEXT CHECK (reviewer_type IN ('agent', 'human')),
+  decision TEXT,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  decided_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_consensus_checkpoints_task ON consensus_checkpoints(task_id);
+CREATE INDEX IF NOT EXISTS idx_consensus_checkpoints_status ON consensus_checkpoints(status);
+CREATE INDEX IF NOT EXISTS idx_consensus_checkpoints_expires ON consensus_checkpoints(expires_at);
+
+-- Consensus Checkpoint Events (audit log)
+CREATE TABLE IF NOT EXISTS consensus_checkpoint_events (
+  id TEXT PRIMARY KEY,
+  checkpoint_id TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK (event_type IN ('created', 'review_started', 'approved', 'rejected', 'expired', 'subtask_rejected')),
+  actor_id TEXT,
+  actor_type TEXT CHECK (actor_type IN ('agent', 'human', 'system')),
+  details TEXT,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (checkpoint_id) REFERENCES consensus_checkpoints(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_consensus_events_checkpoint ON consensus_checkpoint_events(checkpoint_id);
+CREATE INDEX IF NOT EXISTS idx_consensus_events_created ON consensus_checkpoint_events(created_at DESC);
 `;
 
 export class SQLiteStore {
@@ -1221,17 +1269,33 @@ export class SQLiteStore {
   createTask(
     agentType: string,
     input?: string,
-    sessionId?: string
+    sessionId?: string,
+    options?: {
+      riskLevel?: TaskRiskLevel;
+      parentTaskId?: string;
+      depth?: number;
+      consensusCheckpointId?: string;
+    }
   ): Task {
     const id = randomUUID();
     const now = Date.now();
 
     this.db
       .prepare(`
-        INSERT INTO tasks (id, session_id, agent_type, status, input, created_at)
-        VALUES (?, ?, ?, 'pending', ?, ?)
+        INSERT INTO tasks (id, session_id, agent_type, status, input, created_at, risk_level, parent_task_id, depth, consensus_checkpoint_id)
+        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
       `)
-      .run(id, sessionId ?? null, agentType, input ?? null, now);
+      .run(
+        id,
+        sessionId ?? null,
+        agentType,
+        input ?? null,
+        now,
+        options?.riskLevel ?? null,
+        options?.parentTaskId ?? null,
+        options?.depth ?? null,
+        options?.consensusCheckpointId ?? null
+      );
 
     return {
       id,
@@ -1240,6 +1304,10 @@ export class SQLiteStore {
       status: 'pending',
       input,
       createdAt: new Date(now),
+      riskLevel: options?.riskLevel,
+      parentTaskId: options?.parentTaskId,
+      depth: options?.depth,
+      consensusCheckpointId: options?.consensusCheckpointId,
     };
   }
 
@@ -1299,6 +1367,10 @@ export class SQLiteStore {
       output: row.output ?? undefined,
       createdAt: new Date(row.created_at),
       completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+      riskLevel: row.risk_level as TaskRiskLevel | undefined,
+      parentTaskId: row.parent_task_id ?? undefined,
+      depth: row.depth ?? undefined,
+      consensusCheckpointId: row.consensus_checkpoint_id ?? undefined,
     };
   }
 
@@ -2561,6 +2633,254 @@ export class SQLiteStore {
     };
   }
 
+  // ==================== Consensus Checkpoint Operations ====================
+
+  /**
+   * Create a new consensus checkpoint
+   */
+  createConsensusCheckpoint(options: {
+    id: string;
+    taskId: string;
+    parentTaskId?: string;
+    proposedSubtasks: ProposedSubtask[];
+    riskLevel: TaskRiskLevel;
+    reviewerStrategy: ReviewerStrategy;
+    timeout: number;
+  }): ConsensusCheckpoint {
+    const now = Date.now();
+    const expiresAt = now + options.timeout;
+    const proposedSubtasksJson = JSON.stringify(options.proposedSubtasks);
+
+    this.db
+      .prepare(`
+        INSERT INTO consensus_checkpoints (
+          id, task_id, parent_task_id, proposed_subtasks, risk_level,
+          status, reviewer_strategy, created_at, expires_at
+        )
+        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+      `)
+      .run(
+        options.id,
+        options.taskId,
+        options.parentTaskId ?? null,
+        proposedSubtasksJson,
+        options.riskLevel,
+        options.reviewerStrategy,
+        now,
+        expiresAt
+      );
+
+    // Log event
+    this.logConsensusEvent(options.id, 'created', undefined, undefined, {
+      riskLevel: options.riskLevel,
+      subtaskCount: options.proposedSubtasks.length,
+    });
+
+    return {
+      id: options.id,
+      taskId: options.taskId,
+      parentTaskId: options.parentTaskId,
+      proposedSubtasks: options.proposedSubtasks,
+      riskLevel: options.riskLevel,
+      status: 'pending',
+      reviewerStrategy: options.reviewerStrategy,
+      createdAt: new Date(now),
+      expiresAt: new Date(expiresAt),
+    };
+  }
+
+  /**
+   * Get a consensus checkpoint by ID
+   */
+  getConsensusCheckpoint(id: string): ConsensusCheckpoint | null {
+    const row = this.db
+      .prepare('SELECT * FROM consensus_checkpoints WHERE id = ?')
+      .get(id) as ConsensusCheckpointRow | undefined;
+
+    return row ? this.rowToConsensusCheckpoint(row) : null;
+  }
+
+  /**
+   * Get consensus checkpoint by task ID
+   */
+  getConsensusCheckpointByTaskId(taskId: string): ConsensusCheckpoint | null {
+    const row = this.db
+      .prepare('SELECT * FROM consensus_checkpoints WHERE task_id = ? ORDER BY created_at DESC LIMIT 1')
+      .get(taskId) as ConsensusCheckpointRow | undefined;
+
+    return row ? this.rowToConsensusCheckpoint(row) : null;
+  }
+
+  /**
+   * Update consensus checkpoint status
+   */
+  updateConsensusCheckpointStatus(
+    id: string,
+    status: ConsensusStatus,
+    decision?: ConsensusDecision
+  ): boolean {
+    const now = Date.now();
+    const decisionJson = decision ? JSON.stringify(decision) : null;
+
+    const result = this.db
+      .prepare(`
+        UPDATE consensus_checkpoints
+        SET status = ?, decision = ?, decided_at = ?,
+            reviewer_id = ?, reviewer_type = ?
+        WHERE id = ?
+      `)
+      .run(
+        status,
+        decisionJson,
+        status !== 'pending' ? now : null,
+        decision?.reviewedBy ?? null,
+        decision?.reviewerType ?? null,
+        id
+      );
+
+    if (result.changes > 0) {
+      // Log event
+      const eventType = status === 'approved' ? 'approved' :
+                       status === 'rejected' ? 'rejected' :
+                       status === 'expired' ? 'expired' : 'created';
+      this.logConsensusEvent(
+        id,
+        eventType,
+        decision?.reviewedBy,
+        decision?.reviewerType,
+        { feedback: decision?.feedback }
+      );
+    }
+
+    return result.changes > 0;
+  }
+
+  /**
+   * List pending consensus checkpoints
+   */
+  listPendingCheckpoints(options?: {
+    limit?: number;
+    offset?: number;
+  }): ConsensusCheckpoint[] {
+    const limit = options?.limit ?? 50;
+    const offset = options?.offset ?? 0;
+
+    const rows = this.db
+      .prepare(`
+        SELECT * FROM consensus_checkpoints
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+        LIMIT ? OFFSET ?
+      `)
+      .all(limit, offset) as ConsensusCheckpointRow[];
+
+    return rows.map(row => this.rowToConsensusCheckpoint(row));
+  }
+
+  /**
+   * Expire old checkpoints
+   */
+  expireOldCheckpoints(): number {
+    const now = Date.now();
+
+    // Get checkpoints to expire
+    const toExpire = this.db
+      .prepare(`
+        SELECT id FROM consensus_checkpoints
+        WHERE status = 'pending' AND expires_at < ?
+      `)
+      .all(now) as Array<{ id: string }>;
+
+    // Update status
+    const result = this.db
+      .prepare(`
+        UPDATE consensus_checkpoints
+        SET status = 'expired', decided_at = ?
+        WHERE status = 'pending' AND expires_at < ?
+      `)
+      .run(now, now);
+
+    // Log events for each expired checkpoint
+    for (const checkpoint of toExpire) {
+      this.logConsensusEvent(checkpoint.id, 'expired', undefined, 'system');
+    }
+
+    return result.changes;
+  }
+
+  /**
+   * Get checkpoint events (audit log)
+   */
+  getConsensusCheckpointEvents(checkpointId: string, limit: number = 100): Array<{
+    id: string;
+    checkpointId: string;
+    eventType: string;
+    actorId?: string;
+    actorType?: string;
+    details?: Record<string, unknown>;
+    createdAt: Date;
+  }> {
+    const rows = this.db
+      .prepare(`
+        SELECT * FROM consensus_checkpoint_events
+        WHERE checkpoint_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .all(checkpointId, limit) as ConsensusCheckpointEventRow[];
+
+    return rows.map(row => ({
+      id: row.id,
+      checkpointId: row.checkpoint_id,
+      eventType: row.event_type,
+      actorId: row.actor_id ?? undefined,
+      actorType: row.actor_type ?? undefined,
+      details: row.details ? JSON.parse(row.details) as Record<string, unknown> : undefined,
+      createdAt: new Date(row.created_at),
+    }));
+  }
+
+  /**
+   * Log a consensus checkpoint event
+   */
+  private logConsensusEvent(
+    checkpointId: string,
+    eventType: 'created' | 'review_started' | 'approved' | 'rejected' | 'expired' | 'subtask_rejected',
+    actorId?: string,
+    actorType?: 'agent' | 'human' | 'system',
+    details?: Record<string, unknown>
+  ): void {
+    const id = randomUUID();
+    const detailsJson = details ? JSON.stringify(details) : null;
+
+    this.db
+      .prepare(`
+        INSERT INTO consensus_checkpoint_events (
+          id, checkpoint_id, event_type, actor_id, actor_type, details, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(id, checkpointId, eventType, actorId ?? null, actorType ?? null, detailsJson, Date.now());
+  }
+
+  private rowToConsensusCheckpoint(row: ConsensusCheckpointRow): ConsensusCheckpoint {
+    return {
+      id: row.id,
+      taskId: row.task_id,
+      parentTaskId: row.parent_task_id ?? undefined,
+      proposedSubtasks: JSON.parse(row.proposed_subtasks) as ProposedSubtask[],
+      riskLevel: row.risk_level as TaskRiskLevel,
+      status: row.status as ConsensusStatus,
+      reviewerStrategy: row.reviewer_strategy as ReviewerStrategy,
+      reviewerId: row.reviewer_id ?? undefined,
+      reviewerType: row.reviewer_type as 'agent' | 'human' | undefined,
+      decision: row.decision ? JSON.parse(row.decision) as ConsensusDecision : undefined,
+      createdAt: new Date(row.created_at),
+      expiresAt: new Date(row.expires_at),
+      decidedAt: row.decided_at ? new Date(row.decided_at) : undefined,
+    };
+  }
+
   // ==================== Cleanup ====================
 
   /**
@@ -2621,6 +2941,10 @@ interface TaskRow {
   output: string | null;
   created_at: number;
   completed_at: number | null;
+  risk_level: string | null;
+  parent_task_id: string | null;
+  depth: number | null;
+  consensus_checkpoint_id: string | null;
 }
 
 interface ProjectRow {
@@ -2728,5 +3052,31 @@ interface ResourceExhaustionEventRow {
   metrics: string;
   thresholds: string;
   triggered_by: string;
+  created_at: number;
+}
+
+interface ConsensusCheckpointRow {
+  id: string;
+  task_id: string;
+  parent_task_id: string | null;
+  proposed_subtasks: string;
+  risk_level: string;
+  status: string;
+  reviewer_strategy: string;
+  reviewer_id: string | null;
+  reviewer_type: string | null;
+  decision: string | null;
+  created_at: number;
+  expires_at: number;
+  decided_at: number | null;
+}
+
+interface ConsensusCheckpointEventRow {
+  id: string;
+  checkpoint_id: string;
+  event_type: string;
+  actor_id: string | null;
+  actor_type: string | null;
+  details: string | null;
   created_at: number;
 }

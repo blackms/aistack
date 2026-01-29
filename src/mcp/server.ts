@@ -21,6 +21,7 @@ import {
   createGitHubTools,
 } from './tools/index.js';
 import { DriftDetectionService } from '../tasks/drift-detection-service.js';
+import { ConsensusService } from '../tasks/consensus-service.js';
 
 const log = logger.child('mcp');
 
@@ -37,11 +38,13 @@ export class MCPServer {
   private memory: MemoryManager;
   private config: AgentStackConfig;
   private driftService: DriftDetectionService;
+  private consensusService: ConsensusService;
 
   constructor(config: AgentStackConfig) {
     this.config = config;
     this.memory = new MemoryManager(config);
     this.driftService = new DriftDetectionService(this.memory.getStore(), config);
+    this.consensusService = new ConsensusService(this.memory.getStore(), config);
 
     this.server = new Server(
       {
@@ -65,7 +68,7 @@ export class MCPServer {
       createAgentTools(this.config),
       createIdentityTools(this.config),
       createMemoryTools(this.memory),
-      createTaskTools(this.memory, this.driftService),
+      createTaskTools(this.memory, this.driftService, this.consensusService),
       createSessionTools(this.memory),
       createSystemTools(this.memory, this.config),
       createGitHubTools(this.config),
@@ -150,6 +153,7 @@ export class MCPServer {
 
   async stop(): Promise<void> {
     await this.server.close();
+    this.consensusService.destroy();
     this.memory.close();
     log.info('MCP server stopped');
   }

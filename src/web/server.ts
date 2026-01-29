@@ -25,6 +25,7 @@ import {
   registerFilesystemRoutes,
   createAuthRoutes,
   registerIdentityRoutes,
+  registerConsensusRoutes,
 } from './routes/index.js';
 import type { WebConfig } from './types.js';
 import { AuthService } from '../auth/service.js';
@@ -96,6 +97,7 @@ export class WebServer {
     registerProjectRoutes(this.router, this.config);
     registerSpecificationRoutes(this.router, this.config);
     registerFilesystemRoutes(this.router, this.config);
+    registerConsensusRoutes(this.router, this.config);
 
     // Root endpoint
     this.router.get('/api/v1', (_req, res) => {
@@ -115,6 +117,7 @@ export class WebServer {
           '/api/v1/projects',
           '/api/v1/specs',
           '/api/v1/filesystem',
+          '/api/v1/consensus',
         ],
       });
     });

@@ -515,8 +515,18 @@ export class MemoryManager {
 
   // ==================== Task Operations ====================
 
-  createTask(agentType: string, input?: string, sessionId?: string): Task {
-    return this.sqliteStore.createTask(agentType, input, sessionId);
+  createTask(
+    agentType: string,
+    input?: string,
+    sessionId?: string,
+    options?: {
+      riskLevel?: 'low' | 'medium' | 'high';
+      parentTaskId?: string;
+      depth?: number;
+      consensusCheckpointId?: string;
+    }
+  ): Task {
+    return this.sqliteStore.createTask(agentType, input, sessionId, options);
   }
 
   getTask(id: string): Task | null {
