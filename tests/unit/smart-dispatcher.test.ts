@@ -9,6 +9,7 @@ import {
   resetSmartDispatcher,
 } from '../../src/tasks/smart-dispatcher.js';
 import type { AgentStackConfig } from '../../src/types.js';
+import * as providers from '../../src/providers/index.js';
 
 // Mock fetch for LLM API calls
 const mockFetch = vi.fn();
@@ -104,6 +105,21 @@ describe('SmartDispatcher', () => {
       );
 
       expect(dispatcher.isEnabled()).toBe(true);
+    });
+
+    it('should return false when provider creation fails', () => {
+      // Mock getProvider to throw an error
+      const getProviderSpy = vi.spyOn(providers, 'getProvider').mockImplementation(() => {
+        throw new Error('Provider initialization failed');
+      });
+
+      const dispatcher = new SmartDispatcher(
+        createConfig({ enabled: true, anthropicKey: undefined })
+      );
+
+      expect(dispatcher.isEnabled()).toBe(false);
+
+      getProviderSpy.mockRestore();
     });
   });
 
@@ -322,6 +338,76 @@ describe('SmartDispatcher', () => {
 
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
+
+    it('should trigger cache cleanup when cache exceeds 1000 entries', async () => {
+      vi.useFakeTimers();
+
+      const dispatcher = new SmartDispatcher(
+        createConfig({
+          enabled: true,
+          anthropicKey: 'sk-test',
+          cacheEnabled: true,
+          cacheTTLMs: 1000, // Short TTL for cleanup test
+        })
+      );
+
+      // Mock fetch to always return valid response
+      mockFetch.mockResolvedValue(createMockLLMResponse('coder', 0.9, 'Code task'));
+
+      // Fill cache with 1001 unique entries
+      for (let i = 0; i < 1001; i++) {
+        await dispatcher.dispatch(`Unique task ${i}`);
+      }
+
+      expect(dispatcher.getCacheStats().size).toBe(1001);
+
+      // Advance time past TTL to make all entries expired
+      vi.advanceTimersByTime(2000);
+
+      // Next dispatch should trigger cleanup of expired entries
+      await dispatcher.dispatch('Trigger cleanup task');
+
+      // Cache should have only the new entry after cleanup
+      expect(dispatcher.getCacheStats().size).toBe(1);
+
+      vi.useRealTimers();
+    });
+
+    it('should clean expired entries during cache maintenance', async () => {
+      vi.useFakeTimers();
+
+      const dispatcher = new SmartDispatcher(
+        createConfig({
+          enabled: true,
+          anthropicKey: 'sk-test',
+          cacheEnabled: true,
+          cacheTTLMs: 500, // Very short TTL
+        })
+      );
+
+      mockFetch.mockResolvedValue(createMockLLMResponse('coder', 0.9, 'Code task'));
+
+      // Add some entries
+      await dispatcher.dispatch('Task A');
+      await dispatcher.dispatch('Task B');
+      expect(dispatcher.getCacheStats().size).toBe(2);
+
+      // Advance time to expire entries
+      vi.advanceTimersByTime(1000);
+
+      // Fill cache past threshold to trigger cleanup
+      for (let i = 0; i < 1000; i++) {
+        await dispatcher.dispatch(`Filler task ${i}`);
+      }
+
+      // The expired entries (Task A, Task B) should have been cleaned
+      // Cache should contain only the 1000 filler tasks + cleanup trigger
+      const stats = dispatcher.getCacheStats();
+      expect(stats.size).toBeLessThanOrEqual(1001);
+      expect(stats.size).toBeGreaterThan(0);
+
+      vi.useRealTimers();
+    });
   });
 
   describe('parseResponse', () => {
@@ -539,6 +625,76 @@ describe('SmartDispatcher', () => {
 
       expect(dispatcher1).not.toBe(dispatcher2);
     });
+
+    it('should handle config with undefined smartDispatcher', () => {
+      const config: AgentStackConfig = {
+        version: '1.0.0',
+        memory: {
+          path: './data/memory.db',
+          defaultNamespace: 'default',
+          vectorSearch: { enabled: false },
+        },
+        providers: { default: 'anthropic' },
+        agents: { maxConcurrent: 5, defaultTimeout: 300 },
+        github: { enabled: false },
+        plugins: { enabled: true, directory: './plugins' },
+        mcp: { transport: 'stdio' },
+        hooks: { sessionStart: true, sessionEnd: true, preTask: true, postTask: true },
+        // smartDispatcher is undefined
+      };
+
+      const dispatcher = getSmartDispatcher(config);
+      expect(dispatcher).toBeDefined();
+      // Should use default config
+      expect(dispatcher.getConfig().enabled).toBe(true);
+    });
+
+    it('should compare configs correctly when both are undefined', () => {
+      // First call with undefined smartDispatcher
+      const config1: AgentStackConfig = {
+        version: '1.0.0',
+        memory: { path: './test.db', defaultNamespace: 'default', vectorSearch: { enabled: false } },
+        providers: { default: 'anthropic' },
+        agents: { maxConcurrent: 5, defaultTimeout: 300 },
+        github: { enabled: false },
+        plugins: { enabled: true, directory: './plugins' },
+        mcp: { transport: 'stdio' },
+        hooks: { sessionStart: true, sessionEnd: true, preTask: true, postTask: true },
+      };
+
+      const dispatcher1 = getSmartDispatcher(config1);
+
+      // Second call with same undefined smartDispatcher should return same instance
+      const config2: AgentStackConfig = { ...config1 };
+      const dispatcher2 = getSmartDispatcher(config2);
+
+      // Both should have default config and be same instance
+      expect(dispatcher1.getConfig().enabled).toBe(true);
+      expect(dispatcher2).toBe(dispatcher1);
+    });
+
+    it('should create new instance when only one config has smartDispatcher', () => {
+      // First with undefined
+      const config1: AgentStackConfig = {
+        version: '1.0.0',
+        memory: { path: './test.db', defaultNamespace: 'default', vectorSearch: { enabled: false } },
+        providers: { default: 'anthropic' },
+        agents: { maxConcurrent: 5, defaultTimeout: 300 },
+        github: { enabled: false },
+        plugins: { enabled: true, directory: './plugins' },
+        mcp: { transport: 'stdio' },
+        hooks: { sessionStart: true, sessionEnd: true, preTask: true, postTask: true },
+      };
+
+      const dispatcher1 = getSmartDispatcher(config1);
+
+      // Second with defined smartDispatcher
+      const config2 = createConfig({ enabled: true, anthropicKey: 'sk-test' });
+      const dispatcher2 = getSmartDispatcher(config2);
+
+      // Should be different instances
+      expect(dispatcher2).not.toBe(dispatcher1);
+    });
   });
 
   describe('getCacheStats', () => {
@@ -593,6 +749,140 @@ describe('SmartDispatcher', () => {
       expect(config.fallbackAgentType).toBe('architect');
       expect(config.maxDescriptionLength).toBe(500);
       expect(config.dispatchModel).toBe('claude-3-opus-20240229');
+    });
+  });
+
+  describe('selectAgentType', () => {
+    it('should throw when no provider is available', async () => {
+      const dispatcher = new SmartDispatcher(
+        createConfig({
+          enabled: true,
+          anthropicKey: undefined, // No API key = no provider
+        })
+      );
+
+      await expect(dispatcher.selectAgentType('Some task')).rejects.toThrow(
+        'No provider available'
+      );
+    });
+  });
+
+  describe('parseResponse edge cases', () => {
+    it('should handle missing agentType in JSON', async () => {
+      const dispatcher = new SmartDispatcher(
+        createConfig({
+          enabled: true,
+          anthropicKey: 'sk-test',
+          fallbackAgentType: 'coordinator',
+          confidenceThreshold: 0,
+        })
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          content: [
+            {
+              type: 'text',
+              text: '{"confidence":0.9,"reasoning":"No agent type"}',
+            },
+          ],
+          model: 'claude-haiku-4-5-20251001',
+          usage: { input_tokens: 100, output_tokens: 50 },
+        }),
+      });
+
+      const result = await dispatcher.dispatch('Do something');
+
+      expect(result.decision?.agentType).toBe('coordinator'); // Fallback
+      expect(result.decision?.confidence).toBe(0);
+      expect(result.decision?.reasoning).toContain('Invalid or missing agentType');
+    });
+
+    it('should handle non-string agentType in JSON', async () => {
+      const dispatcher = new SmartDispatcher(
+        createConfig({
+          enabled: true,
+          anthropicKey: 'sk-test',
+          fallbackAgentType: 'coder',
+          confidenceThreshold: 0,
+        })
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          content: [
+            {
+              type: 'text',
+              text: '{"agentType":123,"confidence":0.9,"reasoning":"Invalid type"}',
+            },
+          ],
+          model: 'claude-haiku-4-5-20251001',
+          usage: { input_tokens: 100, output_tokens: 50 },
+        }),
+      });
+
+      const result = await dispatcher.dispatch('Do something');
+
+      expect(result.decision?.agentType).toBe('coder'); // Fallback
+      expect(result.decision?.reasoning).toContain('Invalid or missing agentType');
+    });
+
+    it('should provide default reasoning when not in response', async () => {
+      const dispatcher = new SmartDispatcher(
+        createConfig({
+          enabled: true,
+          anthropicKey: 'sk-test',
+        })
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          content: [
+            {
+              type: 'text',
+              text: '{"agentType":"coder","confidence":0.9}',
+            },
+          ],
+          model: 'claude-haiku-4-5-20251001',
+          usage: { input_tokens: 100, output_tokens: 50 },
+        }),
+      });
+
+      const result = await dispatcher.dispatch('Write code');
+
+      expect(result.decision?.agentType).toBe('coder');
+      expect(result.decision?.reasoning).toBe('No reasoning provided');
+    });
+
+    it('should handle non-string reasoning in JSON', async () => {
+      const dispatcher = new SmartDispatcher(
+        createConfig({
+          enabled: true,
+          anthropicKey: 'sk-test',
+        })
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          content: [
+            {
+              type: 'text',
+              text: '{"agentType":"coder","confidence":0.9,"reasoning":123}',
+            },
+          ],
+          model: 'claude-haiku-4-5-20251001',
+          usage: { input_tokens: 100, output_tokens: 50 },
+        }),
+      });
+
+      const result = await dispatcher.dispatch('Write code');
+
+      expect(result.decision?.agentType).toBe('coder');
+      expect(result.decision?.reasoning).toBe('No reasoning provided');
     });
   });
 });
