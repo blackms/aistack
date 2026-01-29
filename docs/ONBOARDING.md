@@ -76,7 +76,7 @@ agentstack/
 │   │
 │   ├── mcp/                  # MCP integration
 │   │   ├── server.ts         # MCP server
-│   │   └── tools/            # 41 tool implementations
+│   │   └── tools/            # 46 tool implementations
 │   │
 │   ├── coordination/         # Task management
 │   │   ├── task-queue.ts     # Priority queue

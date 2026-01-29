@@ -71,7 +71,7 @@ flowchart TB
 
 **Components**:
 - Request handler for `ListTools` and `CallTool`
-- 41 registered tools across 7 categories
+- 46 registered tools across 8 categories
 - JSON-RPC style response formatting
 
 **Interfaces**:

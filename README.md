@@ -251,6 +251,15 @@ Production-ready security:
 - Role-based access control (Admin, Developer, Viewer)
 - Security Auditor agent for code review
 
+### 📢 Slack Integration
+
+Real-time notifications to your team:
+- **Agent Events** - Spawning, stopping, errors
+- **Workflow Updates** - Start, completion, failures
+- **Review Loop Progress** - Iteration updates
+- **Resource Alerts** - Warnings, interventions, terminations
+- **Customizable** - Choose which events to notify
+
 ---
 
 ## 📚 Documentation
@@ -351,7 +360,19 @@ Create `aistack.config.json` in your project root:
     "warningThresholdPercent": 0.7,
     "checkIntervalMs": 10000,
     "autoTerminate": false,
+    "requireConfirmationOnIntervention": true,
     "pauseOnIntervention": true
+  },
+  "slack": {
+    "enabled": false,
+    "webhookUrl": "${SLACK_WEBHOOK_URL}",
+    "channel": "#aistack-notifications",
+    "notifyOnAgentSpawn": false,
+    "notifyOnWorkflowComplete": true,
+    "notifyOnErrors": true,
+    "notifyOnReviewLoop": true,
+    "notifyOnResourceWarning": true,
+    "notifyOnResourceIntervention": true
   },
   "consensus": {
     "enabled": false,

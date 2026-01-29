@@ -46,7 +46,7 @@ C4Container
     Person(developer, "Developer", "Uses Claude Code")
 
     System_Boundary(agentstack, "AgentStack") {
-        Container(mcp_server, "MCP Server", "TypeScript", "Exposes 41 tools via MCP protocol")
+        Container(mcp_server, "MCP Server", "TypeScript", "Exposes 46 tools via MCP protocol")
         Container(agent_manager, "Agent Manager", "TypeScript", "Registry and spawner for 11 agent types")
         Container(memory_manager, "Memory Manager", "TypeScript", "Unified storage with FTS and vector search")
         Container(coordination, "Coordination Layer", "TypeScript", "Task queue and message bus")

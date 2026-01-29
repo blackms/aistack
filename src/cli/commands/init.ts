@@ -52,7 +52,7 @@ export function createInitCommand(): Command {
       console.log('\nProject initialized successfully!\n');
       console.log('Next steps:');
       console.log('  1. Configure providers in aistack.config.json');
-      console.log('  2. Add MCP server: claude mcp add aistack -- npx aistack mcp start');
+      console.log('  2. Add MCP server: claude mcp add aistack -- npx @blackms/aistack mcp start');
       console.log('  3. Start using aistack commands\n');
 
       log.info('Project initialized', { directory });

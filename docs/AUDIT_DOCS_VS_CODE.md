@@ -1,8 +1,8 @@
 # Documentation Audit Report
 
-> Generated: 2026-01-29 (Updated)
+> Generated: 2026-01-29 (Round 3 - Full Adversarial Sync)
 > Workflow: Documentation Truth Sync with Strong Adversarial Verification
-> Version: v1.5.3 (46 MCP tools, Consensus Checkpoints, Resource Exhaustion Monitoring)
+> Version: v1.5.3 (46 MCP tools, Consensus Checkpoints, Resource Exhaustion, Slack Integration)
 
 ## Executive Summary
 
@@ -19,10 +19,10 @@ This audit synchronized all documentation under `/docs` and `README.md` with the
 | Metric | Value | Evidence |
 |--------|-------|----------|
 | Agent Types | 11 | `src/agents/definitions/index.ts` |
-| MCP Tools | 46 | `src/mcp/server.ts` (7 categories + consensus) |
+| MCP Tools | 46 | `src/mcp/server.ts` (8 categories) |
 | LLM Providers | 6 | `src/providers/index.ts`, `src/providers/cli-providers.ts` |
-| Database Tables | 27 | `src/memory/sqlite-store.ts` SCHEMA (includes consensus tables) |
-| REST API Endpoints | 74+ | `src/web/routes/*.ts` (includes consensus routes) |
+| Database Tables | 27 | `src/memory/sqlite-store.ts` SCHEMA |
+| REST API Endpoints | 74+ | `src/web/routes/*.ts` |
 | CLI Commands | 8 | `src/cli/commands/index.ts` |
 
 ### MCP Tool Breakdown (Actual Registration)
@@ -43,74 +43,65 @@ This audit synchronized all documentation under `/docs` and `README.md` with the
 
 ---
 
-## Documents Updated (This Sync)
+## Documents Updated (This Sync - Round 3)
 
-### README.md
-- **Line 24**: Updated tool count from 41 to 46
-- **Line 195-206**: Added Consensus Checkpoints feature section
-- **Line 207-213**: Updated MCP tool summary to include consensus tools
-- **Line 310**: Updated config version to 1.5.3
-- **Line 356-366**: Expanded consensus configuration with risk estimation fields
-- **Line 560-575**: Added Consensus Tools table (5 tools)
-- **Line 600**: Updated total MCP tools count
-- **Line 745**: Fixed monitoring claim (was "no built-in monitoring", now correctly states "limited observability")
-- **Line 826**: Updated version to 1.5.3
+### docs/README.md (Gateway)
+- **Complete rewrite**: Updated from v1.0.0 (7 agents, 30 tools) to v1.5.3 (11 agents, 46 tools)
+- Added all missing features: Identity, Drift Detection, Resource Exhaustion, Consensus, Slack
+- Updated configuration example with driftDetection, resourceExhaustion, consensus, slack blocks
+- Added MCP Tool Categories table
 
-### docs/API.md
-- **Line 9**: Updated tool count from 41 to 46
-- **Lines 877-1016**: Added Consensus Tools section documenting 5 MCP tools
-- **Lines 2068**: Added `/api/v1/consensus` to REST endpoints table
-- **Lines 2070-2100**: Added Consensus REST API documentation
+### README.md (Root)
+- Added `requireConfirmationOnIntervention` to resourceExhaustion config
+- Added complete `slack` configuration block
+- Added Slack Integration feature section
+
+### docs/HLD.md
+- Fixed MCP tool count: 41 → 46
+- Fixed category count: 7 → 8
 
 ### docs/ARCHITECTURE.md
-- **Line 14**: Added consensus to system purpose
-- **Line 87**: Added ConsensusService to Core Layer in component diagram
-- **Lines 245-249**: Added design principle #7 for Consensus Checkpoints
-- **Lines 265-285**: Updated module structure to include `/src/tasks/consensus-service.ts`, `/src/auth/`, `/src/integrations/`
+- Fixed MCP tool count in C4 diagram: 41 → 46
 
-### docs/DATA.md (Round 2)
-- **Lines 239-275**: Added `consensus_checkpoints` table schema
-- **Lines 277-295**: Added `consensus_checkpoint_events` table schema
-- **Lines 403-450**: Added TypeScript interfaces for consensus types
+### docs/ONBOARDING.md
+- Fixed tool count comment: 41 → 46
 
-### docs/HLD.md (Round 2)
-- **Line 17**: Added Consensus Checkpoints to system goals (now 9 goals)
-- **Lines 259-262**: Added Consensus tool category to MCP tools table (now 46 tools)
-- **Lines 250-275**: Added Consensus Checkpoint Flow sequence diagram
+### src/cli/commands/init.ts
+- Fixed package name: `npx aistack` → `npx @blackms/aistack`
 
-### docs/LLD.md (Round 2)
-- **Lines 473-530**: Added ConsensusService module section with configuration, key functions, lifecycle diagram, and risk estimation algorithm
-
-### package.json (Round 2)
-- **Line 3**: Bumped version from 1.5.2 to 1.5.3
+### src/cli/commands/mcp.ts
+- Added all 46 MCP tools to `mcp tools` output
+- Previously listed only 30 tools (missing identity, consensus, and task drift tools)
 
 ---
 
-## Adversarial Findings Resolved
+## Adversarial Findings Resolved (Round 3)
 
 | Finding | Severity | Resolution |
 |---------|----------|------------|
-| README claimed 41 MCP tools | Critical | Updated to 46 with consensus tools |
-| Missing Consensus feature docs | Critical | Added complete documentation across all files |
-| Incorrect monitoring claim | High | Fixed to accurately reflect built-in metrics/health |
-| API.md missing consensus tools | Critical | Added 5 consensus MCP tools documentation |
-| API.md missing consensus REST API | Critical | Added full REST API documentation |
-| ARCHITECTURE missing ConsensusService | Medium | Added to component diagram and module structure |
-| Config example missing consensus | Medium | Added consensus configuration block |
+| docs/README.md completely stale (7 agents, 30 tools) | Critical | Complete rewrite to v1.5.3 |
+| init.ts uses wrong package name (`npx aistack`) | Critical | Fixed to `npx @blackms/aistack` |
+| Slack integration completely undocumented | Critical | Added config and feature section |
+| Missing `requireConfirmationOnIntervention` config | Critical | Added to README config example |
+| CLI `mcp tools` shows only 30/46 tools | High | Updated to show all 46 tools |
+| HLD.md says 41 tools | Medium | Fixed to 46 |
+| ARCHITECTURE.md says 41 tools | Medium | Fixed to 46 |
+| ONBOARDING.md says 41 tools | Medium | Fixed to 46 |
 
 ---
 
 ## Cross-Document Consistency
 
-| Claim | README | ARCHITECTURE | HLD | LLD | API | DATA | Status |
-|-------|--------|--------------|-----|-----|-----|------|--------|
-| 11 agents | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Consistent |
-| 46 MCP tools | ✓ | ✓ | ✓ | ✓ | ✓ | - | Consistent |
-| 6 LLM providers | ✓ | ✓ | ✓ | ✓ | ✓ | - | Consistent |
-| Resource Exhaustion | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Consistent |
-| Agent Identity | ✓ | ✓ | ✓ | ✓ | ✓ | - | Consistent |
-| Drift Detection | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Consistent |
-| Consensus Checkpoints | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Consistent |
+| Claim | README | docs/README | ARCHITECTURE | HLD | LLD | API | DATA | Status |
+|-------|--------|-------------|--------------|-----|-----|-----|------|--------|
+| 11 agents | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Consistent |
+| 46 MCP tools | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | - | Consistent |
+| 6 LLM providers | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | - | Consistent |
+| Resource Exhaustion | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Consistent |
+| Agent Identity | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | - | Consistent |
+| Drift Detection | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Consistent |
+| Consensus Checkpoints | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Consistent |
+| Slack Integration | ✓ | ✓ | - | - | - | - | - | Consistent |
 
 ---
 
@@ -122,13 +113,16 @@ This audit synchronized all documentation under `/docs` and `README.md` with the
 - [x] All Mermaid diagrams structurally valid
 - [x] README claims are subset of canonical facts
 - [x] Build passes (`npm run build`)
-- [x] Tests pass (2065/2065)
+- [x] CLI `mcp tools` shows correct count (46)
+- [x] init.ts uses correct package name
 
 ---
 
 ## Remaining Known Limitations
 
 1. **ADRs**: Not modified in this audit (architectural decisions are immutable records)
+2. **Web Dashboard**: REST API endpoints are documented but not comprehensively (74+ endpoints exist)
+3. **Slack Integration**: Full API not documented in API.md (only config and feature overview)
 
 ---
 
@@ -139,17 +133,25 @@ This audit synchronized all documentation under `/docs` and `README.md` with the
 ls src/agents/definitions/*.ts | grep -v index | wc -l
 # Expected: 11
 
-# Verify MCP tool count (count tools in task-tools.ts)
-grep -c "name: '" src/mcp/tools/task-tools.ts
-# Includes consensus tools
+# Verify MCP tool count registered in server
+grep -c "createAgentTools\|createIdentityTools\|createMemoryTools\|createTaskTools\|createSessionTools\|createSystemTools\|createGitHubTools" src/mcp/server.ts
+# Expected: 7 tool sets (46 tools total)
 
-# Verify consensus routes exist
-grep -l "consensus" src/web/routes/*.ts
-# Expected: consensus.ts
+# Verify CLI mcp tools output
+npx @blackms/aistack mcp tools 2>/dev/null | grep "Total:"
+# Expected: Total: 46 tools
 
-# Verify all tests pass
-npm test
-# Expected: 2065 passed
+# Verify init command uses correct package name
+grep "@blackms/aistack" src/cli/commands/init.ts
+# Expected: Match found
+
+# Verify Slack config schema exists
+grep -c "SlackConfigSchema" src/utils/config.ts
+# Expected: 1
+
+# Build verification
+npm run build
+# Expected: No errors
 ```
 
 ---
@@ -160,7 +162,8 @@ npm test
 |------|---------|---------|
 | 2026-01-27 | v1.5.0 | Initial sync (41 tools, Resource Exhaustion) |
 | 2026-01-29 | v1.5.3 | Added Consensus Checkpoints (46 tools) |
-| 2026-01-29 | v1.5.3 | Round 2: Documented consensus in HLD, LLD, DATA; added risk config fields; bumped package.json |
+| 2026-01-29 | v1.5.3 | Round 2: Documented consensus in HLD, LLD, DATA |
+| 2026-01-29 | v1.5.3 | Round 3: Full adversarial sync - fixed docs/README.md, init.ts, mcp.ts, added Slack docs |
 
 ---
 
