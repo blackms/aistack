@@ -753,7 +753,7 @@ export class SQLiteStore {
     }
 
     // Check if entry exists
-    const entry = this.get(entryId);
+    const entry = this.getById(entryId);
     if (!entry) {
       throw new Error(`Memory entry not found: ${entryId}`);
     }
@@ -1334,6 +1334,15 @@ export class SQLiteStore {
       `)
       .run(status, output ?? null, completedAt, id);
 
+    return result.changes > 0;
+  }
+
+  /**
+   * Delete a task and all associated data
+   * CASCADE constraints automatically clean up task_embeddings and task_relationships
+   */
+  deleteTask(id: string): boolean {
+    const result = this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
     return result.changes > 0;
   }
 
