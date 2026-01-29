@@ -584,6 +584,11 @@ Full configuration with cost-relevant options:
 | `threshold` | Similarity threshold (0.0-1.0) | No cost impact, affects sensitivity |
 | `asyncEmbedding` | Process embeddings asynchronously | No cost impact, improves UX |
 
+> **Note**: When `asyncEmbedding: true` (default), child tasks created immediately after
+> a parent may not have the parent's embedding available for drift checking. This can
+> result in false negatives. Set `asyncEmbedding: false` for guaranteed drift detection
+> accuracy when using `behavior: "prevent"`.
+
 #### Cost-Free Alternative: Ollama
 
 Use Ollama for completely local, free embeddings:

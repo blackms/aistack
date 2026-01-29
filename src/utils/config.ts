@@ -86,6 +86,21 @@ const SlackConfigSchema = z.object({
   notifyOnResourceIntervention: z.boolean().default(true),
 });
 
+/**
+ * Drift Detection Configuration Schema
+ *
+ * Controls semantic drift detection for task creation.
+ *
+ * @property enabled - Enable drift detection (requires vector search provider)
+ * @property threshold - Similarity threshold (0.0-1.0) to trigger drift detection
+ * @property warningThreshold - Optional lower threshold for warnings only
+ * @property ancestorDepth - How many ancestor tasks to check (1-10)
+ * @property behavior - 'warn' logs and allows, 'prevent' blocks task creation
+ * @property asyncEmbedding - When true (default), task indexing is non-blocking.
+ *   WARNING: This creates a race condition where child tasks created immediately
+ *   after a parent may not have the parent's embedding available for drift checking.
+ *   Set to false for strict drift detection at the cost of slower task creation.
+ */
 const DriftDetectionConfigSchema = z.object({
   enabled: z.boolean().default(false),
   threshold: z.number().min(0).max(1).default(0.95),

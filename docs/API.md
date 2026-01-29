@@ -874,6 +874,55 @@ Get drift detection metrics and statistics.
 
 ---
 
+### Drift Detection: Async vs Sync Embedding Modes
+
+When drift detection is enabled, task descriptions are converted to vector embeddings for semantic comparison. The `asyncEmbedding` configuration option controls whether this indexing blocks task creation.
+
+#### Async Mode (Default: `asyncEmbedding: true`)
+
+- **Behavior**: Task indexing runs in the background without blocking
+- **Advantage**: Fast task creation, no API latency impact
+- **Trade-off**: Race condition when creating tasks in rapid succession
+
+**Race Condition Scenario**:
+```
+1. Task A created -> indexTask() called asynchronously
+2. Task B created immediately with parentTaskId: A
+3. Drift check runs for Task B
+4. Task A's embedding not yet stored -> no ancestors found
+5. Drift check passes incorrectly (false negative)
+6. Task A's embedding stored (too late for B's check)
+```
+
+This is intentional - `asyncEmbedding: true` prioritizes task creation speed over drift detection accuracy.
+
+#### Sync Mode (`asyncEmbedding: false`)
+
+- **Behavior**: Task creation waits for embedding to be stored
+- **Advantage**: Guaranteed drift detection accuracy
+- **Trade-off**: Slower task creation (adds ~50-200ms API latency per task)
+
+**Configuration**:
+```json
+{
+  "driftDetection": {
+    "enabled": true,
+    "asyncEmbedding": false
+  }
+}
+```
+
+#### When to Use Each Mode
+
+| Use Case | Recommended Mode |
+|----------|------------------|
+| Drift prevention is critical (`behavior: "prevent"`) | Sync (`false`) |
+| Rapid programmatic task creation with parent-child relationships | Sync (`false`) |
+| Interactive task creation with human-paced delays | Async (`true`) |
+| Advisory-only drift detection (`behavior: "warn"`) | Async (`true`) |
+
+---
+
 ### Consensus Tools
 
 Tools for managing consensus checkpoints that gate high-risk task creation.
