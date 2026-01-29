@@ -43,7 +43,7 @@ function createConfig(tmpDir: string, options?: {
       confidenceThreshold: 0.7,
       fallbackAgentType: 'coder',
       maxDescriptionLength: 1000,
-      dispatchModel: 'claude-3-5-haiku-20241022',
+      dispatchModel: 'claude-haiku-4-5-20251001',
     },
   };
 }
@@ -59,7 +59,7 @@ function createMockLLMResponse(agentType: string, confidence: number, reasoning:
           text: JSON.stringify({ agentType, confidence, reasoning }),
         },
       ],
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-haiku-4-5-20251001',
       usage: { input_tokens: 100, output_tokens: 50 },
     }),
   };

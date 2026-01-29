@@ -48,7 +48,7 @@ function createConfig(options: {
       confidenceThreshold: options.confidenceThreshold ?? 0.7,
       fallbackAgentType: options.fallbackAgentType ?? 'coder',
       maxDescriptionLength: options.maxDescriptionLength ?? 1000,
-      dispatchModel: options.dispatchModel ?? 'claude-3-5-haiku-20241022',
+      dispatchModel: options.dispatchModel ?? 'claude-haiku-4-5-20251001',
     },
   };
 }
@@ -64,7 +64,7 @@ function createMockLLMResponse(agentType: string, confidence: number, reasoning:
           text: JSON.stringify({ agentType, confidence, reasoning }),
         },
       ],
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-haiku-4-5-20251001',
       usage: { input_tokens: 100, output_tokens: 50 },
     }),
   };
@@ -339,7 +339,7 @@ describe('SmartDispatcher', () => {
               text: '{"agentType":"devops","confidence":0.85,"reasoning":"Infrastructure task"}',
             },
           ],
-          model: 'claude-3-5-haiku-20241022',
+          model: 'claude-haiku-4-5-20251001',
           usage: { input_tokens: 100, output_tokens: 50 },
         }),
       });
@@ -365,7 +365,7 @@ describe('SmartDispatcher', () => {
               text: '```json\n{"agentType":"reviewer","confidence":0.8,"reasoning":"Code review"}\n```',
             },
           ],
-          model: 'claude-3-5-haiku-20241022',
+          model: 'claude-haiku-4-5-20251001',
           usage: { input_tokens: 100, output_tokens: 50 },
         }),
       });
@@ -389,7 +389,7 @@ describe('SmartDispatcher', () => {
               text: '{"agentType":"security_auditor","confidence":0.9,"reasoning":"Security task"}',
             },
           ],
-          model: 'claude-3-5-haiku-20241022',
+          model: 'claude-haiku-4-5-20251001',
           usage: { input_tokens: 100, output_tokens: 50 },
         }),
       });
@@ -417,7 +417,7 @@ describe('SmartDispatcher', () => {
               text: '{"agentType":"invalid_type","confidence":0.9,"reasoning":"Unknown type"}',
             },
           ],
-          model: 'claude-3-5-haiku-20241022',
+          model: 'claude-haiku-4-5-20251001',
           usage: { input_tokens: 100, output_tokens: 50 },
         }),
       });
@@ -441,7 +441,7 @@ describe('SmartDispatcher', () => {
               text: '{"agentType":"coder","reasoning":"Code task"}',
             },
           ],
-          model: 'claude-3-5-haiku-20241022',
+          model: 'claude-haiku-4-5-20251001',
           usage: { input_tokens: 100, output_tokens: 50 },
         }),
       });
@@ -466,7 +466,7 @@ describe('SmartDispatcher', () => {
               text: '{"agentType":"coder","confidence":1.5,"reasoning":"Very confident"}',
             },
           ],
-          model: 'claude-3-5-haiku-20241022',
+          model: 'claude-haiku-4-5-20251001',
           usage: { input_tokens: 100, output_tokens: 50 },
         }),
       });
@@ -495,7 +495,7 @@ describe('SmartDispatcher', () => {
               text: 'This is not valid JSON at all',
             },
           ],
-          model: 'claude-3-5-haiku-20241022',
+          model: 'claude-haiku-4-5-20251001',
           usage: { input_tokens: 100, output_tokens: 50 },
         }),
       });

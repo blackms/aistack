@@ -160,7 +160,8 @@ const SmartDispatcherConfigSchema = z.object({
   confidenceThreshold: z.number().min(0).max(1).default(0.7),
   fallbackAgentType: z.string().default('coder'),
   maxDescriptionLength: z.number().min(100).max(10000).default(1000),
-  dispatchModel: z.string().default('claude-3-5-haiku-20241022'),
+  // Claude 4.5 models: claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929, claude-opus-4-5-20251101
+  dispatchModel: z.string().default('claude-haiku-4-5-20251001'),
 });
 
 const ConfigSchema = z.object({

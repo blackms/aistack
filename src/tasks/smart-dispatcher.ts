@@ -21,7 +21,7 @@ const DEFAULT_CONFIG: SmartDispatcherConfig = {
   confidenceThreshold: 0.7,
   fallbackAgentType: 'coder',
   maxDescriptionLength: 1000,
-  dispatchModel: 'claude-3-5-haiku-20241022',
+  dispatchModel: 'claude-haiku-4-5-20251001', // Fast & cost-effective, alternatives: claude-sonnet-4-5-20250929, claude-opus-4-5-20251101
 };
 
 const SYSTEM_PROMPT = `You are an AI task router. Your job is to analyze a task description and select the most appropriate agent type to handle it.
