@@ -39,6 +39,7 @@ export function registerConsensusRoutes(router: Router, config: AgentStackConfig
 
     const service = getService();
     const checkpoints = service.listPendingCheckpoints({ limit, offset });
+    const total = service.countPendingCheckpoints();
 
     sendPaginated(
       res,
@@ -53,7 +54,7 @@ export function registerConsensusRoutes(router: Router, config: AgentStackConfig
         createdAt: cp.createdAt.toISOString(),
         expiresAt: cp.expiresAt.toISOString(),
       })),
-      { limit, offset, total: checkpoints.length }
+      { limit, offset, total }
     );
   });
 

@@ -22,6 +22,10 @@ function createConfig(options: {
   timeout?: number;
   maxDepth?: number;
   autoReject?: boolean;
+  highRiskAgentTypes?: string[];
+  mediumRiskAgentTypes?: string[];
+  highRiskPatterns?: string[];
+  mediumRiskPatterns?: string[];
 }): AgentStackConfig {
   return {
     version: '1.0.0',
@@ -43,6 +47,10 @@ function createConfig(options: {
       timeout: options.timeout ?? 300000,
       maxDepth: options.maxDepth ?? 5,
       autoReject: options.autoReject ?? false,
+      highRiskAgentTypes: options.highRiskAgentTypes,
+      mediumRiskAgentTypes: options.mediumRiskAgentTypes,
+      highRiskPatterns: options.highRiskPatterns,
+      mediumRiskPatterns: options.mediumRiskPatterns,
     },
   };
 }
@@ -522,6 +530,131 @@ describe('ConsensusService', () => {
       const result = service.estimateRiskLevel('researcher', 'Modify the configuration');
 
       expect(result).toBe('medium');
+    });
+
+    it('should use custom high risk agent types when configured', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const service = new ConsensusService(
+        store,
+        createConfig({
+          consensusEnabled: true,
+          highRiskAgentTypes: ['custom-risky-agent'],
+          mediumRiskAgentTypes: [],
+        })
+      );
+
+      expect(service.estimateRiskLevel('custom-risky-agent')).toBe('high');
+      expect(service.estimateRiskLevel('coder')).toBe('low'); // Not in custom list
+    });
+
+    it('should use custom medium risk agent types when configured', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const service = new ConsensusService(
+        store,
+        createConfig({
+          consensusEnabled: true,
+          highRiskAgentTypes: [],
+          mediumRiskAgentTypes: ['custom-medium-agent'],
+        })
+      );
+
+      expect(service.estimateRiskLevel('custom-medium-agent')).toBe('medium');
+      expect(service.estimateRiskLevel('architect')).toBe('low'); // Not in custom list
+    });
+
+    it('should use custom high risk patterns when configured', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const service = new ConsensusService(
+        store,
+        createConfig({
+          consensusEnabled: true,
+          highRiskAgentTypes: [],
+          highRiskPatterns: ['dangerous-keyword'],
+          mediumRiskPatterns: [],
+        })
+      );
+
+      expect(service.estimateRiskLevel('researcher', 'This is a dangerous-keyword test')).toBe('high');
+      expect(service.estimateRiskLevel('researcher', 'Delete everything')).toBe('low'); // Not in custom list
+    });
+
+    it('should use custom medium risk patterns when configured', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const service = new ConsensusService(
+        store,
+        createConfig({
+          consensusEnabled: true,
+          highRiskAgentTypes: [],
+          highRiskPatterns: [],
+          mediumRiskPatterns: ['slightly-risky'],
+        })
+      );
+
+      expect(service.estimateRiskLevel('researcher', 'This is slightly-risky')).toBe('medium');
+      expect(service.estimateRiskLevel('researcher', 'Modify something')).toBe('low'); // Not in custom list
+    });
+  });
+
+  describe('countPendingCheckpoints', () => {
+    it('should return 0 when no checkpoints exist', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const service = new ConsensusService(
+        store,
+        createConfig({ consensusEnabled: true })
+      );
+
+      expect(service.countPendingCheckpoints()).toBe(0);
+    });
+
+    it('should return correct count of pending checkpoints', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const service = new ConsensusService(
+        store,
+        createConfig({ consensusEnabled: true })
+      );
+
+      // Create 3 checkpoints
+      service.createCheckpoint({
+        taskId: 'task-1',
+        proposedSubtasks: [{ id: 's1', agentType: 'coder', input: 'Test', estimatedRiskLevel: 'high', parentTaskId: 'task-1' }],
+        riskLevel: 'high',
+      });
+      service.createCheckpoint({
+        taskId: 'task-2',
+        proposedSubtasks: [{ id: 's2', agentType: 'coder', input: 'Test', estimatedRiskLevel: 'high', parentTaskId: 'task-2' }],
+        riskLevel: 'high',
+      });
+      service.createCheckpoint({
+        taskId: 'task-3',
+        proposedSubtasks: [{ id: 's3', agentType: 'coder', input: 'Test', estimatedRiskLevel: 'high', parentTaskId: 'task-3' }],
+        riskLevel: 'high',
+      });
+
+      expect(service.countPendingCheckpoints()).toBe(3);
+    });
+
+    it('should not count approved checkpoints', () => {
+      store = new SQLiteStore(join(tmpDir, 'test.db'));
+      const service = new ConsensusService(
+        store,
+        createConfig({ consensusEnabled: true })
+      );
+
+      const checkpoint1 = service.createCheckpoint({
+        taskId: 'task-1',
+        proposedSubtasks: [{ id: 's1', agentType: 'coder', input: 'Test', estimatedRiskLevel: 'high', parentTaskId: 'task-1' }],
+        riskLevel: 'high',
+      });
+      service.createCheckpoint({
+        taskId: 'task-2',
+        proposedSubtasks: [{ id: 's2', agentType: 'coder', input: 'Test', estimatedRiskLevel: 'high', parentTaskId: 'task-2' }],
+        riskLevel: 'high',
+      });
+
+      // Approve first checkpoint
+      service.approveCheckpoint(checkpoint1.id, 'user-1');
+
+      expect(service.countPendingCheckpoints()).toBe(1);
     });
   });
 

@@ -2778,6 +2778,17 @@ export class SQLiteStore {
   }
 
   /**
+   * Count total pending consensus checkpoints
+   */
+  countPendingCheckpoints(): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) as count FROM consensus_checkpoints WHERE status = ?')
+      .get('pending') as { count: number };
+
+    return row.count;
+  }
+
+  /**
    * Expire old checkpoints
    */
   expireOldCheckpoints(): number {

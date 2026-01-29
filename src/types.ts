@@ -147,6 +147,11 @@ export interface ConsensusConfig {
   timeout: number;
   maxDepth: number;
   autoReject: boolean;
+  // Risk estimation configuration
+  highRiskAgentTypes?: string[];
+  mediumRiskAgentTypes?: string[];
+  highRiskPatterns?: string[];
+  mediumRiskPatterns?: string[];
 }
 
 // Consensus Checkpoint

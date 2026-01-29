@@ -126,6 +126,16 @@ const ConsensusConfigSchema = z.object({
   timeout: z.number().min(30000).max(3600000).default(300000),
   maxDepth: z.number().min(1).max(10).default(5),
   autoReject: z.boolean().default(false),
+  // Risk estimation configuration
+  highRiskAgentTypes: z.array(z.string()).default(['coder', 'devops', 'security-auditor']),
+  mediumRiskAgentTypes: z.array(z.string()).default(['architect', 'coordinator', 'analyst']),
+  highRiskPatterns: z.array(z.string()).default([
+    'delete', 'remove', 'drop', 'deploy', 'production',
+    'credentials', 'secret', 'password', 'token', 'api key',
+  ]),
+  mediumRiskPatterns: z.array(z.string()).default([
+    'modify', 'update', 'change', 'configure', 'install',
+  ]),
 });
 
 const ConfigSchema = z.object({

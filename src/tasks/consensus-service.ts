@@ -27,6 +27,14 @@ const DEFAULT_CONFIG: ConsensusConfig = {
   timeout: 300000, // 5 minutes
   maxDepth: 5,
   autoReject: false,
+  // Risk estimation defaults
+  highRiskAgentTypes: ['coder', 'devops', 'security-auditor'],
+  mediumRiskAgentTypes: ['architect', 'coordinator', 'analyst'],
+  highRiskPatterns: [
+    'delete', 'remove', 'drop', 'deploy', 'production',
+    'credentials', 'secret', 'password', 'token', 'api key',
+  ],
+  mediumRiskPatterns: ['modify', 'update', 'change', 'configure', 'install'],
 };
 
 export interface ConsensusCheckResult {
@@ -50,7 +58,17 @@ export class ConsensusService {
 
   constructor(store: SQLiteStore, appConfig: AgentStackConfig) {
     this.store = store;
-    this.config = { ...DEFAULT_CONFIG, ...appConfig.consensus };
+    // Merge config carefully to preserve defaults when values are undefined
+    const userConfig = appConfig.consensus ?? {};
+    this.config = {
+      ...DEFAULT_CONFIG,
+      ...userConfig,
+      // Preserve defaults for optional array fields when not explicitly set
+      highRiskAgentTypes: userConfig.highRiskAgentTypes ?? DEFAULT_CONFIG.highRiskAgentTypes,
+      mediumRiskAgentTypes: userConfig.mediumRiskAgentTypes ?? DEFAULT_CONFIG.mediumRiskAgentTypes,
+      highRiskPatterns: userConfig.highRiskPatterns ?? DEFAULT_CONFIG.highRiskPatterns,
+      mediumRiskPatterns: userConfig.mediumRiskPatterns ?? DEFAULT_CONFIG.mediumRiskPatterns,
+    };
 
     log.debug('Consensus service initialized', {
       enabled: this.config.enabled,
@@ -136,6 +154,15 @@ export class ConsensusService {
    */
   createCheckpoint(options: CreateCheckpointOptions): ConsensusCheckpoint {
     const checkpointId = randomUUID();
+
+    // Warn if creating a checkpoint with no subtasks
+    if (options.proposedSubtasks.length === 0) {
+      log.warn('Creating consensus checkpoint with no proposed subtasks', {
+        checkpointId,
+        taskId: options.taskId,
+        riskLevel: options.riskLevel,
+      });
+    }
 
     log.info('Creating consensus checkpoint', {
       checkpointId,
@@ -351,6 +378,13 @@ Respond with your decision in this JSON format:
   }
 
   /**
+   * Count total pending checkpoints
+   */
+  countPendingCheckpoints(): number {
+    return this.store.countPendingCheckpoints();
+  }
+
+  /**
    * Get checkpoint events (audit log)
    */
   getCheckpointEvents(checkpointId: string, limit?: number) {
@@ -394,38 +428,33 @@ Respond with your decision in this JSON format:
    * Estimate risk level based on agent type and input
    */
   estimateRiskLevel(agentType: string, input?: string): TaskRiskLevel {
-    // High-risk agent types
-    const highRiskAgents = ['coder', 'devops', 'security-auditor'];
+    // High-risk agent types (configurable)
+    const highRiskAgents = this.config.highRiskAgentTypes ?? [];
     if (highRiskAgents.includes(agentType)) {
       return 'high';
     }
 
-    // Medium-risk agent types
-    const mediumRiskAgents = ['architect', 'coordinator', 'analyst'];
+    // Medium-risk agent types (configurable)
+    const mediumRiskAgents = this.config.mediumRiskAgentTypes ?? [];
     if (mediumRiskAgents.includes(agentType)) {
       return 'medium';
     }
 
-    // Check input for high-risk patterns
+    // Check input for high-risk patterns (configurable)
     if (input) {
       const loweredInput = input.toLowerCase();
-      const highRiskPatterns = [
-        'delete', 'remove', 'drop', 'deploy', 'production',
-        'credentials', 'secret', 'password', 'token', 'api key',
-      ];
+      const highRiskPatterns = this.config.highRiskPatterns ?? [];
 
       for (const pattern of highRiskPatterns) {
-        if (loweredInput.includes(pattern)) {
+        if (loweredInput.includes(pattern.toLowerCase())) {
           return 'high';
         }
       }
 
-      const mediumRiskPatterns = [
-        'modify', 'update', 'change', 'configure', 'install',
-      ];
+      const mediumRiskPatterns = this.config.mediumRiskPatterns ?? [];
 
       for (const pattern of mediumRiskPatterns) {
-        if (loweredInput.includes(pattern)) {
+        if (loweredInput.includes(pattern.toLowerCase())) {
           return 'medium';
         }
       }
@@ -457,6 +486,8 @@ Respond with your decision in this JSON format:
     this.expirationInterval = setInterval(() => {
       this.expireCheckpoints();
     }, 60000);
+    // Don't keep the process alive just for expiration checks
+    this.expirationInterval.unref();
   }
 
   /**

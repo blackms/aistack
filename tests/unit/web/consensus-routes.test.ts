@@ -128,6 +128,40 @@ describe('Consensus Routes', () => {
       expect(body.pagination.limit).toBe(10);
       expect(body.pagination.offset).toBe(0);
     });
+
+    it('should return accurate total count independent of limit', async () => {
+      // Create 3 checkpoints
+      const manager = getMemoryManager(mockConfig);
+      const service = getConsensusService(manager.getStore(), mockConfig);
+
+      service.createCheckpoint({
+        taskId: 'task-1',
+        proposedSubtasks: [{ id: 's1', agentType: 'coder', input: 'Test', estimatedRiskLevel: 'high', parentTaskId: 'task-1' }],
+        riskLevel: 'high',
+      });
+      service.createCheckpoint({
+        taskId: 'task-2',
+        proposedSubtasks: [{ id: 's2', agentType: 'coder', input: 'Test', estimatedRiskLevel: 'high', parentTaskId: 'task-2' }],
+        riskLevel: 'high',
+      });
+      service.createCheckpoint({
+        taskId: 'task-3',
+        proposedSubtasks: [{ id: 's3', agentType: 'coder', input: 'Test', estimatedRiskLevel: 'high', parentTaskId: 'task-3' }],
+        riskLevel: 'high',
+      });
+
+      // Request with limit=1 should still show total=3
+      const req = createMockRequest('GET', '/api/v1/consensus/pending?limit=1&offset=0');
+      const res = createMockResponse();
+
+      await router.handle(req, res);
+
+      const body = res.getBody() as any;
+      expect(body.success).toBe(true);
+      expect(body.data.length).toBe(1); // Only 1 returned due to limit
+      expect(body.pagination.total).toBe(3); // But total is accurate
+      expect(body.pagination.limit).toBe(1);
+    });
   });
 
   describe('POST /api/v1/consensus/check', () => {
