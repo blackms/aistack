@@ -297,6 +297,30 @@ describe('SQLiteStore', () => {
       const completed = store.listTasks(undefined, 'completed');
       expect(completed.length).toBe(1);
     });
+
+    it('should delete a task', () => {
+      const task = store.createTask('coder', 'task to delete');
+
+      const deleted = store.deleteTask(task.id);
+
+      expect(deleted).toBe(true);
+      expect(store.getTask(task.id)).toBeNull();
+    });
+
+    it('should return false when deleting non-existent task', () => {
+      const deleted = store.deleteTask('non-existent-task-id');
+      expect(deleted).toBe(false);
+    });
+
+    it('should not affect other tasks when deleting one', () => {
+      const task1 = store.createTask('coder', 'task 1');
+      const task2 = store.createTask('coder', 'task 2');
+
+      store.deleteTask(task1.id);
+
+      expect(store.getTask(task1.id)).toBeNull();
+      expect(store.getTask(task2.id)).not.toBeNull();
+    });
   });
 
   describe('Database Maintenance', () => {

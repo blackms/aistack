@@ -1337,6 +1337,15 @@ export class SQLiteStore {
     return result.changes > 0;
   }
 
+  /**
+   * Delete a task and all associated data
+   * CASCADE constraints automatically clean up task_embeddings and task_relationships
+   */
+  deleteTask(id: string): boolean {
+    const result = this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
   listTasks(sessionId?: string, status?: Task['status']): Task[] {
     let query = 'SELECT * FROM tasks WHERE 1=1';
     const params: string[] = [];
