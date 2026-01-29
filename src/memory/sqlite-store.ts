@@ -753,7 +753,7 @@ export class SQLiteStore {
     }
 
     // Check if entry exists
-    const entry = this.get(entryId);
+    const entry = this.getById(entryId);
     if (!entry) {
       throw new Error(`Memory entry not found: ${entryId}`);
     }
