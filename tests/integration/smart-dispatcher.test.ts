@@ -43,6 +43,7 @@ function createConfig(tmpDir: string, options?: {
       confidenceThreshold: 0.7,
       fallbackAgentType: 'coder',
       maxDescriptionLength: 1000,
+      dispatchModel: 'claude-3-5-haiku-20241022',
     },
   };
 }
@@ -262,9 +263,9 @@ describe('Smart Dispatcher Integration', () => {
 
       expect((listResult as { count: number }).count).toBe(3);
       const tasks = (listResult as { tasks: Array<{ agentType: string }> }).tasks;
-      expect(tasks[0].agentType).toBe('coder');
-      expect(tasks[1].agentType).toBe('coder');
-      expect(tasks[2].agentType).toBe('tester');
+      const agentTypes = tasks.map(t => t.agentType).sort();
+      // Should have 2 coder tasks (auto-dispatched) and 1 tester task (explicit)
+      expect(agentTypes).toEqual(['coder', 'coder', 'tester']);
     });
   });
 

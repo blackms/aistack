@@ -22,6 +22,7 @@ function createConfig(options: {
   confidenceThreshold?: number;
   fallbackAgentType?: string;
   maxDescriptionLength?: number;
+  dispatchModel?: string;
   anthropicKey?: string;
 }): AgentStackConfig {
   return {
@@ -47,6 +48,7 @@ function createConfig(options: {
       confidenceThreshold: options.confidenceThreshold ?? 0.7,
       fallbackAgentType: options.fallbackAgentType ?? 'coder',
       maxDescriptionLength: options.maxDescriptionLength ?? 1000,
+      dispatchModel: options.dispatchModel ?? 'claude-3-5-haiku-20241022',
     },
   };
 }
@@ -577,6 +579,7 @@ describe('SmartDispatcher', () => {
           confidenceThreshold: 0.85,
           fallbackAgentType: 'architect',
           maxDescriptionLength: 500,
+          dispatchModel: 'claude-3-opus-20240229',
           anthropicKey: 'sk-test',
         })
       );
@@ -589,6 +592,7 @@ describe('SmartDispatcher', () => {
       expect(config.confidenceThreshold).toBe(0.85);
       expect(config.fallbackAgentType).toBe('architect');
       expect(config.maxDescriptionLength).toBe(500);
+      expect(config.dispatchModel).toBe('claude-3-opus-20240229');
     });
   });
 });

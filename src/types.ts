@@ -604,6 +604,7 @@ export interface SmartDispatcherConfig {
   confidenceThreshold: number;
   fallbackAgentType: string;
   maxDescriptionLength: number;
+  dispatchModel: string;
 }
 
 export interface DispatchDecision {

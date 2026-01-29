@@ -160,6 +160,7 @@ const SmartDispatcherConfigSchema = z.object({
   confidenceThreshold: z.number().min(0).max(1).default(0.7),
   fallbackAgentType: z.string().default('coder'),
   maxDescriptionLength: z.number().min(100).max(10000).default(1000),
+  dispatchModel: z.string().default('claude-3-5-haiku-20241022'),
 });
 
 const ConfigSchema = z.object({

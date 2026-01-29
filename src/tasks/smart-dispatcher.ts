@@ -21,6 +21,7 @@ const DEFAULT_CONFIG: SmartDispatcherConfig = {
   confidenceThreshold: 0.7,
   fallbackAgentType: 'coder',
   maxDescriptionLength: 1000,
+  dispatchModel: 'claude-3-5-haiku-20241022',
 };
 
 const SYSTEM_PROMPT = `You are an AI task router. Your job is to analyze a task description and select the most appropriate agent type to handle it.
@@ -69,15 +70,15 @@ export class SmartDispatcher {
 
   /**
    * Create the LLM provider for dispatching
-   * Prefers fast models like Haiku for low latency
+   * Uses configurable model (defaults to Haiku for low latency)
    */
   private createProvider(): LLMProvider | null {
     try {
-      // Try to get Anthropic provider with Haiku for fast dispatch
+      // Try to get Anthropic provider with configured dispatch model
       if (this.appConfig.providers.anthropic?.apiKey) {
         return new AnthropicProvider(
           this.appConfig.providers.anthropic.apiKey,
-          'claude-3-5-haiku-20241022' // Fast model for dispatch
+          this.config.dispatchModel
         );
       }
 
@@ -306,17 +307,23 @@ export class SmartDispatcher {
   }
 
   /**
-   * Generate a cache key from a description
+   * Generate a cache key from a description using FNV-1a hash
+   * FNV-1a provides better distribution and fewer collisions than simple hash
    */
   private getCacheKey(description: string): string {
-    // Simple hash function for cache key
-    let hash = 0;
+    // FNV-1a 32-bit hash parameters
+    const FNV_PRIME = 0x01000193;
+    const FNV_OFFSET_BASIS = 0x811c9dc5;
+
+    let hash = FNV_OFFSET_BASIS;
     for (let i = 0; i < description.length; i++) {
-      const char = description.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+      hash ^= description.charCodeAt(i);
+      hash = Math.imul(hash, FNV_PRIME);
     }
-    return `dispatch:${hash}`;
+
+    // Convert to unsigned 32-bit and then to hex for readable key
+    const unsignedHash = hash >>> 0;
+    return `dispatch:${unsignedHash.toString(16)}`;
   }
 
   /**
@@ -386,7 +393,8 @@ function configEquals(
     a.cacheTTLMs === b.cacheTTLMs &&
     a.confidenceThreshold === b.confidenceThreshold &&
     a.fallbackAgentType === b.fallbackAgentType &&
-    a.maxDescriptionLength === b.maxDescriptionLength
+    a.maxDescriptionLength === b.maxDescriptionLength &&
+    a.dispatchModel === b.dispatchModel
   );
 }
 
