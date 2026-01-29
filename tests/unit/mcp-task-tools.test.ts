@@ -96,10 +96,12 @@ describe('MCP Task Tools', () => {
       expect(() => new Date(result.task.createdAt)).not.toThrow();
     });
 
-    it('should throw for missing agentType', async () => {
-      await expect(
-        tools.task_create.handler({})
-      ).rejects.toThrow();
+    it('should use fallback agentType when missing (auto-dispatch)', async () => {
+      // When agentType is not provided and no dispatcher, should use fallback
+      const result = await tools.task_create.handler({});
+
+      expect(result.success).toBe(true);
+      expect(result.task.agentType).toBe('coder'); // Default fallback
     });
 
     it('should throw for empty agentType', async () => {
@@ -112,7 +114,8 @@ describe('MCP Task Tools', () => {
 
     it('should have correct tool definition', () => {
       expect(tools.task_create.name).toBe('task_create');
-      expect(tools.task_create.inputSchema.required).toContain('agentType');
+      // agentType is now optional (auto-dispatch feature)
+      expect(tools.task_create.inputSchema.required).toEqual([]);
     });
   });
 

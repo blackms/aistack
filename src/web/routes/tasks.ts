@@ -9,6 +9,7 @@ import { badRequest, notFound } from '../middleware/error.js';
 import { getMemoryManager } from '../../memory/index.js';
 import { TaskQueue } from '../../coordination/task-queue.js';
 import { agentEvents } from '../websocket/event-bridge.js';
+import { getSmartDispatcher } from '../../tasks/smart-dispatcher.js';
 import type { CreateTaskRequest, AssignTaskRequest, CompleteTaskRequest } from '../types.js';
 
 // Global task queue instance
@@ -65,18 +66,39 @@ export function registerTaskRoutes(router: Router, config: AgentStackConfig): vo
   });
 
   // POST /api/v1/tasks - Create task
-  router.post('/api/v1/tasks', (_req, res, params) => {
+  router.post('/api/v1/tasks', async (_req, res, params) => {
     const body = params.body as CreateTaskRequest | undefined;
 
-    if (!body?.agentType) {
-      throw badRequest('Agent type is required');
+    let agentType = body?.agentType;
+    let dispatchInfo: { agentType: string; confidence: number; reasoning: string; cached: boolean } | undefined;
+
+    // Auto-dispatch if no agent type specified
+    if (!agentType && body?.input) {
+      const dispatcher = getSmartDispatcher(config);
+      if (dispatcher.isEnabled()) {
+        const dispatchResult = await dispatcher.dispatch(body.input);
+        if (dispatchResult.success && dispatchResult.decision) {
+          agentType = dispatchResult.decision.agentType;
+          dispatchInfo = {
+            agentType: dispatchResult.decision.agentType,
+            confidence: dispatchResult.decision.confidence,
+            reasoning: dispatchResult.decision.reasoning,
+            cached: dispatchResult.decision.cached,
+          };
+        }
+      }
+    }
+
+    // Fallback to default agent type
+    if (!agentType) {
+      agentType = config.smartDispatcher?.fallbackAgentType ?? 'coder';
     }
 
     const manager = getManager();
-    const task = manager.createTask(body.agentType, body.input, body.sessionId);
+    const task = manager.createTask(agentType, body?.input, body?.sessionId);
 
     // Add to queue if priority is specified
-    if (body.priority !== undefined) {
+    if (body?.priority !== undefined) {
       const queue = getTaskQueue();
       queue.enqueue(task, body.priority);
     }
@@ -85,7 +107,29 @@ export function registerTaskRoutes(router: Router, config: AgentStackConfig): vo
       ...task,
       createdAt: task.createdAt.toISOString(),
       completedAt: task.completedAt?.toISOString(),
+      dispatch: dispatchInfo,
     }, 201);
+  });
+
+  // POST /api/v1/tasks/dispatch - Preview dispatch decision (doesn't create task)
+  router.post('/api/v1/tasks/dispatch', async (_req, res, params) => {
+    const body = params.body as { input?: string } | undefined;
+
+    if (!body?.input) {
+      throw badRequest('Input is required for dispatch preview');
+    }
+
+    const dispatcher = getSmartDispatcher(config);
+    if (!dispatcher.isEnabled()) {
+      sendJson(res, {
+        success: false,
+        error: 'Smart dispatcher is not enabled',
+      });
+      return;
+    }
+
+    const result = await dispatcher.dispatch(body.input);
+    sendJson(res, result);
   });
 
   // GET /api/v1/tasks/queue - Get queue status

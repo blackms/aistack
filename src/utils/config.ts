@@ -153,6 +153,15 @@ const ConsensusConfigSchema = z.object({
   ]),
 });
 
+const SmartDispatcherConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  cacheEnabled: z.boolean().default(true),
+  cacheTTLMs: z.number().min(60000).max(86400000).default(3600000),
+  confidenceThreshold: z.number().min(0).max(1).default(0.7),
+  fallbackAgentType: z.string().default('coder'),
+  maxDescriptionLength: z.number().min(100).max(10000).default(1000),
+});
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -166,6 +175,7 @@ const ConfigSchema = z.object({
   driftDetection: DriftDetectionConfigSchema.default({}),
   resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
   consensus: ConsensusConfigSchema.default({}),
+  smartDispatcher: SmartDispatcherConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
