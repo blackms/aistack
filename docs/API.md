@@ -6,7 +6,7 @@
 
 AgentStack provides three API surfaces:
 
-1. **MCP Tools** - 41 tools exposed via Model Context Protocol for Claude Code
+1. **MCP Tools** - 46 tools exposed via Model Context Protocol for Claude Code
 2. **Programmatic API** - TypeScript/JavaScript library exports
 3. **CLI Commands** - Command-line interface
 4. **REST API** - HTTP endpoints for web dashboard and integrations
@@ -868,6 +868,184 @@ Get drift detection metrics and statistics.
     "warningThreshold": 0.8,
     "ancestorDepth": 3,
     "behavior": "warn"
+  }
+}
+```
+
+---
+
+### Consensus Tools
+
+Tools for managing consensus checkpoints that gate high-risk task creation.
+
+#### `consensus_check`
+
+Check if a task would require consensus before creation.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "agentType": { "type": "string", "description": "Agent type for this task" },
+    "input": { "type": "string", "description": "Task input/description" },
+    "parentTaskId": { "type": "string", "description": "Parent task ID" },
+    "riskLevel": { "type": "string", "enum": ["low", "medium", "high"], "description": "Risk level override" }
+  },
+  "required": ["agentType"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "requiresConsensus": true,
+  "reason": "Risk level 'high' requires consensus",
+  "riskLevel": "high",
+  "depth": 2,
+  "config": {
+    "enabled": true,
+    "requireForRiskLevels": ["high", "medium"],
+    "maxDepth": 5
+  }
+}
+```
+
+---
+
+#### `consensus_list_pending`
+
+List pending consensus checkpoints.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "limit": { "type": "number", "description": "Max checkpoints to return" },
+    "offset": { "type": "number", "description": "Offset for pagination" }
+  }
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "count": 2,
+  "checkpoints": [
+    {
+      "id": "uuid-v4",
+      "taskId": "task-uuid",
+      "riskLevel": "high",
+      "status": "pending",
+      "reviewerStrategy": "adversarial",
+      "subtaskCount": 1,
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "expiresAt": "2024-01-01T00:05:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+#### `consensus_get`
+
+Get a consensus checkpoint by ID.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "checkpointId": { "type": "string", "description": "Checkpoint ID" }
+  },
+  "required": ["checkpointId"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "checkpoint": {
+    "id": "uuid-v4",
+    "taskId": "task-uuid",
+    "proposedSubtasks": [...],
+    "riskLevel": "high",
+    "status": "pending",
+    "reviewerStrategy": "adversarial",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "expiresAt": "2024-01-01T00:05:00.000Z"
+  }
+}
+```
+
+---
+
+#### `consensus_approve`
+
+Approve a consensus checkpoint.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "checkpointId": { "type": "string", "description": "Checkpoint ID" },
+    "reviewedBy": { "type": "string", "description": "Reviewer ID" },
+    "feedback": { "type": "string", "description": "Optional feedback" }
+  },
+  "required": ["checkpointId", "reviewedBy"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "checkpoint": {
+    "id": "uuid-v4",
+    "status": "approved",
+    "decidedAt": "2024-01-01T00:02:00.000Z"
+  }
+}
+```
+
+---
+
+#### `consensus_reject`
+
+Reject a consensus checkpoint.
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "checkpointId": { "type": "string", "description": "Checkpoint ID" },
+    "reviewedBy": { "type": "string", "description": "Reviewer ID" },
+    "feedback": { "type": "string", "description": "Rejection reason" },
+    "rejectedSubtaskIds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Specific subtask IDs to reject (partial rejection)"
+    }
+  },
+  "required": ["checkpointId", "reviewedBy"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "checkpoint": {
+    "id": "uuid-v4",
+    "status": "rejected",
+    "decidedAt": "2024-01-01T00:02:00.000Z"
   }
 }
 ```
@@ -1886,7 +2064,40 @@ curl "http://localhost:3001/api/v1/identities?status=active&limit=10"
 | `/api/v1/projects` | Project management |
 | `/api/v1/specifications` | Specification management |
 | `/api/v1/review-loops` | Review loop management |
+| `/api/v1/consensus` | Consensus checkpoint management |
 | `/api/v1/auth` | Authentication |
+
+### Consensus REST API
+
+Base path: `/api/v1/consensus`
+
+These endpoints require `consensus.enabled: true` in configuration.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/consensus/config` | Get consensus configuration |
+| `GET` | `/api/v1/consensus/pending` | List pending checkpoints (paginated) |
+| `POST` | `/api/v1/consensus/check` | Check if consensus is required |
+| `POST` | `/api/v1/consensus/expire` | Manually expire old checkpoints |
+| `GET` | `/api/v1/consensus/:id` | Get checkpoint details |
+| `GET` | `/api/v1/consensus/:id/events` | Get checkpoint audit log |
+| `PUT` | `/api/v1/consensus/:id/approve` | Approve a checkpoint |
+| `PUT` | `/api/v1/consensus/:id/reject` | Reject a checkpoint |
+| `POST` | `/api/v1/consensus/:id/start-review` | Start agent review |
+
+**Example: Check if consensus required**
+```bash
+curl -X POST http://localhost:3001/api/v1/consensus/check \
+  -H "Content-Type: application/json" \
+  -d '{"agentType": "coder", "input": "Delete production database"}'
+```
+
+**Example: Approve a checkpoint**
+```bash
+curl -X PUT http://localhost:3001/api/v1/consensus/checkpoint-uuid/approve \
+  -H "Content-Type: application/json" \
+  -d '{"reviewedBy": "user-1", "feedback": "Looks good"}'
+```
 
 ### Resource Exhaustion REST API
 

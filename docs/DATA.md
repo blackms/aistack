@@ -237,6 +237,52 @@ CREATE INDEX IF NOT EXISTS idx_resource_exhaustion_events_agent ON resource_exha
 CREATE INDEX IF NOT EXISTS idx_resource_exhaustion_events_created ON resource_exhaustion_events(created_at DESC);
 ```
 
+### Consensus Checkpoints Table
+
+Track consensus validation checkpoints for high-risk task approvals.
+
+```sql
+CREATE TABLE IF NOT EXISTS consensus_checkpoints (
+  id TEXT PRIMARY KEY,             -- UUID v4
+  task_id TEXT NOT NULL,           -- Associated task ID
+  parent_task_id TEXT,             -- Parent task if subtask
+  proposed_subtasks TEXT NOT NULL, -- JSON array of proposed subtasks
+  risk_level TEXT NOT NULL CHECK (risk_level IN ('low', 'medium', 'high')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
+  reviewer_strategy TEXT NOT NULL CHECK (reviewer_strategy IN ('adversarial', 'different-model', 'human')),
+  reviewer_id TEXT,                -- ID of reviewer (agent or human)
+  reviewer_type TEXT CHECK (reviewer_type IN ('agent', 'human')),
+  decision TEXT,                   -- JSON decision details
+  created_at INTEGER NOT NULL,     -- Unix timestamp (ms)
+  expires_at INTEGER NOT NULL,     -- Unix timestamp (ms)
+  decided_at INTEGER               -- Unix timestamp (ms)
+);
+
+CREATE INDEX IF NOT EXISTS idx_consensus_checkpoints_status ON consensus_checkpoints(status);
+CREATE INDEX IF NOT EXISTS idx_consensus_checkpoints_task ON consensus_checkpoints(task_id);
+CREATE INDEX IF NOT EXISTS idx_consensus_checkpoints_expires ON consensus_checkpoints(expires_at);
+```
+
+### Consensus Checkpoint Events Table
+
+Audit trail for consensus checkpoint lifecycle events.
+
+```sql
+CREATE TABLE IF NOT EXISTS consensus_checkpoint_events (
+  id TEXT PRIMARY KEY,             -- UUID v4
+  checkpoint_id TEXT NOT NULL,     -- Foreign key to consensus_checkpoints
+  event_type TEXT NOT NULL CHECK (event_type IN ('created', 'review_started', 'approved', 'rejected', 'expired', 'subtask_rejected')),
+  actor_id TEXT,                   -- Who triggered the event
+  actor_type TEXT CHECK (actor_type IN ('agent', 'human', 'system')),
+  details TEXT,                    -- JSON event details
+  created_at INTEGER NOT NULL,     -- Unix timestamp (ms)
+  FOREIGN KEY (checkpoint_id) REFERENCES consensus_checkpoints(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_consensus_events_checkpoint ON consensus_checkpoint_events(checkpoint_id);
+CREATE INDEX IF NOT EXISTS idx_consensus_events_created ON consensus_checkpoint_events(created_at DESC);
+```
+
 ## TypeScript Interfaces
 
 ### Memory Entry
@@ -398,6 +444,55 @@ interface ResourceExhaustionEvent {
   metrics: AgentResourceMetrics;
   thresholds: ResourceThresholds;
   triggeredBy: keyof ResourceThresholds;
+  createdAt: Date;
+}
+```
+
+### Consensus Types
+
+```typescript
+type ConsensusCheckpointStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+type ReviewerStrategy = 'adversarial' | 'different-model' | 'human';
+type ReviewerType = 'agent' | 'human';
+type ConsensusEventType = 'created' | 'review_started' | 'approved' | 'rejected' | 'expired' | 'subtask_rejected';
+type ActorType = 'agent' | 'human' | 'system';
+type TaskRiskLevel = 'low' | 'medium' | 'high';
+
+interface ConsensusCheckpoint {
+  id: string;                             // UUID v4
+  taskId: string;
+  parentTaskId?: string;
+  proposedSubtasks: ProposedSubtask[];
+  riskLevel: TaskRiskLevel;
+  status: ConsensusCheckpointStatus;
+  reviewerStrategy: ReviewerStrategy;
+  reviewerId?: string;
+  reviewerType?: ReviewerType;
+  decision?: ConsensusDecision;
+  createdAt: Date;
+  expiresAt: Date;
+  decidedAt?: Date;
+}
+
+interface ProposedSubtask {
+  agentType: string;
+  input?: string;
+  riskLevel?: TaskRiskLevel;
+}
+
+interface ConsensusDecision {
+  approved: boolean;
+  feedback?: string;
+  rejectedSubtaskIds?: string[];
+}
+
+interface ConsensusCheckpointEvent {
+  id: string;                             // UUID v4
+  checkpointId: string;
+  eventType: ConsensusEventType;
+  actorId?: string;
+  actorType?: ActorType;
+  details?: Record<string, unknown>;
   createdAt: Date;
 }
 ```

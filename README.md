@@ -21,7 +21,7 @@
 <br/>
 
 ```
-11 agents · 41 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Agent Identity · Drift Detection · Resource Exhaustion Monitoring
+11 agents · 46 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Agent Identity · Drift Detection · Consensus Checkpoints · Resource Monitoring
 ```
 
 </div>
@@ -201,13 +201,24 @@ Detect and prevent runaway agents consuming excessive resources:
 - **Deliverable Checkpoints** - Reset time-based tracking when agents produce results
 - **Slack Notifications** - Alert on warnings, interventions, and terminations
 
-### 🎯 41 MCP Tools for Claude Code
+### 🤝 Consensus Checkpoints
+
+Require validation before high-risk tasks can spawn subtasks:
+
+- **Risk-Based Gating** - Configure which risk levels (high, medium, low) require consensus
+- **Reviewer Strategies** - Choose from `adversarial`, `different-model`, or `human` reviewers
+- **Configurable Risk Estimation** - Define high/medium risk agent types and keyword patterns
+- **Task Depth Tracking** - Prevent unbounded task recursion with `maxDepth` limits
+- **Checkpoint Lifecycle** - `pending` → `approved`/`rejected`/`expired` with audit trail
+- **Timeout & Auto-Expiry** - Checkpoints expire after configurable timeout
+
+### 🎯 46 MCP Tools for Claude Code
 
 Control aistack directly from Claude Code IDE:
 - 6 agent tools (spawn, list, stop, status, types, update)
 - 8 identity tools (create, get, list, update, activate, deactivate, retire, audit)
 - 5 memory tools (store, search, get, list, delete) — with agent-scoped memory support
-- 8 task tools (create, assign, complete, list, get, check_drift, get_relationships, drift_metrics)
+- 13 task tools (create, assign, complete, list, get, check_drift, get_relationships, drift_metrics, + 5 consensus tools)
 - 4 session tools (start, end, status, active)
 - 3 system tools (status, health, config)
 - 7 GitHub tools (issues, PRs, repo info)
@@ -297,7 +308,7 @@ Create `aistack.config.json` in your project root:
 
 ```json
 {
-  "version": "1.5.2",
+  "version": "1.5.3",
   "providers": {
     "default": "anthropic",
     "anthropic": {
@@ -342,9 +353,17 @@ Create `aistack.config.json` in your project root:
     "autoTerminate": false,
     "pauseOnIntervention": true
   },
-  "auth": {
-    "enabled": true,
-    "jwtSecret": "${JWT_SECRET}"
+  "consensus": {
+    "enabled": false,
+    "requireForRiskLevels": ["high", "medium"],
+    "reviewerStrategy": "adversarial",
+    "timeout": 300000,
+    "maxDepth": 5,
+    "autoReject": false,
+    "highRiskAgentTypes": ["coder", "devops", "security-auditor"],
+    "mediumRiskAgentTypes": ["architect", "coordinator", "analyst"],
+    "highRiskPatterns": ["delete", "remove", "drop", "deploy", "production", "credentials", "secret", "password", "token", "api key"],
+    "mediumRiskPatterns": ["modify", "update", "change", "configure", "install"]
   }
 }
 ```
@@ -554,7 +573,7 @@ Then open http://localhost:3001 to:
 
 | Tool | Description | Input | Code |
 |------|-------------|-------|------|
-| `task_create` | Create task with drift detection | `{ agentType, input?, sessionId?, parentTaskId? }` | `/src/mcp/tools/task-tools.ts:50` |
+| `task_create` | Create task with drift detection | `{ agentType, input?, sessionId?, parentTaskId?, riskLevel? }` | `/src/mcp/tools/task-tools.ts:50` |
 | `task_assign` | Assign task to agent | `{ taskId, agentId }` | `/src/mcp/tools/task-tools.ts:138` |
 | `task_complete` | Mark task complete | `{ taskId, output?, status? }` | `/src/mcp/tools/task-tools.ts:169` |
 | `task_list` | List tasks | `{ sessionId?, status? }` | `/src/mcp/tools/task-tools.ts:206` |
@@ -562,6 +581,16 @@ Then open http://localhost:3001 to:
 | `task_check_drift` | Check for semantic drift | `{ taskInput, taskType, parentTaskId? }` | `/src/mcp/tools/task-tools.ts:273` |
 | `task_get_relationships` | Get task relationships | `{ taskId, direction? }` | `/src/mcp/tools/task-tools.ts:328` |
 | `task_drift_metrics` | Get drift detection metrics | `{ since? }` | `/src/mcp/tools/task-tools.ts:376` |
+
+### Consensus Tools (5)
+
+| Tool | Description | Input | Code |
+|------|-------------|-------|------|
+| `consensus_check` | Check if consensus required | `{ agentType, input?, parentTaskId?, riskLevel? }` | `/src/mcp/tools/task-tools.ts:504` |
+| `consensus_list_pending` | List pending checkpoints | `{ limit?, offset? }` | `/src/mcp/tools/task-tools.ts:560` |
+| `consensus_get` | Get checkpoint details | `{ checkpointId }` | `/src/mcp/tools/task-tools.ts:610` |
+| `consensus_approve` | Approve a checkpoint | `{ checkpointId, reviewedBy, feedback? }` | `/src/mcp/tools/task-tools.ts:670` |
+| `consensus_reject` | Reject a checkpoint | `{ checkpointId, reviewedBy, feedback?, rejectedSubtaskIds? }` | `/src/mcp/tools/task-tools.ts:720` |
 
 ### Session Tools (4)
 
@@ -592,7 +621,7 @@ Then open http://localhost:3001 to:
 | `github_pr_get` | Get PR | `{ owner, repo, number }` | `/src/mcp/tools/github-tools.ts:273` |
 | `github_repo_info` | Get repo info | `{ owner, repo }` | `/src/mcp/tools/github-tools.ts:301` |
 
-**Total: 41 MCP Tools**
+**Total: 46 MCP Tools**
 
 > **Note:** Review loop functionality is available via the programmatic API (`createReviewLoop`) and CLI, but not exposed as MCP tools.
 
@@ -739,7 +768,7 @@ To set accurate expectations, here are features **explicitly not implemented**:
 - ❌ **Cloud-specific deployments** (AWS, GCP, Azure templates)
 - ❌ **GraphQL API** (REST + WebSocket only)
 - ❌ **Multi-tenancy** (single SQLite instance per deployment)
-- ❌ **Built-in monitoring/observability** (no Prometheus/Grafana)
+- ⚠️ **Limited observability** - Built-in health checks and Prometheus-style metrics, but no Grafana dashboards
 - ❌ **Message queue systems** (no Kafka, RabbitMQ, Redis Streams)
 - ❌ **Distributed tracing** (no OpenTelemetry integration)
 
@@ -798,6 +827,6 @@ aistack is designed as a **local-first, NPM-distributed package** for developer 
 
 <br/>
 
-<sub>✅ **README verified against codebase v1.5.2** - All claims backed by implemented code with file:line references (includes Resource Exhaustion Monitoring and Session-based Memory Isolation)</sub>
+<sub>✅ **README verified against codebase v1.5.3** - All claims backed by implemented code with file:line references (includes Consensus Checkpoints, Resource Exhaustion Monitoring, and Session-based Memory Isolation)</sub>
 
 </div>

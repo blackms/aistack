@@ -14,8 +14,9 @@ AgentStack is a multi-agent orchestration framework that enables Claude Code to 
 4. **Task Coordination**: Queue, prioritize, and distribute tasks to agents
 5. **Semantic Drift Detection**: Detect when task descriptions are too similar to ancestors
 6. **Resource Exhaustion Monitoring**: Track and prevent runaway agents consuming excessive resources
-7. **Workflow Automation**: Execute multi-phase workflows with validation
-8. **Extensibility**: Support plugins for custom agents, tools, and hooks
+7. **Consensus Checkpoints**: Require validation before high-risk tasks can spawn subtasks
+8. **Workflow Automation**: Execute multi-phase workflows with validation
+9. **Extensibility**: Support plugins for custom agents, tools, and hooks
 
 ### 1.2 Key Stakeholders
 
@@ -249,6 +250,34 @@ sequenceDiagram
     WR-->>CLI: WorkflowReport
 ```
 
+### 4.5 Consensus Checkpoint Flow
+
+```mermaid
+sequenceDiagram
+    participant Agent as Parent Agent
+    participant CS as ConsensusService
+    participant DB as SQLite
+    participant REV as Reviewer
+
+    Agent->>CS: checkConsensusRequired(agentType, input, parentTaskId)
+    CS->>CS: estimateRiskLevel(agentType, input)
+
+    alt Risk requires consensus
+        CS->>DB: createCheckpoint(taskId, subtasks, riskLevel)
+        DB-->>CS: Checkpoint (pending)
+        CS-->>Agent: {required: true, checkpointId}
+
+        Note over REV: Reviewer evaluates subtasks
+        REV->>CS: approveCheckpoint(checkpointId, feedback)
+        CS->>DB: Update status to 'approved'
+        CS->>DB: Log 'approved' event
+        CS-->>Agent: Proceed with subtasks
+    else Risk below threshold
+        CS-->>Agent: {required: false}
+        Agent->>Agent: Spawn subtasks directly
+    end
+```
+
 ## 5. Integration Points
 
 ### 5.1 MCP Tool Categories
@@ -259,11 +288,12 @@ sequenceDiagram
 | Identity | 8 | Create, get, list, update, activate, deactivate, retire, audit |
 | Memory | 5 | Store, search, get, list, delete |
 | Task | 8 | Create, assign, complete, list, get, check_drift, get_relationships, drift_metrics |
+| Consensus | 5 | Check, list_pending, get, approve, reject |
 | Session | 4 | Start, end, status, active |
 | System | 3 | Status, health, config |
 | GitHub | 7 | Issues and PRs |
 
-**Total: 41 tools**
+**Total: 46 tools**
 
 > Note: Review loop functionality is available via programmatic API (`createReviewLoop`) and CLI, but not exposed as MCP tools.
 

@@ -59,7 +59,7 @@ export class ConsensusService {
   constructor(store: SQLiteStore, appConfig: AgentStackConfig) {
     this.store = store;
     // Merge config carefully to preserve defaults when values are undefined
-    const userConfig = appConfig.consensus ?? {};
+    const userConfig: Partial<ConsensusConfig> = appConfig.consensus ?? {};
     this.config = {
       ...DEFAULT_CONFIG,
       ...userConfig,

@@ -559,6 +559,64 @@ CREATE TABLE drift_detection_events (
 );
 ```
 
+### 4.2 Consensus Service (`consensus-service.ts`)
+
+**Purpose**: Manage consensus checkpoints for high-risk task validation.
+
+**Configuration**:
+```typescript
+interface ConsensusConfig {
+  enabled: boolean;                    // default: false
+  requireForRiskLevels: TaskRiskLevel[]; // default: ['high', 'medium']
+  reviewerStrategy: ReviewerStrategy;  // default: 'adversarial'
+  timeout: number;                     // default: 300000 (5 min)
+  maxDepth: number;                    // default: 5
+  autoReject: boolean;                 // default: false
+  // Risk estimation configuration
+  highRiskAgentTypes?: string[];       // default: ['coder', 'devops', 'security-auditor']
+  mediumRiskAgentTypes?: string[];     // default: ['architect', 'coordinator', 'analyst']
+  highRiskPatterns?: string[];         // default: ['delete', 'remove', 'drop', 'deploy', 'production', ...]
+  mediumRiskPatterns?: string[];       // default: ['modify', 'update', 'change', 'configure', 'install']
+}
+```
+
+**Key Functions**:
+
+| Function | Description |
+|----------|-------------|
+| `checkConsensusRequired(agentType, input, parentTaskId, riskLevel)` | Check if consensus is needed |
+| `createCheckpoint(taskId, subtasks, riskLevel, parentTaskId)` | Create pending checkpoint |
+| `getCheckpoint(checkpointId)` | Get checkpoint by ID |
+| `listPendingCheckpoints(limit, offset)` | List checkpoints awaiting review |
+| `approveCheckpoint(checkpointId, reviewerId, feedback)` | Approve and allow subtasks |
+| `rejectCheckpoint(checkpointId, reviewerId, feedback, rejectedIds)` | Reject with feedback |
+| `estimateRiskLevel(agentType, input)` | Estimate task risk from type and content |
+| `expireCheckpoints()` | Mark expired checkpoints |
+
+**Checkpoint Status Lifecycle**:
+```mermaid
+stateDiagram-v2
+    [*] --> pending: create
+    pending --> approved: approve
+    pending --> rejected: reject
+    pending --> expired: timeout
+    approved --> [*]
+    rejected --> [*]
+    expired --> [*]
+```
+
+**Risk Estimation Algorithm**:
+1. Check if `agentType` is in `highRiskAgentTypes` → return 'high'
+2. Check if `agentType` is in `mediumRiskAgentTypes` → return 'medium'
+3. If `input` provided, scan for `highRiskPatterns` → return 'high' on match
+4. If `input` provided, scan for `mediumRiskPatterns` → return 'medium' on match
+5. Default → return 'low'
+
+**Integration Points**:
+- Task creation checks consensus before spawning subtasks
+- MCP tools: `consensus_check`, `consensus_list_pending`, `consensus_get`, `consensus_approve`, `consensus_reject`
+- REST API: `/api/v1/consensus/*` endpoints
+
 ## 5. Coordination Module (`src/coordination/`)
 
 ### 4.1 Task Queue (`task-queue.ts`)

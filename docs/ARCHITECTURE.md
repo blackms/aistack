@@ -11,6 +11,7 @@ AgentStack solves the core problem of coordinating multiple AI agents with speci
 - **MCP Integration**: Seamless Model Context Protocol server via stdio transport
 - **LLM Abstraction**: Supporting 6 providers (Anthropic, OpenAI, Ollama, Claude Code CLI, Gemini CLI, Codex) with a unified interface
 - **Runtime Extensibility**: Plugin system for extending functionality without modifying core
+- **Consensus Checkpoints**: Risk-based validation gates to prevent unbounded agent task spawning
 
 ## C4 Context Diagram
 
@@ -91,6 +92,7 @@ flowchart TB
         TQ[Task Queue]
         MB[Message Bus]
         WR[Workflow Runner]
+        CS[Consensus Service]
     end
 
     subgraph "Storage Layer"
@@ -237,6 +239,13 @@ Per-agent resource tracking detects runaway agents consuming excessive resources
 - Automatic pause/resume with callback mechanism
 - Deliverable checkpoints for progress tracking
 
+### 7. Consensus Checkpoints
+Risk-based gating prevents unbounded task recursion:
+- Configurable risk levels (`high`, `medium`, `low`) that require consensus
+- Multiple reviewer strategies: `adversarial`, `different-model`, `human`
+- Task depth tracking with configurable `maxDepth` limits
+- Checkpoint lifecycle: `pending` → `approved`/`rejected`/`expired`
+
 ## Technology Stack
 
 | Component | Technology | Purpose |
@@ -266,7 +275,7 @@ src/
 │   └── access-control.ts  # Session-based isolation (v1.5.2+)
 ├── mcp/               # MCP server and tools
 │   ├── server.ts
-│   └── tools/         # 41 tool implementations
+│   └── tools/         # 46 tool implementations (incl. consensus)
 ├── coordination/      # Task and message management
 │   ├── task-queue.ts
 │   ├── message-bus.ts
@@ -275,11 +284,16 @@ src/
 │   ├── resource-exhaustion-service.ts
 │   ├── metrics.ts
 │   └── health.ts
+├── tasks/             # Task management
+│   ├── drift-detection-service.ts
+│   └── consensus-service.ts  # Consensus checkpoints
 ├── workflows/         # Multi-phase workflows
 ├── plugins/           # Plugin system
 ├── hooks/             # Lifecycle hooks
 ├── providers/         # LLM provider abstraction
 ├── github/            # GitHub CLI integration
+├── auth/              # JWT authentication service
+├── integrations/      # External integrations (Slack)
 ├── cli/               # Command-line interface
 └── utils/             # Shared utilities
 ```
