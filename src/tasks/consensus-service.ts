@@ -13,8 +13,6 @@ import type {
   ConsensusStatus,
   ProposedSubtask,
   TaskRiskLevel,
-  ReviewerStrategy,
-  Task,
 } from '../types.js';
 import { logger } from '../utils/logger.js';
 
