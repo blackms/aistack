@@ -508,6 +508,110 @@ For better vector search performance:
 - Embeddings: ~$0.02 per 1M tokens
 - Chat: Varies by model and usage
 
+### API Cost Considerations
+
+When using semantic drift detection and vector search features, understanding API costs helps with capacity planning and budgeting.
+
+#### Drift Detection Cost Overview
+
+Drift detection uses embedding API calls to compare task descriptions against parent context:
+
+- **Task with parent**: 2 API calls per task
+  - One call to generate embedding for drift comparison
+  - One call to index the task for future searches
+- **Standalone task**: 1 API call (indexing only, if drift detection enabled)
+- **Memory operations**: 1 API call per entry indexed
+
+#### Cost Calculation Table
+
+Based on OpenAI's `text-embedding-3-small` pricing (~$0.02 per 1M tokens, typical task ~100 tokens):
+
+| Operation | API Calls | Est. Cost (OpenAI) |
+|-----------|-----------|-------------------|
+| Task with parent | 2 | ~$0.000008 |
+| Standalone task | 1 | ~$0.000004 |
+| Memory entry index | 1 | ~$0.000004 |
+| Vector search query | 1 | ~$0.000004 |
+
+#### Usage Pattern Examples
+
+| Usage Level | Tasks/Day | Daily Cost | Monthly Cost |
+|-------------|-----------|------------|--------------|
+| Light | 100 | ~$0.0008 | ~$0.024 |
+| Medium | 1,000 | ~$0.008 | ~$0.24 |
+| Heavy | 10,000 | ~$0.08 | ~$2.40 |
+
+*Costs assume average of 1.5 API calls per task (mix of parent and standalone tasks).*
+
+#### Cost Optimization Strategies
+
+1. **Use Ollama for free local embeddings** (see below)
+2. **Disable drift detection when not needed**:
+   ```json
+   {
+     "driftDetection": {
+       "enabled": false
+     }
+   }
+   ```
+3. **Use async embedding** (default) - doesn't reduce cost but improves responsiveness:
+   ```json
+   {
+     "driftDetection": {
+       "asyncEmbedding": true
+     }
+   }
+   ```
+4. **Batch operations** when creating multiple related tasks
+
+#### Drift Detection Configuration
+
+Full configuration with cost-relevant options:
+
+```json
+{
+  "driftDetection": {
+    "enabled": true,
+    "threshold": 0.95,
+    "asyncEmbedding": true
+  }
+}
+```
+
+| Option | Description | Cost Impact |
+|--------|-------------|-------------|
+| `enabled` | Enable/disable drift detection | Disabling eliminates drift check calls |
+| `threshold` | Similarity threshold (0.0-1.0) | No cost impact, affects sensitivity |
+| `asyncEmbedding` | Process embeddings asynchronously | No cost impact, improves UX |
+
+#### Cost-Free Alternative: Ollama
+
+Use Ollama for completely local, free embeddings:
+
+```json
+{
+  "memory": {
+    "vectorSearch": {
+      "enabled": true,
+      "provider": "ollama",
+      "model": "nomic-embed-text"
+    }
+  }
+}
+```
+
+**Requirements**:
+- Ollama installed and running locally
+- `nomic-embed-text` model pulled: `ollama pull nomic-embed-text`
+- Slightly slower than cloud APIs but zero cost
+
+**Comparison**:
+
+| Provider | Cost | Speed | Setup |
+|----------|------|-------|-------|
+| OpenAI | ~$0.02/1M tokens | Fast | API key required |
+| Ollama | Free | Moderate | Local installation |
+
 ## Docker Deployment
 
 ### Dockerfile
