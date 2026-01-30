@@ -153,6 +153,17 @@ const ConsensusConfigSchema = z.object({
   ]),
 });
 
+const SmartDispatcherConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  cacheEnabled: z.boolean().default(true),
+  cacheTTLMs: z.number().min(60000).max(86400000).default(3600000),
+  confidenceThreshold: z.number().min(0).max(1).default(0.7),
+  fallbackAgentType: z.string().default('coder'),
+  maxDescriptionLength: z.number().min(100).max(10000).default(1000),
+  // Claude 4.5 models: claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929, claude-opus-4-5-20251101
+  dispatchModel: z.string().default('claude-haiku-4-5-20251001'),
+});
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -166,6 +177,7 @@ const ConfigSchema = z.object({
   driftDetection: DriftDetectionConfigSchema.default({}),
   resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
   consensus: ConsensusConfigSchema.default({}),
+  smartDispatcher: SmartDispatcherConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';

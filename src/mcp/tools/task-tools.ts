@@ -7,11 +7,12 @@ import { randomUUID } from 'node:crypto';
 import type { MemoryManager } from '../../memory/index.js';
 import type { DriftDetectionService } from '../../tasks/drift-detection-service.js';
 import type { ConsensusService } from '../../tasks/consensus-service.js';
-import type { TaskRiskLevel, ProposedSubtask } from '../../types.js';
+import type { SmartDispatcher } from '../../tasks/smart-dispatcher.js';
+import type { TaskRiskLevel, ProposedSubtask, AgentStackConfig } from '../../types.js';
 
 // Input schemas
 const CreateInputSchema = z.object({
-  agentType: z.string().min(1).describe('Agent type for this task'),
+  agentType: z.string().min(1).optional().describe('Agent type for this task (optional - will auto-dispatch if not provided)'),
   input: z.string().optional().describe('Task input/description'),
   sessionId: z.string().uuid().optional().describe('Session to associate with'),
   parentTaskId: z.string().uuid().optional().describe('Parent task ID for drift detection'),
@@ -52,33 +53,57 @@ const GetRelationshipsInputSchema = z.object({
 export function createTaskTools(
   memory: MemoryManager,
   driftService?: DriftDetectionService,
-  consensusService?: ConsensusService
+  consensusService?: ConsensusService,
+  smartDispatcher?: SmartDispatcher,
+  config?: AgentStackConfig
 ) {
   return {
     task_create: {
       name: 'task_create',
-      description: 'Create a new task with optional drift detection and consensus checking',
+      description: 'Create a new task with optional drift detection and consensus checking. Agent type is auto-detected if not specified.',
       inputSchema: {
         type: 'object',
         properties: {
-          agentType: { type: 'string', description: 'Agent type for this task' },
+          agentType: { type: 'string', description: 'Agent type for this task (optional - auto-dispatched if not provided)' },
           input: { type: 'string', description: 'Task input/description' },
           sessionId: { type: 'string', description: 'Session to associate with' },
           parentTaskId: { type: 'string', description: 'Parent task ID for drift detection' },
           riskLevel: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Risk level for consensus checking' },
         },
-        required: ['agentType'],
+        required: [],
       },
       handler: async (params: Record<string, unknown>) => {
         const input = CreateInputSchema.parse(params);
 
         try {
+          // Auto-dispatch agent type if not specified
+          let agentType = input.agentType;
+          let dispatchInfo: { agentType: string; confidence: number; reasoning: string; cached: boolean } | undefined;
+
+          if (!agentType && input.input && smartDispatcher?.isEnabled()) {
+            const dispatchResult = await smartDispatcher.dispatch(input.input);
+            if (dispatchResult.success && dispatchResult.decision) {
+              agentType = dispatchResult.decision.agentType;
+              dispatchInfo = {
+                agentType: dispatchResult.decision.agentType,
+                confidence: dispatchResult.decision.confidence,
+                reasoning: dispatchResult.decision.reasoning,
+                cached: dispatchResult.decision.cached,
+              };
+            }
+          }
+
+          // Fallback to config default if still no agent type
+          if (!agentType) {
+            agentType = config?.smartDispatcher?.fallbackAgentType ?? 'coder';
+          }
+
           // Check for drift if service is available and input is provided
           let driftResult = null;
           if (driftService && input.input && input.parentTaskId) {
             driftResult = await driftService.checkDrift(
               input.input,
-              input.agentType,
+              agentType,
               input.parentTaskId
             );
 
@@ -102,7 +127,7 @@ export function createTaskTools(
           if (consensusService && consensusService.isEnabled()) {
             // Estimate or use provided risk level
             const riskLevel: TaskRiskLevel = input.riskLevel ||
-              consensusService.estimateRiskLevel(input.agentType, input.input);
+              consensusService.estimateRiskLevel(agentType, input.input);
 
             // Calculate depth
             const depth = consensusService.calculateTaskDepth(input.parentTaskId);
@@ -119,7 +144,7 @@ export function createTaskTools(
               const subtaskId = randomUUID();
               const proposedSubtask: ProposedSubtask = {
                 id: subtaskId,
-                agentType: input.agentType,
+                agentType,
                 input: input.input || '',
                 estimatedRiskLevel: riskLevel,
                 parentTaskId: input.parentTaskId || '',
@@ -154,11 +179,11 @@ export function createTaskTools(
 
           // Get risk level and depth for task creation
           const riskLevel: TaskRiskLevel | undefined = input.riskLevel ||
-            (consensusService ? consensusService.estimateRiskLevel(input.agentType, input.input) : undefined);
+            (consensusService ? consensusService.estimateRiskLevel(agentType, input.input) : undefined);
           const depth = consensusService?.calculateTaskDepth(input.parentTaskId);
 
           const task = memory.createTask(
-            input.agentType,
+            agentType,
             input.input,
             input.sessionId,
             {
@@ -194,6 +219,7 @@ export function createTaskTools(
               riskLevel: task.riskLevel,
               depth: task.depth,
             },
+            dispatch: dispatchInfo,
             drift: driftResult ? {
               isDrift: driftResult.isDrift,
               highestSimilarity: driftResult.highestSimilarity,

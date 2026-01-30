@@ -22,6 +22,7 @@ import {
 } from './tools/index.js';
 import { DriftDetectionService } from '../tasks/drift-detection-service.js';
 import { ConsensusService } from '../tasks/consensus-service.js';
+import { SmartDispatcher } from '../tasks/smart-dispatcher.js';
 
 const log = logger.child('mcp');
 
@@ -39,12 +40,14 @@ export class MCPServer {
   private config: AgentStackConfig;
   private driftService: DriftDetectionService;
   private consensusService: ConsensusService;
+  private smartDispatcher: SmartDispatcher;
 
   constructor(config: AgentStackConfig) {
     this.config = config;
     this.memory = new MemoryManager(config);
     this.driftService = new DriftDetectionService(this.memory.getStore(), config);
     this.consensusService = new ConsensusService(this.memory.getStore(), config);
+    this.smartDispatcher = new SmartDispatcher(config);
 
     this.server = new Server(
       {
@@ -68,7 +71,7 @@ export class MCPServer {
       createAgentTools(this.config),
       createIdentityTools(this.config),
       createMemoryTools(this.memory),
-      createTaskTools(this.memory, this.driftService, this.consensusService),
+      createTaskTools(this.memory, this.driftService, this.consensusService, this.smartDispatcher, this.config),
       createSessionTools(this.memory),
       createSystemTools(this.memory, this.config),
       createGitHubTools(this.config),

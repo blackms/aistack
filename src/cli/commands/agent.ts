@@ -16,8 +16,10 @@ import {
 } from '../../agents/spawner.js';
 import { listAgentTypes, getAgentDefinition } from '../../agents/registry.js';
 import { getConfig } from '../../utils/config.js';
+import { getSmartDispatcher } from '../../tasks/smart-dispatcher.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { runAgentWatch, type AgentWatchOptions } from './agent-watch.js';
+import * as readline from 'node:readline';
 
 export function createAgentCommand(): Command {
   const command = new Command('agent')
@@ -369,6 +371,115 @@ export function createAgentCommand(): Command {
         console.log('─'.repeat(60));
         console.log(`\nModel: ${result.model}`);
         console.log(`Duration: ${(result.duration / 1000).toFixed(2)}s`);
+      } catch (error) {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
+    });
+
+  // auto subcommand - automatically select agent type and run
+  command
+    .command('auto')
+    .description('Automatically select the best agent type for a task and run it')
+    .argument('<description>', 'Task description')
+    .option('--dry-run', 'Only show agent selection, do not execute')
+    .option('--confirm', 'Ask for confirmation before executing')
+    .option('--provider <provider>', 'Provider to use (claude-code, gemini-cli, codex, anthropic, openai, ollama)')
+    .option('--model <model>', 'Model to use')
+    .option('--context <context>', 'Additional context or @file to read from file')
+    .action(async (description, options) => {
+      const {
+        dryRun,
+        confirm,
+        provider,
+        model,
+        context: rawContext,
+      } = options as {
+        dryRun?: boolean;
+        confirm?: boolean;
+        provider?: string;
+        model?: string;
+        context?: string;
+      };
+
+      try {
+        const config = getConfig();
+        const dispatcher = getSmartDispatcher(config);
+
+        if (!dispatcher.isEnabled()) {
+          console.error('Error: Smart dispatcher is not enabled or no provider configured');
+          process.exit(1);
+        }
+
+        console.log('Analyzing task description...\n');
+
+        const result = await dispatcher.dispatch(description);
+
+        if (!result.success || !result.decision) {
+          console.error(`Error: ${result.error ?? 'Failed to dispatch task'}`);
+          process.exit(1);
+        }
+
+        const { agentType, confidence, reasoning, cached, latencyMs } = result.decision;
+
+        console.log(`Selected agent: ${agentType}`);
+        console.log(`Confidence: ${Math.round(confidence * 100)}%`);
+        console.log(`Reasoning: ${reasoning}`);
+        if (cached) {
+          console.log(`(Cached result)`);
+        }
+        console.log(`Dispatch latency: ${latencyMs}ms\n`);
+
+        if (dryRun) {
+          console.log('Dry run - not executing agent.');
+          return;
+        }
+
+        // Ask for confirmation if requested
+        if (confirm) {
+          const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+          });
+
+          const answer = await new Promise<string>((resolve) => {
+            rl.question('Proceed with this agent? (y/N): ', resolve);
+          });
+          rl.close();
+
+          if (answer.toLowerCase() !== 'y') {
+            console.log('Aborted.');
+            return;
+          }
+        }
+
+        // Read context from file if it starts with @
+        let context = rawContext;
+        if (rawContext?.startsWith('@')) {
+          const filePath = rawContext.slice(1);
+          if (!existsSync(filePath)) {
+            console.error(`Error: Context file not found: ${filePath}`);
+            process.exit(1);
+          }
+          context = readFileSync(filePath, 'utf-8');
+        }
+
+        console.log(`Running ${agentType} agent...\n`);
+
+        const agentResult = await runAgent(agentType, description, config, {
+          provider,
+          model,
+          context,
+        });
+
+        console.log('─'.repeat(60));
+        console.log('Response:');
+        console.log('─'.repeat(60));
+        console.log(agentResult.response);
+        console.log('─'.repeat(60));
+        console.log(`\nAgent: ${agentResult.agentId}`);
+        console.log(`Model: ${agentResult.model}`);
+        console.log(`Duration: ${(agentResult.duration / 1000).toFixed(2)}s`);
       } catch (error) {
         console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);

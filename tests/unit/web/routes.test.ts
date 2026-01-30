@@ -700,14 +700,16 @@ describe('Task Routes', () => {
       expect(res.writeHead).toHaveBeenCalledWith(201, expect.any(Object));
     });
 
-    it('should return error for missing agentType', async () => {
+    it('should use fallback agentType when missing (auto-dispatch)', async () => {
       const req = createMockRequest('POST', '/api/v1/tasks', {});
       const res = createMockResponse();
 
       await router.handle(req, res);
 
       const body = res.getBody();
-      expect(body.success).toBe(false);
+      // With SmartDispatcher feature, missing agentType uses fallback
+      expect(body.success).toBe(true);
+      expect(body.data.agentType).toBe('coder'); // Default fallback
     });
   });
 

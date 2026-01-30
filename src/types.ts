@@ -347,6 +347,7 @@ export interface AgentStackConfig {
   driftDetection?: DriftDetectionConfig;
   resourceExhaustion?: ResourceExhaustionConfig;
   consensus?: ConsensusConfig;
+  smartDispatcher?: SmartDispatcherConfig;
 }
 
 export interface MemoryConfig {
@@ -593,6 +594,25 @@ export interface DriftDetectionEvent {
   actionTaken: DriftDetectionAction;
   taskInput?: string;
   createdAt: Date;
+}
+
+// Smart Dispatcher types
+export interface SmartDispatcherConfig {
+  enabled: boolean;
+  cacheEnabled: boolean;
+  cacheTTLMs: number;
+  confidenceThreshold: number;
+  fallbackAgentType: string;
+  maxDescriptionLength: number;
+  dispatchModel: string;
+}
+
+export interface DispatchDecision {
+  agentType: string;
+  confidence: number;
+  reasoning: string;
+  cached: boolean;
+  latencyMs: number;
 }
 
 // Resource Exhaustion types
