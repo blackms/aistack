@@ -800,17 +800,14 @@ aistack is designed as a **local-first, NPM-distributed package** for developer 
 
 ## 🗺️ Roadmap
 
-| Priority | Feature | Status |
-|----------|---------|--------|
-| **P1** | HTTP transport for MCP server | Planned |
-| **P1** | Streaming responses (SSE) | Planned |
-| **P2** | Agent state persistence to SQLite | Planned |
-| **P2** | Built-in workflow templates | Planned |
-| **P3** | Enhanced dashboard analytics | Planned |
-| **P3** | Metrics and observability hooks | Planned |
-| **P3** | Docker support (optional) | Under consideration |
+aistack is feature-complete for its primary use case: local Claude Code integration with multi-agent orchestration.
 
-<sub>Roadmap items are **planned features**, not current capabilities.</sub>
+**Current focus areas:**
+- Stability and bug fixes
+- Documentation improvements
+- Community-requested features
+
+**Have an idea?** [Open an issue](https://github.com/blackms/aistack/issues) or join our [Discord](https://discord.gg/uQ6fDXDs7E)
 
 ---
 
