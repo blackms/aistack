@@ -48,10 +48,22 @@ const AgentsConfigSchema = z.object({
   defaultTimeout: z.number().min(10).max(3600).default(300),
 });
 
+const IssueLabelSetSchema = z.object({
+  inProgress: z.string().optional(),
+  blocked: z.string().optional(),
+  done: z.string().optional(),
+  claimed: z.string().optional(),
+});
+
 const GitHubConfigSchema = z.object({
   enabled: z.boolean().default(false),
   useGhCli: z.boolean().optional(),
   token: z.string().optional(),
+  webhookSecret: z.string().optional(),
+  gitlabWebhookSecret: z.string().optional(),
+  gitlabToken: z.string().optional(),
+  labels: IssueLabelSetSchema.optional(),
+  auditUrlTemplate: z.string().optional(),
 });
 
 const PluginsConfigSchema = z.object({
