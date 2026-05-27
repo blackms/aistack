@@ -10,3 +10,6 @@ export { createPluginCommand } from './plugin.js';
 export { createStatusCommand } from './status.js';
 export { createWorkflowCommand } from './workflow.js';
 export { createWebCommand } from './web.js';
+export { createDaemonCommand } from './daemon.js';
+export { createWatchCommand } from './watch.js';
+export { createRunCommand } from './run.js';
