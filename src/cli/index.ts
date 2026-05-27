@@ -17,6 +17,7 @@ import {
   createDaemonCommand,
   createWatchCommand,
   createRunCommand,
+  createAuditCommand,
 } from './commands/index.js';
 
 // Read version from package.json would be ideal, but for now hardcode
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
   program.addCommand(createDaemonCommand());
   program.addCommand(createWatchCommand());
   program.addCommand(createRunCommand());
+  program.addCommand(createAuditCommand());
 
   // Parse arguments
   await program.parseAsync(process.argv);
