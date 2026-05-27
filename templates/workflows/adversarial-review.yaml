@@ -1,0 +1,46 @@
+# Adversarial review loop — DSL reference for src/coordination/review-loop.ts
+#
+# Coder produces code → Adversarial reviews → if REJECT, loop back to coder
+# up to max_retries times. Mirrors the behaviour of ReviewLoopCoordinator.
+#
+# Run:
+#   aistack workflow run templates/workflows/adversarial-review.yaml \
+#     --input='{"input": "Write a TypeScript function that validates email addresses"}'
+
+name: adversarial-review
+description: Iterative coder + adversarial review loop, mirrors the imperative ReviewLoopCoordinator
+version: "1"
+max_iterations: 20
+
+steps:
+  - id: code
+    agent: coder
+    name: Initial code generation
+    input: |
+      Generate code for the following requirements:
+
+      $task.input
+
+      Provide clean, well-structured code that addresses all requirements.
+
+  - id: review
+    agent: adversarial
+    name: Adversarial review
+    input: |
+      Review the following code critically. Try to break it with edge cases,
+      find security issues, and identify bugs.
+
+      ## Code to Review
+      $steps.code.output
+
+      ## Original Requirements
+      $task.input
+
+      Provide your analysis in this format:
+      1. List each issue found with severity (CRITICAL/HIGH/MEDIUM/LOW)
+      2. For each issue, explain the attack vector and required fix
+      3. End with either **VERDICT: APPROVE** or **VERDICT: REJECT**
+    on_reject:
+      goto: code
+      max_retries: 3
+      fail_after: false

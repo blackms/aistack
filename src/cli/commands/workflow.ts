@@ -6,25 +6,48 @@ import { Command } from 'commander';
 import { runDocSync, getWorkflowRunner, resetWorkflowRunner } from '../../workflows/index.js';
 import { registerDefaultTriggers, getWorkflowTriggers, clearWorkflowTriggers } from '../../hooks/index.js';
 import { logger } from '../../utils/logger.js';
+import { existsSync } from 'node:fs';
 
 const log = logger.child('workflow');
+
+// File extensions that route to the DSL executor instead of the named-workflow runner.
+const DSL_EXTENSIONS = ['.yaml', '.yml', '.json'];
+
+function looksLikeWorkflowFile(arg: string): boolean {
+  const lower = arg.toLowerCase();
+  if (DSL_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true;
+  // Also accept any existing file path.
+  if (existsSync(arg)) return true;
+  return false;
+}
 
 export function createWorkflowCommand(): Command {
   const command = new Command('workflow')
     .description('Run and manage workflows');
 
-  // Run subcommand
+  // Run subcommand — accepts either a named workflow (legacy) or a DSL file path.
   command
     .command('run <workflow>')
-    .description('Run a workflow')
+    .description('Run a workflow (named workflow or YAML/JSON DSL file)')
     .option('-d, --docs <path>', 'Documentation directory', './docs')
     .option('-s, --source <path>', 'Source code directory', '.')
     .option('-v, --verbose', 'Verbose output')
+    .option('--input <json>', 'Task input as JSON string (DSL mode)')
+    .option('--watch', 'Hot-reload: re-run on file change (DSL mode)')
     .action(async (workflow: string, options) => {
-      const { docs, verbose } = options as {
+      const { docs, verbose, input, watch } = options as {
         docs: string;
         verbose?: boolean;
+        input?: string;
+        watch?: boolean;
       };
+
+      // Route to DSL executor if argument looks like a workflow file path.
+      if (looksLikeWorkflowFile(workflow)) {
+        const { runDslWorkflowFile } = await import('./workflow-dsl-runner.js');
+        await runDslWorkflowFile(workflow, { input, watch, verbose });
+        return;
+      }
 
       console.log(`Running workflow: ${workflow}\n`);
 
