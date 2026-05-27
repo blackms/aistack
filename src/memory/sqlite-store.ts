@@ -460,6 +460,22 @@ CREATE TABLE IF NOT EXISTS consensus_checkpoint_events (
 
 CREATE INDEX IF NOT EXISTS idx_consensus_events_checkpoint ON consensus_checkpoint_events(checkpoint_id);
 CREATE INDEX IF NOT EXISTS idx_consensus_events_created ON consensus_checkpoint_events(created_at DESC);
+
+-- Agent checkpoints (durable execution / crash recovery) — see migrations/004_add_checkpoints.sql
+CREATE TABLE IF NOT EXISTS agent_checkpoints (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  step_id TEXT NOT NULL,
+  state_blob TEXT NOT NULL,
+  format TEXT NOT NULL DEFAULT 'json' CHECK (format IN ('json', 'json+gzip')),
+  metadata TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_checkpoints_session_created ON agent_checkpoints(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_checkpoints_session_agent ON agent_checkpoints(session_id, agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_checkpoints_session_step ON agent_checkpoints(session_id, step_id);
 `;
 
 export class SQLiteStore {

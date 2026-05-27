@@ -13,6 +13,7 @@ import { Semaphore, AgentPool } from '../utils/semaphore.js';
 import { getIdentityService } from './identity-service.js';
 import { getResourceExhaustionService } from '../monitoring/resource-exhaustion-service.js';
 import { audit } from '../audit/index.js';
+import { saveCheckpointIfEnabled } from '../persistence/checkpointer.js';
 
 const log = logger.child('spawner');
 
@@ -482,6 +483,16 @@ export async function executeAgent(
     }
 
     log.info('Agent task completed', { agentId, duration, model: response.model });
+
+    // Durable execution (AIG-633): snapshot agent state after a successful step.
+    // No-op when `config.checkpointing.enabled` is false or there's no sessionId.
+    saveCheckpointIfEnabled(
+      config,
+      agent.sessionId,
+      agentId,
+      `${agent.type}:${Date.now()}`,
+      { agentType: agent.type, task, response: response.content, model: response.model, duration }
+    );
 
     return {
       agentId,
