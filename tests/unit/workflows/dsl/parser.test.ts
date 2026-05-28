@@ -2,7 +2,7 @@
  * Workflow DSL parser tests.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   parseWorkflow,
   parseWorkflowObject,
@@ -96,5 +96,92 @@ describe('parseWorkflow', () => {
       ],
     });
     expect(doc.steps[0].parallel).toHaveLength(2);
+  });
+});
+
+describe('parseWorkflow — YAML', () => {
+  it('round-trips a YAML workflow into a validated doc', async () => {
+    const yaml = [
+      'name: yaml-flow',
+      'description: a yaml workflow',
+      'version: "1"',
+      'steps:',
+      '  - id: write',
+      '    agent: coder',
+      '    input: hello',
+      '  - id: review',
+      '    agent: adversarial',
+      '    input: $steps.write.output',
+      '    on_reject:',
+      '      goto: write',
+      '      max_retries: 2',
+    ].join('\n');
+    const doc = await parseWorkflow(yaml);
+    expect(doc.name).toBe('yaml-flow');
+    expect(doc.steps).toHaveLength(2);
+    expect(doc.steps[0].agent).toBe('coder');
+    expect(doc.steps[1].on_reject?.goto).toBe('write');
+    expect(doc.steps[1].on_reject?.max_retries).toBe(2);
+  });
+
+  it('rejects malformed YAML with a WorkflowParseError', async () => {
+    // Unclosed flow mapping → YAML parser error
+    const broken = 'name: bad\nsteps:\n  - { agent: coder, input: "oops';
+    await expect(parseWorkflow(broken)).rejects.toThrow(WorkflowParseError);
+  });
+});
+
+describe('parseWorkflow — version handling', () => {
+  it('accepts the current supported version', () => {
+    const doc = parseWorkflowObject({
+      name: 'v1',
+      version: '1',
+      steps: [{ agent: 'coder', input: 'x' }],
+    });
+    expect(doc.version).toBe('1');
+  });
+
+  it('accepts same-major same-minor (e.g. 1.0)', () => {
+    const doc = parseWorkflowObject({
+      name: 'v1',
+      version: '1.0',
+      steps: [{ agent: 'coder', input: 'x' }],
+    });
+    expect(doc.version).toBe('1.0');
+  });
+
+  it('rejects a major-version mismatch', () => {
+    expect(() =>
+      parseWorkflowObject({
+        name: 'future',
+        version: '2',
+        steps: [{ agent: 'coder', input: 'x' }],
+      })
+    ).toThrow(WorkflowParseError);
+  });
+
+  it('warns (does not throw) on higher minor within same major', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const doc = parseWorkflowObject({
+        name: 'minor-up',
+        version: '1.99',
+        steps: [{ agent: 'coder', input: 'x' }],
+      });
+      expect(doc.version).toBe('1.99');
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('rejects a non-numeric version string', () => {
+    expect(() =>
+      parseWorkflowObject({
+        name: 'bad',
+        version: 'banana',
+        steps: [{ agent: 'coder', input: 'x' }],
+      })
+    ).toThrow(WorkflowParseError);
   });
 });

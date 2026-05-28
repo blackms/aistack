@@ -20,6 +20,17 @@ export interface HotReloadOptions {
   onError?: (err: Error) => void;
 }
 
+/**
+ * Callback signature for `watchWorkflowFile`. Receives the parsed document
+ * plus an `AbortSignal` that fires when the file changes again — the callback
+ * SHOULD pass this signal through to its executor so the in-flight run is
+ * cancelled before the new one starts.
+ */
+export type WorkflowReloadHandler = (
+  doc: WorkflowDoc,
+  signal: AbortSignal
+) => void | Promise<void>;
+
 export interface HotReloadHandle {
   close(): void;
 }
@@ -34,10 +45,16 @@ export async function readAndParse(path: string): Promise<WorkflowDoc> {
  * initial parse, then again on every change (debounced). Parse errors are
  * surfaced via `onError` (or rethrown if not supplied) without tearing down
  * the watcher — so users can fix typos in place.
+ *
+ * Reload semantics: when a change is detected while a previous run is still
+ * in flight, the previous run's AbortController is aborted and the new run
+ * starts immediately. This matches user intent ("I just edited the file,
+ * please re-run with my new logic") far better than queueing the new run
+ * behind a stale one that may take minutes to finish.
  */
 export async function watchWorkflowFile(
   path: string,
-  onChange: (doc: WorkflowDoc) => void | Promise<void>,
+  onChange: WorkflowReloadHandler,
   opts: HotReloadOptions = {}
 ): Promise<HotReloadHandle> {
   const debounceMs = opts.debounceMs ?? 200;
@@ -50,27 +67,43 @@ export async function watchWorkflowFile(
     });
 
   let timer: NodeJS.Timeout | null = null;
-  let running = false;
-  let pendingRerun = false;
+  let currentController: AbortController | null = null;
+  let currentRun: Promise<void> | null = null;
+  let closed = false;
 
   const trigger = async (): Promise<void> => {
-    if (running) {
-      pendingRerun = true;
-      return;
+    // Abort any in-flight run and wait for it to settle so we don't interleave
+    // record() writes from two overlapping executors on the same context.
+    if (currentController) {
+      currentController.abort();
     }
-    running = true;
-    try {
-      const doc = await readAndParse(path);
-      await onChange(doc);
-    } catch (err) {
-      onError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      running = false;
-      if (pendingRerun) {
-        pendingRerun = false;
-        void trigger();
+    if (currentRun) {
+      try {
+        await currentRun;
+      } catch {
+        /* swallow — handler already routed errors via onError */
       }
     }
+    if (closed) return;
+
+    const controller = new AbortController();
+    currentController = controller;
+
+    const run = (async () => {
+      try {
+        const doc = await readAndParse(path);
+        await onChange(doc, controller.signal);
+      } catch (err) {
+        onError(err instanceof Error ? err : new Error(String(err)));
+      } finally {
+        if (currentController === controller) {
+          currentController = null;
+          currentRun = null;
+        }
+      }
+    })();
+    currentRun = run;
+    await run;
   };
 
   // Initial load
@@ -95,7 +128,11 @@ export async function watchWorkflowFile(
 
   return {
     close: () => {
+      closed = true;
       if (timer) clearTimeout(timer);
+      if (currentController) {
+        currentController.abort();
+      }
       if (watcher) {
         try {
           watcher.close();

@@ -10,6 +10,14 @@ import { z } from 'zod';
 import { WorkflowDocSchema, type WorkflowDoc } from './schema.js';
 
 /**
+ * The DSL major.minor this runtime understands. Bump the major when a breaking
+ * change is introduced (renamed/removed fields, semantic shift); bump minor
+ * when adding backwards-compatible fields. The loader rejects docs with a
+ * different major and warns on a higher same-major minor.
+ */
+export const SUPPORTED_DSL_VERSION = { major: 1, minor: 0 } as const;
+
+/**
  * Custom parse error with human-friendly message.
  */
 export class WorkflowParseError extends Error {
@@ -20,6 +28,43 @@ export class WorkflowParseError extends Error {
   ) {
     super(message);
     this.name = 'WorkflowParseError';
+  }
+}
+
+/**
+ * Parse a `version` string like "1", "1.2", or "1.2.3" into {major, minor}.
+ * Returns null if the string is not a recognised semver-ish form.
+ */
+function parseVersion(v: string): { major: number; minor: number } | null {
+  const m = v.trim().match(/^(\d+)(?:\.(\d+))?(?:\.\d+)?$/);
+  if (!m) return null;
+  return { major: parseInt(m[1], 10), minor: m[2] ? parseInt(m[2], 10) : 0 };
+}
+
+/**
+ * Validate the `version` field on a parsed workflow document.
+ *  - Unparseable version → WorkflowParseError
+ *  - Major mismatch       → WorkflowParseError
+ *  - Same major, higher minor than supported → console.warn (non-fatal)
+ */
+export function assertSupportedVersion(doc: WorkflowDoc): void {
+  const parsed = parseVersion(doc.version);
+  if (!parsed) {
+    throw new WorkflowParseError(
+      `Unsupported workflow version "${doc.version}". Expected a numeric version like "${SUPPORTED_DSL_VERSION.major}" or "${SUPPORTED_DSL_VERSION.major}.${SUPPORTED_DSL_VERSION.minor}".`
+    );
+  }
+  if (parsed.major !== SUPPORTED_DSL_VERSION.major) {
+    throw new WorkflowParseError(
+      `Unsupported workflow DSL major version ${parsed.major} (this runtime understands major ${SUPPORTED_DSL_VERSION.major}). ` +
+        `Upgrade the runtime or downgrade the workflow document.`
+    );
+  }
+  if (parsed.minor > SUPPORTED_DSL_VERSION.minor) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[workflow] DSL version ${doc.version} is newer than this runtime (${SUPPORTED_DSL_VERSION.major}.${SUPPORTED_DSL_VERSION.minor}); some fields may be ignored.`
+    );
   }
 }
 
@@ -132,6 +177,7 @@ export async function parseWorkflow(input: string | object): Promise<WorkflowDoc
     );
   }
 
+  assertSupportedVersion(result.data);
   return result.data;
 }
 
@@ -154,5 +200,6 @@ export function parseWorkflowObject(raw: unknown): WorkflowDoc {
       result.error.issues
     );
   }
+  assertSupportedVersion(result.data);
   return result.data;
 }

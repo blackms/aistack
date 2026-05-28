@@ -189,6 +189,131 @@ describe('executor — error handling', () => {
   });
 });
 
+describe('executor — prototype-pollution defence', () => {
+  it('does not traverse __proto__ in $task.<path>', async () => {
+    const runStep: RunStepHook = vi.fn(async (args) => ({ output: args.input }));
+    const doc = parseWorkflowObject({
+      name: 't',
+      steps: [{ agent: 'coder', input: 'val=[$task.__proto__.polluted]' }],
+    });
+    // Plant a property on Object.prototype to confirm it does NOT leak out.
+    // (Cleaned up in finally.)
+    (Object.prototype as Record<string, unknown>).polluted = 'PWNED';
+    try {
+      const ctx = new WorkflowContext({ task: {}, runStep });
+      const results = await drain(runWorkflow(doc, ctx));
+      expect(results[0].output).toBe('val=[]');
+    } finally {
+      delete (Object.prototype as Record<string, unknown>).polluted;
+    }
+  });
+
+  it('does not traverse "constructor" or "prototype" keys', async () => {
+    const runStep: RunStepHook = vi.fn(async (args) => ({ output: args.input }));
+    const doc = parseWorkflowObject({
+      name: 't',
+      steps: [
+        { agent: 'coder', input: 'c=[$task.constructor.name]|p=[$task.prototype.foo]' },
+      ],
+    });
+    const ctx = new WorkflowContext({ task: {}, runStep });
+    const results = await drain(runWorkflow(doc, ctx));
+    expect(results[0].output).toBe('c=[]|p=[]');
+  });
+});
+
+describe('executor — max_iterations off-by-one', () => {
+  it('allows exactly max_iterations executions and fails on the next', async () => {
+    let n = 0;
+    const runStep: RunStepHook = vi.fn(async () => {
+      n++;
+      return { output: 'r', verdict: 'REJECT' };
+    });
+    const doc = parseWorkflowObject({
+      name: 't',
+      max_iterations: 3,
+      steps: [
+        { id: 'a', agent: 'coder', input: 'x' },
+        // Loops back to 'a' on every reject, with a high retry cap so the
+        // global iteration limit is what actually stops the run.
+        { id: 'b', agent: 'adversarial', input: '$prev.output', on_reject: { goto: 'a', max_retries: 99 } },
+      ],
+    });
+    const ctx = new WorkflowContext({ task: {}, runStep });
+    const results = await drain(runWorkflow(doc, ctx));
+    // Exactly 3 step executions, plus the synthetic "exceeded" failure result.
+    expect(n).toBe(3);
+    expect(results[results.length - 1].error).toMatch(/Exceeded max_iterations \(3\)/);
+  });
+});
+
+describe('executor — parallel fail-fast abort', () => {
+  it('aborts sibling parallel children when one fails', async () => {
+    const aborts: string[] = [];
+    const runStep: RunStepHook = vi.fn(async (args) => {
+      if (args.agent === 'fast-fail') {
+        // Fail immediately
+        throw new Error('fast fail');
+      }
+      // Slow sibling — should receive an abort while sleeping
+      return await new Promise((resolve, reject) => {
+        const t = setTimeout(() => resolve({ output: 'late' }), 5000);
+        args.signal?.addEventListener('abort', () => {
+          clearTimeout(t);
+          aborts.push(args.agent);
+          reject(new Error('aborted'));
+        });
+      });
+    });
+
+    const doc = parseWorkflowObject({
+      name: 't',
+      steps: [
+        {
+          id: 'fan',
+          parallel: [
+            { agent: 'fast-fail', input: 'a' },
+            { agent: 'slow', input: 'b' },
+          ],
+        },
+      ],
+    });
+    const ctx = new WorkflowContext({ task: {}, runStep });
+    const start = Date.now();
+    const results = await drain(runWorkflow(doc, ctx));
+    const elapsed = Date.now() - start;
+    expect(aborts).toContain('slow');
+    expect(elapsed).toBeLessThan(2000); // Did not wait for the 5s timeout
+    expect(results[0].parallelResults?.some((r) => r.error?.includes('fast fail'))).toBe(true);
+  });
+});
+
+describe('executor — hot-reload abort propagation', () => {
+  it('stops the running workflow when the abortSignal fires', async () => {
+    const controller = new AbortController();
+    let stepsRun = 0;
+    const runStep: RunStepHook = vi.fn(async () => {
+      stepsRun++;
+      // Trigger abort partway through the run
+      if (stepsRun === 1) controller.abort();
+      return { output: 's' };
+    });
+    const doc = parseWorkflowObject({
+      name: 't',
+      steps: [
+        { agent: 'a', input: 'x' },
+        { agent: 'b', input: 'y' },
+        { agent: 'c', input: 'z' },
+      ],
+    });
+    const ctx = new WorkflowContext({ task: {}, runStep, abortSignal: controller.signal });
+    const results = await drain(runWorkflow(doc, ctx));
+    // Only the first step should have run; loop exits before step 2.
+    expect(stepsRun).toBe(1);
+    expect(results).toHaveLength(1);
+  });
+});
+
 describe('resolveInput / evaluateCondition utility', () => {
   it('resolveInput handles object inputs via JSON stringify', () => {
     const ctx = new WorkflowContext({ task: { input: 'world' }, runStep: async () => ({ output: '' }) });

@@ -92,12 +92,21 @@ function lookup(root: string, mid: string | undefined, tail: string | undefined,
   }
 }
 
+/**
+ * Keys that would let a malicious workflow walk up to Object.prototype and
+ * read/inject globals. Rejected during dotted-path traversal.
+ */
+const FORBIDDEN_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function readPath(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split('.');
   let cur: unknown = obj;
   for (const p of parts) {
+    if (FORBIDDEN_PATH_KEYS.has(p)) return undefined;
     if (cur === null || cur === undefined) return undefined;
     if (typeof cur !== 'object') return undefined;
+    // Use Object.hasOwn to avoid resolving inherited properties (e.g. toString).
+    if (!Object.prototype.hasOwnProperty.call(cur, p)) return undefined;
     cur = (cur as Record<string, unknown>)[p];
   }
   return cur;
@@ -177,7 +186,9 @@ export async function* runWorkflow(
     if (ctx.abortSignal?.aborted) {
       return;
     }
-    if (totalExecutions++ > maxTotal) {
+    // Pre-increment check: allow exactly `maxTotal` executions, fail on the
+    // (maxTotal+1)-th attempt. Postfix `> maxTotal` previously allowed N+1.
+    if (totalExecutions >= maxTotal) {
       const failure: StepResult = {
         index: i,
         output: '',
@@ -188,6 +199,7 @@ export async function* runWorkflow(
       yield failure;
       return;
     }
+    totalExecutions++;
 
     const step = doc.steps[i];
     const result = await executeStep(step, i, ctx);
@@ -286,7 +298,12 @@ function handleErrorClause(
   return target;
 }
 
-async function executeStep(step: Step, index: number, ctx: WorkflowContext): Promise<StepResult> {
+async function executeStep(
+  step: Step,
+  index: number,
+  ctx: WorkflowContext,
+  signalOverride?: AbortSignal
+): Promise<StepResult> {
   // if-condition: skip if false
   if (step.if !== undefined && !evaluateCondition(step.if, ctx)) {
     return {
@@ -300,12 +317,29 @@ async function executeStep(step: Step, index: number, ctx: WorkflowContext): Pro
     };
   }
 
-  // Parallel block
+  // Parallel block — fail-fast: if any child errors, abort all siblings via a
+  // shared AbortController so long-running siblings (HTTP, agent spawns) don't
+  // continue burning resources after the first failure.
   if (step.parallel && step.parallel.length > 0) {
     const start = Date.now();
-    const results = await Promise.all(
-      step.parallel.map((sub, subIdx) => executeStep(sub, index * 1000 + subIdx, ctx))
+    const groupController = new AbortController();
+    // Forward outer aborts to the group controller.
+    const outerSignal = signalOverride ?? ctx.abortSignal;
+    if (outerSignal) {
+      if (outerSignal.aborted) {
+        groupController.abort();
+      } else {
+        outerSignal.addEventListener('abort', () => groupController.abort(), { once: true });
+      }
+    }
+
+    const childPromises = step.parallel.map((sub, subIdx) =>
+      executeStep(sub, index * 1000 + subIdx, ctx, groupController.signal).then((r) => {
+        if (r.error) groupController.abort();
+        return r;
+      })
     );
+    const results = await Promise.all(childPromises);
     return {
       index,
       id: step.id,
@@ -330,13 +364,14 @@ async function executeStep(step: Step, index: number, ctx: WorkflowContext): Pro
 
   const input = resolveInput(step.input, ctx);
   const start = Date.now();
+  const effectiveSignal = signalOverride ?? ctx.abortSignal;
   try {
     const res = await ctx.runStep({
       agent: step.agent,
       input,
       stepIndex: index,
       stepId: step.id,
-      signal: ctx.abortSignal,
+      signal: effectiveSignal,
     });
     return {
       index,

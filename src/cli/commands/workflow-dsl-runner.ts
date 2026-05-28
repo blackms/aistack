@@ -106,12 +106,13 @@ async function runOnce(
   doc: WorkflowDoc,
   task: Record<string, unknown>,
   runStep: RunStepHook,
-  verbose: boolean
+  verbose: boolean,
+  abortSignal?: AbortSignal
 ): Promise<{ success: boolean; results: StepResult[] }> {
   console.log(`\nWorkflow: ${doc.name}${doc.description ? ' — ' + doc.description : ''}`);
   console.log(`Steps: ${doc.steps.length}\n`);
 
-  const ctx = new WorkflowContext({ task, runStep });
+  const ctx = new WorkflowContext({ task, runStep, abortSignal });
   const results: StepResult[] = [];
   let success = true;
 
@@ -119,6 +120,11 @@ async function runOnce(
     results.push(result);
     console.log(formatStep(result, verbose));
     if (result.error) success = false;
+    if (abortSignal?.aborted) {
+      console.log('  [ABORT]   workflow cancelled (file changed)');
+      success = false;
+      break;
+    }
   }
 
   console.log(`\nDone — ${results.length} step(s), ${success ? 'OK' : 'FAILED'}`);
@@ -141,9 +147,9 @@ export async function runDslWorkflowFile(
   if (opts.watch) {
     console.log(`Watching workflow: ${absPath}`);
     console.log('Press Ctrl+C to exit.\n');
-    const handle = await watchWorkflowFile(absPath, async (doc) => {
+    const handle = await watchWorkflowFile(absPath, async (doc, signal) => {
       try {
-        await runOnce(doc, task, runStep, verbose);
+        await runOnce(doc, task, runStep, verbose, signal);
       } catch (err) {
         console.error('Workflow run failed:', err instanceof Error ? err.message : String(err));
       }
