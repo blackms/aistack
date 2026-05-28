@@ -2,7 +2,7 @@
  * Unit tests for AIG-644 HITL interrupt primitives.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   interrupt,
   resumeInterrupt,
@@ -16,9 +16,14 @@ import {
 import {
   getInterruptNotifier,
   resetInterruptNotifier,
+  WebhookSink,
+  WEBHOOK_SIGNATURE_HEADER,
+  signWebhookBody,
+  verifyWebhookSignature,
   type NotifierSink,
 } from '../../src/coordination/interrupt-notifier.js';
 import type { InterruptRecord } from '../../src/coordination/interrupt-types.js';
+import { setInterruptPersistence } from '../../src/coordination/interrupt.js';
 
 /**
  * Simulated 3-step workflow used by the end-to-end tests below. Lives in
@@ -236,6 +241,218 @@ describe('HITL interrupt end-to-end (workflow → inspect → resume)', () => {
     const result = await workflowPromise;
     expect(result).toBeInstanceOf(Error);
     expect(getInterruptStore().get(rec.id)?.status).toBe('pending');
+  });
+});
+
+describe('WebhookSink (HMAC + timeout)', () => {
+  beforeEach(() => {
+    resetInterruptStore();
+    resetInterruptNotifier();
+  });
+  afterEach(() => {
+    delete process.env.AISTACK_WEBHOOK_SECRET;
+  });
+
+  const SECRET = 'shh-its-a-secret';
+  const sampleRecord: InterruptRecord = {
+    id: 'int_test',
+    sessionId: 's1',
+    prompt: 'do thing?',
+    status: 'pending',
+    notify: ['webhook'],
+    createdAt: '2026-05-28T00:00:00.000Z',
+  };
+
+  it('signs outbound webhook bodies with HMAC-SHA256', async () => {
+    const captured: { url?: string; init?: RequestInit } = {};
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (url, init) => {
+        captured.url = String(url);
+        captured.init = init as RequestInit;
+        return new Response(null, { status: 200 });
+      });
+    const sink = new WebhookSink({ url: 'https://example.test/hook', secret: SECRET });
+    await sink.send(sampleRecord);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const headers = captured.init?.headers as Record<string, string>;
+    const sig = headers[WEBHOOK_SIGNATURE_HEADER];
+    expect(sig).toMatch(/^sha256=[0-9a-f]{64}$/);
+    // Receiver-side verification must succeed against the exact body sent.
+    const body = String(captured.init?.body ?? '');
+    expect(verifyWebhookSignature(SECRET, body, sig!)).toBe(true);
+    // And fail under tampering / wrong secret.
+    expect(verifyWebhookSignature(SECRET, body + 'x', sig!)).toBe(false);
+    expect(verifyWebhookSignature('wrong-secret', body, sig!)).toBe(false);
+    fetchSpy.mockRestore();
+  });
+
+  it('falls back to AISTACK_WEBHOOK_SECRET when options.secret is omitted', async () => {
+    process.env.AISTACK_WEBHOOK_SECRET = SECRET;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 200 }) as Response
+    );
+    const sink = new WebhookSink({ url: 'https://example.test/hook' });
+    await sink.send(sampleRecord);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const init = fetchSpy.mock.calls[0]![1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers[WEBHOOK_SIGNATURE_HEADER]).toBeDefined();
+    fetchSpy.mockRestore();
+  });
+
+  it('refuses to send when no secret is configured (fail-closed)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const sink = new WebhookSink({ url: 'https://example.test/hook' });
+    await sink.send(sampleRecord);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('aborts the request after the configured timeout', async () => {
+    // Mock fetch to hang until the AbortSignal fires, then reject AbortError.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      const signal = (init as RequestInit | undefined)?.signal;
+      return new Promise<Response>((_, reject) => {
+        signal?.addEventListener('abort', () => {
+          const e = new Error('aborted');
+          e.name = 'AbortError';
+          reject(e);
+        });
+      });
+    });
+    const sink = new WebhookSink({
+      url: 'https://example.test/hook',
+      secret: SECRET,
+      timeoutMs: 15,
+    });
+    const start = Date.now();
+    await sink.send(sampleRecord);
+    const elapsed = Date.now() - start;
+    // Should return within roughly the timeout window, not stall forever.
+    expect(elapsed).toBeLessThan(500);
+    fetchSpy.mockRestore();
+  });
+
+  it('signWebhookBody produces stable output for identical input', () => {
+    const a = signWebhookBody(SECRET, 'hello');
+    const b = signWebhookBody(SECRET, 'hello');
+    expect(a).toBe(b);
+    expect(signWebhookBody(SECRET, 'hellO')).not.toBe(a);
+  });
+});
+
+describe('atomic resume + reopen (transactional)', () => {
+  beforeEach(() => {
+    resetInterruptStore();
+    resetInterruptNotifier();
+  });
+  afterEach(() => {
+    setInterruptPersistence(null);
+  });
+
+  it('rolls back state edits and status when persistence.save fails during resume', async () => {
+    let allowSave = true;
+    const saves: InterruptRecord[] = [];
+    setInterruptPersistence({
+      async save(r) {
+        if (!allowSave) throw new Error('disk full');
+        saves.push(JSON.parse(JSON.stringify(r)) as InterruptRecord);
+      },
+      loadAll: () => [],
+      delete: () => {},
+    });
+
+    const promise = interrupt({
+      sessionId: 'sess-atomic-1',
+      prompt: 'p',
+      state: { config: { tries: 1 }, name: 'before' },
+      pollIntervalMs: 10,
+    }).catch((e: unknown) => e); // swallow — we never actually resume successfully
+    await new Promise((r) => setImmediate(r));
+
+    const rec = getInterruptStore().list({ sessionId: 'sess-atomic-1' })[0]!;
+    // Snapshot of what disk and memory look like right now.
+    const beforeStatus = rec.status;
+    const beforeState = JSON.parse(JSON.stringify(rec.state));
+
+    // Flip persistence to fail and attempt a resume that mutates state.
+    allowSave = false;
+    await expect(
+      resumeInterrupt(rec.id, {
+        input: 'x',
+        stateEdits: [
+          { path: 'config.tries', value: '99' },
+          { path: 'name', value: '"after"' },
+        ],
+      })
+    ).rejects.toThrow(/disk full/);
+
+    // Status AND state must be exactly what they were before the failed call.
+    const after = getInterruptStore().get(rec.id)!;
+    expect(after.status).toBe(beforeStatus);
+    expect(after.state).toEqual(beforeState);
+    // Allow next save so we can clean up the hanging interrupt() promise.
+    allowSave = true;
+    await resumeInterrupt(rec.id, { input: 'x' });
+    await promise;
+  });
+
+  it('rolls back the reopen-on-validation-failure when persistence.save fails', async () => {
+    let saveCount = 0;
+    let failOnSave: number | null = null;
+    setInterruptPersistence({
+      async save(_r) {
+        saveCount++;
+        if (failOnSave !== null && saveCount === failOnSave) {
+          throw new Error('rollback the reopen');
+        }
+      },
+      loadAll: () => [],
+      delete: () => {},
+    });
+
+    const promise = interrupt<string>({
+      sessionId: 'sess-atomic-2',
+      prompt: 'enum',
+      schema: { type: 'enum', enum: ['a', 'b'] },
+      pollIntervalMs: 10,
+    }).catch((e: unknown) => e);
+    await new Promise((r) => setImmediate(r));
+
+    const rec = getInterruptStore().list({ sessionId: 'sess-atomic-2' })[0]!;
+    // Configure save#3 to fail. Saves so far: 1 = create. Resume below does
+    // 1 more save (resolveAtomic). Reopen would do the 3rd — that one fails.
+    failOnSave = 3;
+    await resumeInterrupt(rec.id, { input: 'bogus' });
+    // Wait long enough for the async reopen attempt to settle.
+    await new Promise((r) => setTimeout(r, 30));
+
+    const after = getInterruptStore().get(rec.id)!;
+    // Because the reopen-save failed, the rollback restored the prior
+    // (resolved) status — disk and memory agree on "still resolved".
+    expect(after.status).toBe('resolved');
+    await promise; // validation rejection bubbles via the catch above
+  });
+
+  it('serializes concurrent resolve calls — second one sees "not pending"', async () => {
+    const promise = interrupt({
+      sessionId: 'sess-atomic-3',
+      prompt: 'p',
+      pollIntervalMs: 10,
+    });
+    await new Promise((r) => setImmediate(r));
+    const rec = getInterruptStore().list({ sessionId: 'sess-atomic-3' })[0]!;
+
+    const a = resumeInterrupt(rec.id, { input: 'first' });
+    const b = resumeInterrupt(rec.id, { input: 'second' });
+    const results = await Promise.allSettled([a, b]);
+    // Exactly one wins, the other rejects with "cannot resume" / "status is".
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    await promise;
   });
 });
 

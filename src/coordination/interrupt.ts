@@ -60,13 +60,83 @@ export function setInterruptPersistence(p: InterruptPersistence | null): void {
 }
 
 /**
+ * Snapshot the mutable fields of an InterruptRecord so a failed write can be
+ * rolled back. `state` is shallow-cloned because state edits mutate it in
+ * place via `applyStateEdit`; deep nested objects share references, which is
+ * fine for the rollback semantics we need (we only ever overwrite the top
+ * level of `state` on rollback) — and far cheaper than `structuredClone`.
+ */
+interface RecordSnapshot {
+  status: InterruptStatus;
+  state?: Record<string, unknown>;
+  resumeValue: unknown;
+  resolvedAt?: string;
+  cancelReason?: string;
+  claimedAt?: string;
+}
+
+function snapshot(r: InterruptRecord): RecordSnapshot {
+  return {
+    status: r.status,
+    state: r.state ? structuredClone(r.state) : undefined,
+    resumeValue: r.resumeValue,
+    resolvedAt: r.resolvedAt,
+    cancelReason: r.cancelReason,
+    claimedAt: r.claimedAt,
+  };
+}
+
+function restore(r: InterruptRecord, s: RecordSnapshot): void {
+  r.status = s.status;
+  r.state = s.state;
+  r.resumeValue = s.resumeValue;
+  r.resolvedAt = s.resolvedAt;
+  r.cancelReason = s.cancelReason;
+  r.claimedAt = s.claimedAt;
+}
+
+/**
  * In-process store of interrupt records. Emits `created`, `resolved`,
  * `cancelled` events so the Promise returned by interrupt() can wake up
  * without polling when running in the same process. Polling is still used
  * as a fallback for cross-process resumes (CLI <-> daemon).
+ *
+ * Concurrency: each record has an async mutex queue so concurrent
+ * resume/cancel/reopen operations serialize. Combined with snapshot-based
+ * rollback this gives us BEGIN/COMMIT/ROLLBACK semantics — even when the
+ * pluggable persistence layer is asynchronous (e.g. SQLite IMMEDIATE) the
+ * in-memory and durable views can never disagree.
  */
 export class InterruptStore extends EventEmitter {
   private records = new Map<string, InterruptRecord>();
+  /** Tail of the per-record serialization chain. */
+  private locks = new Map<string, Promise<unknown>>();
+
+  /**
+   * Run `fn` while holding the lock for `id`. Operations against the same
+   * record execute strictly in submission order; different records run in
+   * parallel. Errors propagate to the caller; the lock is always released.
+   */
+  private async withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = prev.then(() => gate);
+    this.locks.set(id, chained);
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release();
+      // Best-effort GC: when no later acquirer chained on top of us, drop
+      // the entry so the map does not grow unbounded across many records.
+      if (this.locks.get(id) === chained) {
+        this.locks.delete(id);
+      }
+    }
+  }
 
   list(filter?: { sessionId?: string; status?: InterruptStatus }): InterruptRecord[] {
     const all = Array.from(this.records.values());
@@ -100,37 +170,114 @@ export class InterruptStore extends EventEmitter {
 
   /** Mark an interrupt as claimed (an operator started reviewing it). */
   async claim(id: string): Promise<InterruptRecord | undefined> {
-    const r = this.records.get(id);
-    if (!r || r.status !== 'pending') return r;
-    r.claimedAt = new Date().toISOString();
-    if (persistence) await persistence.save(r);
-    return r;
+    return this.withLock(id, async () => {
+      const r = this.records.get(id);
+      if (!r || r.status !== 'pending') return r;
+      const snap = snapshot(r);
+      r.claimedAt = new Date().toISOString();
+      if (persistence) {
+        try {
+          await persistence.save(r);
+        } catch (err) {
+          restore(r, snap);
+          throw err;
+        }
+      }
+      return r;
+    });
   }
 
+  /**
+   * Atomically apply `stateEdits` (mutating record.state) and mark the record
+   * resolved. The whole sequence is wrapped in a per-record lock so concurrent
+   * resumes/cancels cannot interleave, and a single persistence.save commits
+   * both the new state and the resolved status together. If persistence
+   * fails, the in-memory record is rolled back to its pre-call snapshot —
+   * leaving the interrupt pending — and no `resolved` event is emitted.
+   */
+  async resolveAtomic(
+    id: string,
+    value: unknown,
+    mutate?: (r: InterruptRecord) => void
+  ): Promise<InterruptRecord | undefined> {
+    return this.withLock(id, async () => {
+      const r = this.records.get(id);
+      if (!r) return undefined;
+      if (r.status !== 'pending') {
+        throw new Error(`Cannot resolve interrupt ${id}: status is ${r.status}`);
+      }
+      const snap = snapshot(r);
+      try {
+        // Apply user-supplied state mutations BEFORE marking resolved so
+        // both transitions land in a single persistence.save (the "COMMIT").
+        if (mutate) mutate(r);
+        r.status = 'resolved';
+        r.resumeValue = value;
+        r.resolvedAt = new Date().toISOString();
+        if (persistence) await persistence.save(r);
+      } catch (err) {
+        // ROLLBACK — leave the record exactly as we found it.
+        restore(r, snap);
+        throw err;
+      }
+      this.emit('resolved', r);
+      return r;
+    });
+  }
+
+  /**
+   * @deprecated Use {@link resolveAtomic} which also commits state edits in
+   * the same transaction. Kept for source-compat; internally delegates so
+   * concurrent callers still serialize.
+   */
   async resolve(id: string, value: unknown): Promise<InterruptRecord | undefined> {
-    const r = this.records.get(id);
-    if (!r) return undefined;
-    if (r.status !== 'pending') {
-      throw new Error(`Cannot resolve interrupt ${id}: status is ${r.status}`);
-    }
-    r.status = 'resolved';
-    r.resumeValue = value;
-    r.resolvedAt = new Date().toISOString();
-    if (persistence) await persistence.save(r);
-    this.emit('resolved', r);
-    return r;
+    return this.resolveAtomic(id, value);
   }
 
   async cancel(id: string, reason: string): Promise<InterruptRecord | undefined> {
-    const r = this.records.get(id);
-    if (!r) return undefined;
-    if (r.status !== 'pending') return r;
-    r.status = 'cancelled';
-    r.cancelReason = reason;
-    r.resolvedAt = new Date().toISOString();
-    if (persistence) await persistence.save(r);
-    this.emit('cancelled', r);
-    return r;
+    return this.withLock(id, async () => {
+      const r = this.records.get(id);
+      if (!r) return undefined;
+      if (r.status !== 'pending') return r;
+      const snap = snapshot(r);
+      try {
+        r.status = 'cancelled';
+        r.cancelReason = reason;
+        r.resolvedAt = new Date().toISOString();
+        if (persistence) await persistence.save(r);
+      } catch (err) {
+        restore(r, snap);
+        throw err;
+      }
+      this.emit('cancelled', r);
+      return r;
+    });
+  }
+
+  /**
+   * Atomic reopen: used when a validation check on the resume value fails
+   * AFTER the record was marked resolved. Re-acquires the per-record lock so
+   * we cannot race with a concurrent operator action, clears the resume
+   * fields, flips status back to `pending`, and persists in one shot. On
+   * persistence failure rolls back to the prior (resolved) snapshot so the
+   * in-memory view does not drift from disk.
+   */
+  async reopen(id: string): Promise<InterruptRecord | undefined> {
+    return this.withLock(id, async () => {
+      const r = this.records.get(id);
+      if (!r) return undefined;
+      const snap = snapshot(r);
+      try {
+        r.status = 'pending';
+        r.resumeValue = undefined;
+        r.resolvedAt = undefined;
+        if (persistence) await persistence.save(r);
+      } catch (err) {
+        restore(r, snap);
+        throw err;
+      }
+      return r;
+    });
   }
 
   async hydrate(): Promise<void> {
@@ -142,6 +289,7 @@ export class InterruptStore extends EventEmitter {
 
   clear(): void {
     this.records.clear();
+    this.locks.clear();
     this.removeAllListeners();
   }
 }
@@ -288,18 +436,28 @@ export async function interrupt<T = unknown>(opts: InterruptOptions): Promise<T>
     const onResolved = (r: InterruptRecord): void => {
       if (r.id !== record.id) return;
       cleanup();
+      let validated: unknown;
       try {
-        const validated = validateResumeValue(opts, r.resumeValue);
-        resolve(validated as T);
+        validated = validateResumeValue(opts, r.resumeValue);
       } catch (err) {
-        // Reopen the interrupt: validation failed, operator must retry.
-        r.status = 'pending';
-        r.resumeValue = undefined;
-        r.resolvedAt = undefined;
-        if (persistence) void persistence.save(r);
+        // Reopen the interrupt atomically: validation failed, operator must
+        // retry. We go through the store so the reopen takes the per-record
+        // lock (preventing races with a concurrent resume/cancel) AND so the
+        // persistence write is rolled back on failure — leaving disk and
+        // memory in agreement.
         log.warn('Resume value rejected by schema; reopening interrupt', { id: r.id });
-        reject(err);
+        store
+          .reopen(r.id)
+          .catch((reopenErr) => {
+            log.error('Failed to reopen interrupt after validation failure', {
+              id: r.id,
+              err: reopenErr,
+            });
+          })
+          .finally(() => reject(err));
+        return;
       }
+      resolve(validated as T);
     };
     const onCancelled = (r: InterruptRecord): void => {
       if (r.id !== record.id) return;
@@ -335,7 +493,10 @@ export async function interrupt<T = unknown>(opts: InterruptOptions): Promise<T>
 
 /**
  * Resume an interrupt with the supplied payload. Applies any `stateEdits`
- * to the record's `state` snapshot before resolving the waiting Promise.
+ * to the record's `state` snapshot AND marks the record resolved as a single
+ * atomic transaction — on persistence failure the state mutations are
+ * rolled back along with the status change, so the interrupt remains
+ * pending and the operator can retry against a clean record.
  *
  * Used by the CLI (`workflow resume --input`) and the web route.
  */
@@ -349,14 +510,14 @@ export async function resumeInterrupt(
   if (record.status !== 'pending') {
     throw new Error(`Interrupt ${id} is ${record.status}, cannot resume`);
   }
-  if (payload.stateEdits && payload.stateEdits.length > 0) {
-    record.state = record.state ?? {};
-    for (const edit of payload.stateEdits) {
-      applyStateEdit(record.state, edit);
+  const resolved = await store.resolveAtomic(id, payload.input, (r) => {
+    if (payload.stateEdits && payload.stateEdits.length > 0) {
+      r.state = r.state ?? {};
+      for (const edit of payload.stateEdits) {
+        applyStateEdit(r.state, edit);
+      }
     }
-    if (persistence) await persistence.save(record);
-  }
-  const resolved = await store.resolve(id, payload.input);
+  });
   if (!resolved) throw new Error(`Failed to resolve interrupt ${id}`);
   return resolved;
 }
