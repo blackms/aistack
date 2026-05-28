@@ -28,6 +28,12 @@ const reviewLoopSemaphore = new Semaphore('review-loops', 5);
 export interface ReviewLoopOptions {
   maxIterations?: number;
   sessionId?: string;
+  /**
+   * Opt-in: when set, the loop switches from adversarial APPROVE/REJECT
+   * to Outcomes-style rubric grading. Accepts a parsed RubricDoc, a YAML
+   * string, a JSON string, or a plain object — see workflows/rubric.
+   */
+  rubric?: unknown;
 }
 
 export interface ReviewLoopEvents {
@@ -375,13 +381,22 @@ Provide the corrected code that addresses all the identified issues.`;
 }
 
 /**
- * Create and start a review loop
+ * Create and start a review loop.
+ *
+ * Default behaviour is the adversarial APPROVE/REJECT loop. If
+ * `options.rubric` is supplied the loop routes to the Outcomes-style
+ * rubric grader instead; the result is normalised back into a
+ * ReviewLoopState so callers see a uniform shape.
  */
 export async function createReviewLoop(
   codeInput: string,
   config: AgentStackConfig,
   options: ReviewLoopOptions = {}
 ): Promise<ReviewLoopState> {
+  if (options.rubric != null) {
+    const { runRubricReviewLoop } = await import('../workflows/rubric/index.js');
+    return runRubricReviewLoop(codeInput, config, options as { rubric: unknown; maxIterations?: number; sessionId?: string });
+  }
   const coordinator = new ReviewLoopCoordinator(codeInput, config, options);
   const result = await coordinator.start();
   return result;
