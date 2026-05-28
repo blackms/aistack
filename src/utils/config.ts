@@ -46,6 +46,9 @@ const MemorySyncConfigSchema = z.object({
 const MemoryTieringConfigSchema = z.object({
   enabled: z.boolean().default(true),
   workingMaxEntries: z.number().min(1).max(10000).optional(),
+  // Hard cap on tokens kept in the working tier. Default 4000 matches the
+  // ~4k system-prompt budget claimed in docs/MEMORY.md.
+  workingMaxTokens: z.number().min(100).max(200000).optional(),
   recallMaxEntries: z.number().min(10).max(1000000).optional(),
   recallMaxAgeDays: z.number().min(0).max(3650).optional(),
   promoteToWorkingMinAccessCount: z.number().min(1).optional(),

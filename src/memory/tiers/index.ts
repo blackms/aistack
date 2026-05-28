@@ -22,8 +22,8 @@ import {
   type PagingPolicy,
 } from './types.js';
 
-export { TierManager } from './tier-manager.js';
-export type { DemoteOptions } from './tier-manager.js';
+export { TierManager, TierBudgetExceededError, estimateTokens } from './tier-manager.js';
+export type { DemoteOptions, TierScope } from './tier-manager.js';
 export { AutoPager } from './auto-pager.js';
 export { archiveEntry, restoreEntry } from './archival.js';
 export type { ArchivalSummarizer, ArchiveResult } from './archival.js';
@@ -63,6 +63,7 @@ export function createTierStack(store: SQLiteStore, config: AgentStackConfig): T
           working: {
             maxEntries: tiering.workingMaxEntries ?? DEFAULT_PAGING_POLICY.tiers.working.maxEntries,
             maxAgeMs: DEFAULT_PAGING_POLICY.tiers.working.maxAgeMs,
+            maxTokens: tiering.workingMaxTokens ?? DEFAULT_PAGING_POLICY.tiers.working.maxTokens,
           },
           recall: {
             maxEntries: tiering.recallMaxEntries ?? DEFAULT_PAGING_POLICY.tiers.recall.maxEntries,
@@ -70,6 +71,7 @@ export function createTierStack(store: SQLiteStore, config: AgentStackConfig): T
               tiering.recallMaxAgeDays !== undefined
                 ? tiering.recallMaxAgeDays * 24 * 60 * 60 * 1000
                 : DEFAULT_PAGING_POLICY.tiers.recall.maxAgeMs,
+            maxTokens: DEFAULT_PAGING_POLICY.tiers.recall.maxTokens,
           },
           archival: DEFAULT_PAGING_POLICY.tiers.archival,
         },

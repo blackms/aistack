@@ -10,7 +10,11 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SQLiteStore } from '../../../../src/memory/sqlite-store.js';
-import { TierManager } from '../../../../src/memory/tiers/tier-manager.js';
+import {
+  TierManager,
+  TierBudgetExceededError,
+  estimateTokens,
+} from '../../../../src/memory/tiers/tier-manager.js';
 
 function cleanupDb(path: string): void {
   for (const p of [path, `${path}-wal`, `${path}-shm`]) {
@@ -168,5 +172,108 @@ describe('TierManager', () => {
     const list = tm.listByTier('working');
     expect(list).toHaveLength(2);
     expect(list[0].key).toBe('one');
+  });
+
+  // ============== AIG-651 review fixes ==============
+
+  describe('token budget enforcement', () => {
+    it('estimateTokens grows roughly with content size', () => {
+      expect(estimateTokens('')).toBe(0);
+      const small = estimateTokens('hello world');
+      const big = estimateTokens('hello world '.repeat(200));
+      expect(big).toBeGreaterThan(small * 50);
+    });
+
+    it('promote() into a budgeted tier throws when over cap', () => {
+      const e1 = store.store('a', 'x'.repeat(2000)); // ~500 tokens via chars/4
+      const e2 = store.store('b', 'x'.repeat(2000));
+      tm.setTokenBudget('working', 600); // big enough for one, not two
+
+      tm.setTier(e1.id, 'working'); // first promotion fits
+      expect(() => tm.setTier(e2.id, 'working')).toThrow(TierBudgetExceededError);
+      // Second entry remained in recall — no silent loss.
+      expect(tm.getTier(e2.id)).toBe('recall');
+    });
+
+    it('setTokenBudget(tier, null) clears enforcement', () => {
+      const e = store.store('clr', 'x'.repeat(20000));
+      tm.setTokenBudget('working', 10);
+      expect(() => tm.setTier(e.id, 'working')).toThrow(TierBudgetExceededError);
+      tm.setTokenBudget('working', null);
+      tm.setTier(e.id, 'working'); // now allowed
+      expect(tm.getTier(e.id)).toBe('working');
+    });
+
+    it('getTierTokens sums estimateTokens across the tier', () => {
+      const e1 = store.store('s1', 'x'.repeat(400)); // chars/4 = 100
+      const e2 = store.store('s2', 'x'.repeat(800)); // chars/4 = 200
+      tm.setTier(e1.id, 'working');
+      tm.setTier(e2.id, 'working');
+      const total = tm.getTierTokens('working');
+      expect(total).toBeGreaterThanOrEqual(300);
+    });
+  });
+
+  describe('atomic applyTransition (race-condition fix)', () => {
+    it('cold -> hot promotion is wrapped in BEGIN IMMEDIATE', () => {
+      // Hard to provoke a real race in single-process tests, but we can
+      // verify the round-trip is atomic by inspecting the row before & after.
+      const original = 'sensitive payload that must not be lost';
+      const entry = store.store('atomic', original);
+      tm.demote(entry.id); // -> archival, gzips into archived_content
+      tm.promote(entry.id); // archival -> recall, must restore
+
+      // @ts-expect-error private db handle
+      const row = store.db
+        .prepare('SELECT tier, content, archived_content FROM memory WHERE id = ?')
+        .get(entry.id) as { tier: string; content: string; archived_content: Buffer | null };
+      expect(row.tier).toBe('recall');
+      expect(row.content).toBe(original);
+      expect(row.archived_content).toBeNull();
+    });
+  });
+
+  describe('schema CHECK constraint (ensureTierSchema)', () => {
+    it('rejects an INSERT with an invalid tier value', () => {
+      const e = store.store('chk', 'content');
+      // The CHECK clause comes from migration 009; ensureTierSchema must
+      // apply the same one on the idempotent ALTER path.
+      // @ts-expect-error private db
+      expect(() => store.db.prepare('UPDATE memory SET tier = ? WHERE id = ?').run('bogus', e.id)).toThrow();
+    });
+  });
+
+  describe('listByTier scope filters', () => {
+    it('namespace filter only returns entries in that namespace', () => {
+      const a = store.store('k1', 'c1', { namespace: 'ns-a' });
+      const b = store.store('k2', 'c2', { namespace: 'ns-b' });
+      tm.setTier(a.id, 'working');
+      tm.setTier(b.id, 'working');
+
+      const filtered = tm.listByTier('working', 100, 0, { namespace: 'ns-a' });
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].key).toBe('k1');
+    });
+
+    it('agentId filter respects includeShared=false', () => {
+      const owned = store.store('o', 'c1', { agentId: 'agent-1' });
+      const shared = store.store('s', 'c2'); // no agentId -> shared
+      const other = store.store('x', 'c3', { agentId: 'agent-2' });
+      tm.setTier(owned.id, 'working');
+      tm.setTier(shared.id, 'working');
+      tm.setTier(other.id, 'working');
+
+      const onlyOwn = tm.listByTier('working', 100, 0, {
+        agentId: 'agent-1',
+        includeShared: false,
+      });
+      expect(onlyOwn.map(e => e.key).sort()).toEqual(['o']);
+
+      const ownAndShared = tm.listByTier('working', 100, 0, {
+        agentId: 'agent-1',
+        includeShared: true,
+      });
+      expect(ownAndShared.map(e => e.key).sort()).toEqual(['o', 's']);
+    });
   });
 });

@@ -53,7 +53,7 @@ describe('AutoPager (integration)', () => {
           ...DEFAULT_PAGING_POLICY,
           tiers: {
             ...DEFAULT_PAGING_POLICY.tiers,
-            working: { maxEntries: 10, maxAgeMs: null },
+            working: { maxEntries: 10, maxAgeMs: null, maxTokens: null },
           },
         },
       },
@@ -85,7 +85,7 @@ describe('AutoPager (integration)', () => {
           promoteToWorkingMinAccessCount: 2,
           tiers: {
             ...DEFAULT_PAGING_POLICY.tiers,
-            working: { maxEntries: 5, maxAgeMs: null },
+            working: { maxEntries: 5, maxAgeMs: null, maxTokens: null },
           },
         },
       },
@@ -110,6 +110,60 @@ describe('AutoPager (integration)', () => {
     expect(stats.recall).toBe(7);
   });
 
+  it('swaps working LRU with hot recall when working is full (AIG-651 review)', async () => {
+    const tm = new TierManager(store);
+    const pager = new AutoPager(
+      store,
+      {
+        intervalMs: 0,
+        batchSize: 1000,
+        policy: {
+          ...DEFAULT_PAGING_POLICY,
+          promoteToWorkingMinAccessCount: 1,
+          tiers: {
+            ...DEFAULT_PAGING_POLICY.tiers,
+            // Working can hold exactly 3 — the test verifies that filling
+            // it does NOT block subsequent promotions; LRU should evict.
+            working: { maxEntries: 3, maxAgeMs: null, maxTokens: null },
+          },
+        },
+      },
+      tm
+    );
+
+    // 3 cold entries already in working with old last_accessed times.
+    const cold: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const e = store.store(`cold-${i}`, `c-${i}`);
+      tm.setTier(e.id, 'working');
+      cold.push(e.id);
+    }
+    // Force last_accessed_at into the past so they're clearly LRU vs. the
+    // hot recall entries we touch below.
+    // @ts-expect-error private db
+    store.db.prepare('UPDATE memory SET last_accessed_at = ? WHERE id IN (?,?,?)')
+      .run(Date.now() - 60_000, ...cold);
+
+    // 2 hot recall entries.
+    const hot: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const e = store.store(`hot-${i}`, `h-${i}`);
+      tm.touch(e.id);
+      tm.touch(e.id);
+      hot.push(e.id);
+    }
+
+    const result = await pager.runOnce();
+
+    // Both hot entries should now be in working — the previous
+    // "skip when full" bug would have promoted 0.
+    expect(result.promotedToWorking).toBe(2);
+    for (const id of hot) expect(tm.getTier(id)).toBe('working');
+    // The two evicted cold entries are back in recall.
+    expect(tm.getStats().working).toBe(3);
+    expect(tm.getStats().recall).toBe(2);
+  });
+
   it('demotes recall entries older than maxAgeMs into archival', async () => {
     const tm = new TierManager(store);
     const pager = new AutoPager(
@@ -121,7 +175,7 @@ describe('AutoPager (integration)', () => {
           ...DEFAULT_PAGING_POLICY,
           tiers: {
             ...DEFAULT_PAGING_POLICY.tiers,
-            recall: { maxEntries: 1000, maxAgeMs: 1000 /* 1s for the test */ },
+            recall: { maxEntries: 1000, maxAgeMs: 1000 /* 1s for the test */, maxTokens: null },
           },
         },
       },
@@ -160,9 +214,9 @@ describe('AutoPager (integration)', () => {
           ...DEFAULT_PAGING_POLICY,
           promoteToWorkingMinAccessCount: 2,
           tiers: {
-            working: { maxEntries: 20, maxAgeMs: null },
-            recall: { maxEntries: 150, maxAgeMs: 1000 /* 1s for the test */ },
-            archival: { maxEntries: null, maxAgeMs: null },
+            working: { maxEntries: 20, maxAgeMs: null, maxTokens: null },
+            recall: { maxEntries: 150, maxAgeMs: 1000 /* 1s for the test */, maxTokens: null },
+            archival: { maxEntries: null, maxAgeMs: null, maxTokens: null },
           },
         },
       },

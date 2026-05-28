@@ -2,13 +2,17 @@
  * AutoPager — background worker that applies the configured PagingPolicy.
  *
  * The pager runs on a fixed interval (default: 5 minutes) and performs a
- * single bounded scan of the `memory` table per tick:
+ * single bounded scan of the `memory` table per tick. Step ordering is
+ * deliberate so a full working tier never blocks promotion of newly-hot
+ * recall entries:
  *
- *   1. Promote: recall entries that look hot (access_count >= threshold AND
- *      last_accessed within recentAccessWindowMs) get promoted into working,
- *      respecting working tier's maxEntries cap.
- *   2. Demote working overflow: when working > maxEntries, the LRU tail is
- *      demoted to recall (selected by last_accessed_at ASC).
+ *   1. Demote working overflow first — when working > maxEntries OR working
+ *      tokens > maxTokens, the LRU tail is demoted to recall (selected by
+ *      last_accessed_at ASC). This frees headroom for step 2.
+ *   2. Promote: recall entries that look hot (access_count >= threshold AND
+ *      last_accessed within recentAccessWindowMs) get promoted into working.
+ *      For each candidate we *first* evict the working LRU if needed so the
+ *      promotion never silently no-ops on a full working tier.
  *   3. Demote recall overflow / aged: recall entries older than maxAgeMs OR
  *      beyond maxEntries are demoted to archival (gzipped via TierManager).
  *
@@ -18,10 +22,12 @@
 
 import type Database from 'better-sqlite3';
 import type { SQLiteStore } from '../sqlite-store.js';
-import { TierManager } from './tier-manager.js';
+import { TierManager, TierBudgetExceededError } from './tier-manager.js';
 import {
+  ALL_TIERS,
   DEFAULT_AUTO_PAGER_OPTIONS,
   type AutoPagerOptions,
+  type MemoryTier,
   type PagingPolicy,
   type PagingRunResult,
 } from './types.js';
@@ -65,6 +71,13 @@ export class AutoPager {
         },
       },
     };
+
+    // Push per-tier token caps into the TierManager so direct
+    // promote()/setTier() calls share the same enforcement as the pager.
+    for (const t of ALL_TIERS) {
+      const cap = this.options.policy.tiers[t]?.maxTokens ?? null;
+      this.tierManager.setTokenBudget(t, cap);
+    }
   }
 
   /**
@@ -116,8 +129,10 @@ export class AutoPager {
     };
 
     try {
-      result.promotedToWorking = this.promoteHotRecall(result);
+      // Demote-first ordering: free working headroom *before* promoting so a
+      // saturated working tier doesn't silently swallow promotions.
       result.demotedToRecall = this.demoteWorkingOverflow(result);
+      result.promotedToWorking = this.promoteHotRecall(result);
       result.demotedToArchival = this.demoteRecallOverflowAndAged(result);
     } finally {
       this.running = false;
@@ -132,13 +147,6 @@ export class AutoPager {
   private promoteHotRecall(result: PagingRunResult): number {
     const policy = this.options.policy;
     const workingCfg = policy.tiers.working;
-    const workingCap = workingCfg.maxEntries;
-
-    // If working is already full and bounded, skip — demotion runs next.
-    if (workingCap !== null) {
-      const workingSize = this.countTier('working');
-      if (workingSize >= workingCap) return 0;
-    }
 
     const now = Date.now();
     const since = now - policy.recentAccessWindowMs;
@@ -161,24 +169,100 @@ export class AutoPager {
       ) as CandidateRow[];
 
     let promoted = 0;
-    const headroom = workingCap === null ? Number.MAX_SAFE_INTEGER : workingCap - this.countTier('working');
     for (const row of rows) {
-      if (promoted >= headroom) break;
-      this.tierManager.setTier(row.id, 'working');
-      promoted++;
+      // For each candidate, try promoting. If the working tier is full
+      // (by entries or by token budget) evict the LRU tail of working to
+      // make room — this is the "swap" behavior the previous skip-on-full
+      // implementation was missing.
+      if (!this.makeWorkingRoomFor(row.id, workingCfg.maxEntries, workingCfg.maxTokens)) {
+        // Couldn't free enough room (e.g. budget too small for this single
+        // entry). Skip this candidate; the next one might still fit.
+        continue;
+      }
+      try {
+        this.tierManager.setTier(row.id, 'working');
+        promoted++;
+      } catch (err) {
+        if (err instanceof TierBudgetExceededError) {
+          // makeWorkingRoomFor said yes but a concurrent writer changed the
+          // landscape — give up on this candidate, the next tick will retry.
+          log.debug('Promotion lost a race with concurrent writer', { id: row.id });
+          continue;
+        }
+        throw err;
+      }
     }
     result.scanned += rows.length;
     return promoted;
   }
 
-  private demoteWorkingOverflow(result: PagingRunResult): number {
-    const cap = this.options.policy.tiers.working.maxEntries;
-    if (cap === null) return 0;
-    const workingSize = this.countTier('working');
-    if (workingSize <= cap) return 0;
+  /**
+   * Ensure working has room for one more `incomingId`-sized entry. Evicts
+   * LRU working rows to recall until both the entry-count cap AND the
+   * token-budget cap have headroom for the incoming row.
+   *
+   * Returns false if the entry alone exceeds the absolute token budget
+   * (in which case promotion is impossible regardless of evictions).
+   */
+  private makeWorkingRoomFor(
+    incomingId: string,
+    maxEntries: number | null,
+    maxTokens: number | null
+  ): boolean {
+    // No caps -> always fits.
+    if (maxEntries === null && maxTokens === null) return true;
 
-    const overflow = workingSize - cap;
-    const rows = this.db
+    // Pre-flight: does the incoming row by itself exceed the absolute budget?
+    if (maxTokens !== null) {
+      const tokens = this.estimateRowTokens(incomingId);
+      if (tokens > maxTokens) {
+        log.warn('Skipping promotion: entry alone exceeds working token budget', {
+          id: incomingId,
+          tokens,
+          maxTokens,
+        });
+        return false;
+      }
+    }
+
+    // Iteratively evict LRU until both caps have room. The incoming row's
+    // token estimate is invariant across iterations so cache it.
+    const incomingTokens = maxTokens !== null ? this.estimateRowTokens(incomingId) : 0;
+    let evictions = 0;
+    while (evictions < this.options.batchSize) {
+      const overflowsEntries =
+        maxEntries !== null && this.countTier('working') + 1 > maxEntries;
+      const overflowsTokens =
+        maxTokens !== null &&
+        this.tierManager.getTierTokens('working') + incomingTokens > maxTokens;
+      if (!overflowsEntries && !overflowsTokens) return true;
+
+      const victim = this.db
+        .prepare(
+          `SELECT id FROM memory
+           WHERE tier = 'working'
+           ORDER BY COALESCE(last_accessed_at, updated_at) ASC
+           LIMIT 1`
+        )
+        .get() as { id: string } | undefined;
+      if (!victim) return true; // working empty -> trivially has room
+      this.tierManager.setTier(victim.id, 'recall');
+      evictions++;
+    }
+    return false;
+  }
+
+  private demoteWorkingOverflow(result: PagingRunResult): number {
+    const cfg = this.options.policy.tiers.working;
+    const entryCap = cfg.maxEntries;
+    const tokenCap = cfg.maxTokens;
+    if (entryCap === null && tokenCap === null) return 0;
+
+    let demoted = 0;
+
+    // Pull a candidate LRU page once — repeat the check after each eviction
+    // so we stop as soon as either cap is satisfied.
+    const candidates = this.db
       .prepare(
         `SELECT id, tier, access_count, last_accessed_at, updated_at, created_at
          FROM memory
@@ -186,14 +270,17 @@ export class AutoPager {
          ORDER BY COALESCE(last_accessed_at, updated_at) ASC
          LIMIT ?`
       )
-      .all(Math.min(overflow, this.options.batchSize)) as CandidateRow[];
+      .all(this.options.batchSize) as CandidateRow[];
+    result.scanned += candidates.length;
 
-    let demoted = 0;
-    for (const row of rows) {
+    for (const row of candidates) {
+      const overflowsEntries = entryCap !== null && this.countTier('working') > entryCap;
+      const overflowsTokens =
+        tokenCap !== null && this.tierManager.getTierTokens('working') > tokenCap;
+      if (!overflowsEntries && !overflowsTokens) break;
       this.tierManager.setTier(row.id, 'recall');
       demoted++;
     }
-    result.scanned += rows.length;
     return demoted;
   }
 
@@ -257,11 +344,25 @@ export class AutoPager {
 
   // ==================== Helpers ====================
 
-  private countTier(tier: string): number {
+  private countTier(tier: MemoryTier): number {
     const row = this.db
       .prepare('SELECT COUNT(*) as count FROM memory WHERE tier = ?')
       .get(tier) as { count: number };
     return row.count;
+  }
+
+  private estimateRowTokens(id: string): number {
+    const row = this.db
+      .prepare('SELECT tier, content, archived_content FROM memory WHERE id = ?')
+      .get(id) as { tier: string; content: string; archived_content: Buffer | null } | undefined;
+    if (!row) return 0;
+    // For archived rows, use the restored payload length so the working-tier
+    // budget reflects what an end-user would see after promotion.
+    const content =
+      row.tier === 'archival' && row.archived_content
+        ? row.archived_content.length * 3 /* conservative gzip ratio */
+        : row.content?.length ?? 0;
+    return Math.ceil(content / 4);
   }
 
   /**

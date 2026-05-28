@@ -43,6 +43,15 @@ export interface TierConfig {
    * becoming eligible for demotion to the next tier. `null` means no age cap.
    */
   maxAgeMs: number | null;
+  /**
+   * Maximum total estimated tokens allowed in this tier. `null` means no cap.
+   *
+   * Tokens are estimated via a tokenizer-free heuristic (words * 1.3, clamped
+   * by char-count / 4) — see `estimateTokens` in tier-manager.ts. Used by the
+   * `working` tier to enforce the ~4k token in-context budget claimed in
+   * docs/MEMORY.md.
+   */
+  maxTokens: number | null;
 }
 
 /**
@@ -91,11 +100,14 @@ export interface PagingRunResult {
  */
 export const DEFAULT_PAGING_POLICY: PagingPolicy = {
   tiers: {
-    working: { maxEntries: 50, maxAgeMs: null },
+    // working tier ~4k tokens — the cap is the binding constraint. maxEntries
+    // is a soft sanity-check ceiling so a flood of empty rows can't exhaust
+    // the cap by row count alone.
+    working: { maxEntries: 50, maxAgeMs: null, maxTokens: 4000 },
     // Default recall ceiling matches what a single project typically accumulates
     // over a few weeks of active use; raise it for long-lived workspaces.
-    recall: { maxEntries: 5000, maxAgeMs: 30 * 24 * 60 * 60 * 1000 /* 30 days */ },
-    archival: { maxEntries: null, maxAgeMs: null },
+    recall: { maxEntries: 5000, maxAgeMs: 30 * 24 * 60 * 60 * 1000 /* 30 days */, maxTokens: null },
+    archival: { maxEntries: null, maxAgeMs: null, maxTokens: null },
   },
   promoteToWorkingMinAccessCount: 3,
   recentAccessWindowMs: 24 * 60 * 60 * 1000 /* 24 hours */,

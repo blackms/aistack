@@ -3,10 +3,16 @@
  */
 
 import { Command } from 'commander';
+import { z } from 'zod';
 import { getMemoryManager } from '../../memory/index.js';
 import { TierManager } from '../../memory/tiers/index.js';
 import type { MemoryTier } from '../../memory/tiers/index.js';
 import { getConfig } from '../../utils/config.js';
+
+// Validated tier values for CLI flags. Mirrors MemoryTier in
+// src/memory/tiers/types.ts. Centralized so future tiers only require one
+// edit + a single Zod refinement instead of scattered string checks.
+const TierEnum = z.enum(['working', 'recall', 'archival']);
 
 export function createMemoryCommand(): Command {
   const command = new Command('memory')
@@ -201,10 +207,13 @@ export function createMemoryCommand(): Command {
   }
 
   function parseTier(value: string): MemoryTier {
-    if (value !== 'working' && value !== 'recall' && value !== 'archival') {
-      throw new Error(`Invalid tier '${value}'. Expected: working|recall|archival`);
+    const parsed = TierEnum.safeParse(value);
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid tier '${value}'. Expected one of: ${TierEnum.options.join(', ')}`
+      );
     }
-    return value;
+    return parsed.data;
   }
 
   // promote subcommand

@@ -589,6 +589,8 @@ export interface MemoryTieringConfig {
   enabled?: boolean;
   /** Maximum entries kept in the hot in-context "working" tier. */
   workingMaxEntries?: number;
+  /** Maximum estimated tokens kept in the working tier (defaults to 4000). */
+  workingMaxTokens?: number;
   /** Soft cap on the warm "recall" tier; LRU tail demotes to archival when exceeded. */
   recallMaxEntries?: number;
   /** Age (in days) after which a recall entry is demoted to archival. */
