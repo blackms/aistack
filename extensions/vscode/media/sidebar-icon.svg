@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Placeholder aistack activity-bar icon: three stacked agent nodes connected by an orchestration line. -->
+  <circle cx="6" cy="6" r="2.2"/>
+  <circle cx="18" cy="6" r="2.2"/>
+  <circle cx="12" cy="18" r="2.6"/>
+  <path d="M7.4 7.6 L11 16"/>
+  <path d="M16.6 7.6 L13 16"/>
+  <path d="M8.2 6 L15.8 6"/>
+</svg>
