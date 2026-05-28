@@ -358,6 +358,7 @@ export interface AgentStackConfig {
   guardrails?: GuardrailsConfig;
   /** Authentication config (extended for SSO via auth.sso sub-field). AIG-646. */
   auth?: AuthConfig;
+  federation?: FederationConfig;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.
@@ -541,6 +542,35 @@ export interface AuthConfig {
     defaultRole?: 'admin' | 'developer' | 'viewer';
     strictIdentityBinding?: boolean;
   };
+}
+
+// Federation types (multi-machine federation, AIG-652)
+export type FederationDiscoveryMethod = 'mdns' | 'registry' | 'static';
+export type FederationRoutingPolicy = 'round-robin' | 'least-loaded' | 'capability-match';
+
+export interface FederationTlsConfig {
+  certPath?: string;
+  keyPath?: string;
+  caPath?: string;
+  requireClientCert?: boolean;
+  bearerToken?: string;
+}
+
+export interface FederationConfig {
+  enabled: boolean;
+  nodeId?: string;
+  name?: string;
+  discoveryMethod: FederationDiscoveryMethod;
+  advertise: boolean;
+  peers: string[];
+  registryUrl?: string;
+  mdnsServiceType?: string;
+  bindAddress?: string;
+  bindPort?: number;
+  routingPolicy: FederationRoutingPolicy;
+  maxInputLength?: number;
+  tls?: FederationTlsConfig;
+  requestTimeoutMs?: number;
 }
 
 export interface MemoryConfig {
