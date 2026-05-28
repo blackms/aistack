@@ -200,6 +200,7 @@ const ConsensusConfigSchema = z.object({
   ]),
 });
 
+<<<<<<< HEAD
 /**
  * Telemetry Configuration Schema (AIG-655)
  *
@@ -319,6 +320,48 @@ const GuardrailsConfigSchema = z.object({
   customPaths: z.array(z.string()).optional(),
   timeoutMs: z.number().min(50).max(60000).default(2000),
   killSwitch: z.boolean().default(true),
+});
+
+const FederationTlsConfigSchema = z.object({
+  certPath: z.string().optional(),
+  keyPath: z.string().optional(),
+  caPath: z.string().optional(),
+  requireClientCert: z.boolean().default(true),
+  bearerToken: z.string().optional(),
+  /** CN/SAN allowlist for peer certs. Empty array = accept any CA-signed cert. */
+  trustedPeerCNs: z.array(z.string()).default([]),
+  /** Explicit opt-in for plain HTTP / unauthenticated federation (dev only). */
+  allowPlainText: z.boolean().default(false),
+});
+
+const FederationDiscoverySigningConfigSchema = z.object({
+  privateKeyPath: z.string().optional(),
+  publicKeyPath: z.string().optional(),
+  trustedPublicKeys: z.array(z.string()).default([]),
+});
+
+/**
+ * Federation configuration (AIG-652).
+ *
+ * Sibling slot - additive only. When `enabled` is false the federation
+ * module is a no-op and nothing else in aistack is affected.
+ */
+const FederationConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  nodeId: z.string().optional(),
+  name: z.string().optional(),
+  discoveryMethod: z.enum(['mdns', 'registry', 'static']).default('static'),
+  advertise: z.boolean().default(false),
+  peers: z.array(z.string()).default([]),
+  registryUrl: z.string().optional(),
+  mdnsServiceType: z.string().default('_aistack._tcp.local'),
+  bindAddress: z.string().default('0.0.0.0'),
+  bindPort: z.number().min(0).max(65535).default(0),
+  routingPolicy: z.enum(['round-robin', 'least-loaded', 'capability-match']).default('least-loaded'),
+  maxInputLength: z.number().min(64).max(65536).default(4096),
+  tls: FederationTlsConfigSchema.optional(),
+  discoverySigning: FederationDiscoverySigningConfigSchema.optional(),
+  requestTimeoutMs: z.number().min(100).max(120000).default(10000),
 });
 
 const SmartDispatcherConfigSchema = z.object({
@@ -454,6 +497,7 @@ const ConfigSchema = z.object({
   integrations: IntegrationsConfigSchema.optional(),
   guardrails: GuardrailsConfigSchema.default({}),
   auth: AuthConfigSchema.optional(),
+  federation: FederationConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
