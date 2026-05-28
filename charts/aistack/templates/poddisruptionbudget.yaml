@@ -1,0 +1,22 @@
+{{- if .Values.podDisruptionBudget.enabled -}}
+{{- /*
+  Only meaningful when replicaCount > 1 (or autoscaling.minReplicas > 1),
+  but K8s accepts a PDB targeting a single-replica workload — it just
+  prevents voluntary disruption (drain) until another replica is healthy.
+*/ -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aistack.fullname" . }}
+  labels:
+    {{- include "aistack.labels" . | nindent 4 }}
+spec:
+  {{- if hasKey .Values.podDisruptionBudget "maxUnavailable" }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "aistack.selectorLabels" . | nindent 6 }}
+{{- end }}
