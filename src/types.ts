@@ -574,6 +574,35 @@ export interface MemoryConfig {
     exportEnabled?: boolean;
     importEnabled?: boolean;
   };
+  /** Hierarchical tiering configuration — see src/memory/tiers/ (AIG-651). */
+  tiering?: MemoryTieringConfig;
+}
+
+/**
+ * Configuration for OS-style hierarchical memory tiers (AIG-651).
+ *
+ * All fields are optional; omitted values fall back to DEFAULT_PAGING_POLICY
+ * in src/memory/tiers/types.ts.
+ */
+export interface MemoryTieringConfig {
+  /** Master switch — when false, AutoPager.start() is a no-op. */
+  enabled?: boolean;
+  /** Maximum entries kept in the hot in-context "working" tier. */
+  workingMaxEntries?: number;
+  /** Soft cap on the warm "recall" tier; LRU tail demotes to archival when exceeded. */
+  recallMaxEntries?: number;
+  /** Age (in days) after which a recall entry is demoted to archival. */
+  recallMaxAgeDays?: number;
+  /** Access count threshold for recall -> working promotion. */
+  promoteToWorkingMinAccessCount?: number;
+  /** Recency window (ms) used together with access count for promotion. */
+  recentAccessWindowMs?: number;
+  /** When true, AutoPager calls the configured LLM summarizer on archival. */
+  archivalSummarize?: boolean;
+  /** AutoPager run interval in ms. */
+  intervalMs?: number;
+  /** Maximum rows scanned per AutoPager tick. */
+  batchSize?: number;
 }
 
 export interface ProvidersConfig {

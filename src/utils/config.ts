@@ -41,6 +41,20 @@ const MemorySyncConfigSchema = z.object({
   importEnabled: z.boolean().optional(),
 });
 
+// Hierarchical memory tiering (AIG-651). All fields optional — defaults come
+// from DEFAULT_PAGING_POLICY in src/memory/tiers/types.ts.
+const MemoryTieringConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  workingMaxEntries: z.number().min(1).max(10000).optional(),
+  recallMaxEntries: z.number().min(10).max(1000000).optional(),
+  recallMaxAgeDays: z.number().min(0).max(3650).optional(),
+  promoteToWorkingMinAccessCount: z.number().min(1).optional(),
+  recentAccessWindowMs: z.number().min(60000).optional(),
+  archivalSummarize: z.boolean().optional(),
+  intervalMs: z.number().min(0).max(86400000).optional(),
+  batchSize: z.number().min(10).max(100000).optional(),
+});
+
 const MemoryConfigSchema = z.object({
   path: z.string().default('./data/aistack.db'),
   defaultNamespace: z.string().default('default'),
@@ -48,6 +62,7 @@ const MemoryConfigSchema = z.object({
   toolAdapter: MemoryToolAdapterConfigSchema.optional(),
   dreaming: DreamingConfigSchema.optional(),
   sync: MemorySyncConfigSchema.optional(),
+  tiering: MemoryTieringConfigSchema.optional(),
 });
 
 const AnthropicConfigSchema = z.object({

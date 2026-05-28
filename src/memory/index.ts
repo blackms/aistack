@@ -711,6 +711,10 @@ export { VectorSearch } from './vector-search.js';
 export { MemoryAccessControl, getAccessControl, resetAccessControl } from './access-control.js';
 export type { MemoryAccessContext } from './access-control.js';
 
+// Hierarchical memory tiers (AIG-651) — see src/memory/tiers/ for details.
+export { TierManager, AutoPager, createTierStack, DEFAULT_PAGING_POLICY } from './tiers/index.js';
+export type { MemoryTier, TierStats, PagingPolicy, PagingRunResult, TierStack } from './tiers/index.js';
+
 // Singleton instance
 let instance: MemoryManager | null = null;
 

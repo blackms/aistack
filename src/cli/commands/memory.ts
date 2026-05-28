@@ -4,6 +4,8 @@
 
 import { Command } from 'commander';
 import { getMemoryManager } from '../../memory/index.js';
+import { TierManager } from '../../memory/tiers/index.js';
+import type { MemoryTier } from '../../memory/tiers/index.js';
 import { getConfig } from '../../utils/config.js';
 
 export function createMemoryCommand(): Command {
@@ -183,6 +185,96 @@ export function createMemoryCommand(): Command {
         if (namespace) {
           console.log(`  Namespace filter:  ${namespace}`);
         }
+      } catch (error) {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
+    });
+
+  // ==================== Tiering (AIG-651) ====================
+
+  function resolveMemoryId(key: string, namespace?: string): string | null {
+    const config = getConfig();
+    const memory = getMemoryManager(config);
+    const entry = memory.get(key, namespace);
+    return entry?.id ?? null;
+  }
+
+  function parseTier(value: string): MemoryTier {
+    if (value !== 'working' && value !== 'recall' && value !== 'archival') {
+      throw new Error(`Invalid tier '${value}'. Expected: working|recall|archival`);
+    }
+    return value;
+  }
+
+  // promote subcommand
+  command
+    .command('promote <key>')
+    .description('Promote a memory entry to a hotter tier (working > recall > archival)')
+    .option('-n, --namespace <namespace>', 'Namespace')
+    .option('--to <tier>', 'Target tier (working|recall). Defaults to one step hotter.')
+    .action((key: string, options: { namespace?: string; to?: string }) => {
+      try {
+        const config = getConfig();
+        const memory = getMemoryManager(config);
+        const id = resolveMemoryId(key, options.namespace);
+        if (!id) {
+          console.error(`Entry not found: ${key}`);
+          process.exit(1);
+        }
+        const tm = new TierManager(memory.getStore());
+        const target = options.to ? parseTier(options.to) : undefined;
+        const newTier = target ? tm.setTier(id, target) : tm.promote(id);
+        console.log(`Entry ${key} now in tier: ${newTier}`);
+      } catch (error) {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
+    });
+
+  // demote subcommand
+  command
+    .command('demote <key>')
+    .description('Demote a memory entry to a colder tier (working > recall > archival)')
+    .option('-n, --namespace <namespace>', 'Namespace')
+    .option('--to <tier>', 'Target tier (recall|archival). Defaults to one step colder.')
+    .option('--summary <text>', 'Optional summary text stored alongside archived payload')
+    .action((key: string, options: { namespace?: string; to?: string; summary?: string }) => {
+      try {
+        const config = getConfig();
+        const memory = getMemoryManager(config);
+        const id = resolveMemoryId(key, options.namespace);
+        if (!id) {
+          console.error(`Entry not found: ${key}`);
+          process.exit(1);
+        }
+        const tm = new TierManager(memory.getStore());
+        const target = options.to ? parseTier(options.to) : undefined;
+        const newTier = target
+          ? tm.setTier(id, target, { summary: options.summary })
+          : tm.demote(id, undefined, { summary: options.summary });
+        console.log(`Entry ${key} now in tier: ${newTier}`);
+      } catch (error) {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
+    });
+
+  // tier-stats subcommand
+  command
+    .command('tier-stats')
+    .description('Show entry counts per memory tier')
+    .action(() => {
+      try {
+        const config = getConfig();
+        const memory = getMemoryManager(config);
+        const tm = new TierManager(memory.getStore());
+        const stats = tm.getStats();
+        console.log('Memory tier distribution:\n');
+        console.log(`  working:  ${stats.working}`);
+        console.log(`  recall:   ${stats.recall}`);
+        console.log(`  archival: ${stats.archival}`);
+        console.log(`  total:    ${stats.total}`);
       } catch (error) {
         console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
