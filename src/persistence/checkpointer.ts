@@ -49,6 +49,12 @@ export interface CheckpointerOptions {
   gzipThresholdBytes?: number;
   /** Disable gzip entirely (useful for tests / determinism). Default false. */
   disableGzip?: boolean;
+  /**
+   * Hard cap on decompressed checkpoint size to defend against gzip-bomb
+   * inputs (compromised DB, malicious migration). Default 100 MiB. Set to 0
+   * to disable the cap (NOT recommended).
+   */
+  maxDecompressedBytes?: number;
 }
 
 interface CheckpointRow {
@@ -63,6 +69,8 @@ interface CheckpointRow {
 }
 
 const DEFAULT_GZIP_THRESHOLD_BYTES = 2048;
+/** Default 100 MiB cap on gunzip output — guards against gzip-bomb payloads. */
+const DEFAULT_MAX_DECOMPRESSED_BYTES = 100 * 1024 * 1024;
 
 /**
  * Checkpointer — writes/reads `agent_checkpoints` rows.
@@ -74,11 +82,13 @@ export class Checkpointer {
   private readonly db: Database.Database;
   private readonly gzipThresholdBytes: number;
   private readonly disableGzip: boolean;
+  private readonly maxDecompressedBytes: number;
 
   constructor(db: Database.Database, options: CheckpointerOptions = {}) {
     this.db = db;
     this.gzipThresholdBytes = options.gzipThresholdBytes ?? DEFAULT_GZIP_THRESHOLD_BYTES;
     this.disableGzip = options.disableGzip ?? false;
+    this.maxDecompressedBytes = options.maxDecompressedBytes ?? DEFAULT_MAX_DECOMPRESSED_BYTES;
   }
 
   /**
@@ -261,7 +271,25 @@ export class Checkpointer {
   private rowToCheckpoint<TState>(row: CheckpointRow): Checkpoint<TState> {
     let json: string;
     if (row.format === 'json+gzip') {
-      json = gunzipSync(Buffer.from(row.state_blob, 'base64')).toString('utf8');
+      // Cap decompressed output to defend against gzip-bomb payloads
+      // (e.g. compromised DB or malicious migration). Node throws
+      // ERR_BUFFER_TOO_LARGE / "Memory allocation failed" when exceeded.
+      const gunzipOpts =
+        this.maxDecompressedBytes > 0 ? { maxOutputLength: this.maxDecompressedBytes } : {};
+      try {
+        json = gunzipSync(Buffer.from(row.state_blob, 'base64'), gunzipOpts).toString('utf8');
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        log.error('Failed to decompress checkpoint blob', {
+          id: row.id,
+          sessionId: row.session_id,
+          maxDecompressedBytes: this.maxDecompressedBytes,
+          error: msg,
+        });
+        throw new Error(
+          `Checkpoint ${row.id} decompression failed (possible gzip bomb, cap=${this.maxDecompressedBytes} bytes): ${msg}`
+        );
+      }
     } else {
       json = row.state_blob;
     }
@@ -314,22 +342,77 @@ export function resetCheckpointer(): void {
 }
 
 /**
+ * Test-only: inject a pre-built Checkpointer as the module singleton so
+ * `saveCheckpointIfEnabled` can be exercised without standing up a full
+ * MemoryManager / config graph. Production code MUST NOT call this.
+ */
+export function __setCheckpointerForTests(c: Checkpointer | null): void {
+  instance = c;
+}
+
+/**
+ * Identifies what kind of event triggered the checkpoint call.
+ *  - 'step' (default): an individual step inside an agent's execution.
+ *  - 'agent': the agent has completed its task / is being stopped.
+ *
+ * Combined with `config.checkpointing.granularity`, this gates writes:
+ *  - granularity='step' (default) saves on every kind.
+ *  - granularity='agent' saves only when kind='agent', producing one
+ *    checkpoint per agent completion instead of one per step.
+ */
+export type CheckpointKind = 'step' | 'agent';
+
+// Per-(session,agent) monotonic step counters. Used to produce
+// deterministic, replay-friendly stepIds so `loadByStep` can locate the
+// exact step that ran on a previous attempt. Reset semantics: counters live
+// for the lifetime of the process; resumed runs replay from disk and don't
+// re-call save() for already-persisted steps.
+const stepCounters: Map<string, number> = new Map();
+
+function nextStepId(sessionId: string, agentId: string): string {
+  const key = `${sessionId}:${agentId}`;
+  const next = (stepCounters.get(key) ?? 0) + 1;
+  stepCounters.set(key, next);
+  return `${key}:${next}`;
+}
+
+/** Reset all step counters. Used by tests. */
+export function resetStepCounters(): void {
+  stepCounters.clear();
+}
+
+/**
  * Configurable wrapper used by the agent runtime. Reads the
  * `checkpointing` block from the loaded config and no-ops when disabled.
  * Safe to call from any agent step — failures are logged, not thrown,
  * so checkpointing never breaks the primary workflow.
+ *
+ * `stepId` may be supplied explicitly (e.g. by a workflow scheduler that
+ * already knows the deterministic step identity). If omitted, a monotonic
+ * counter scoped to (sessionId, agentId) is used so that replay via
+ * {@link Checkpointer.loadByStep} is deterministic.
+ *
+ * `kind` (default `'step'`) is gated against `config.checkpointing.granularity`:
+ * when granularity is `'agent'`, only calls with `kind: 'agent'` persist.
  */
 export function saveCheckpointIfEnabled<TState>(
   config: AgentStackConfig,
   sessionId: string | undefined,
   agentId: string,
-  stepId: string,
+  stepIdOrNull: string | null | undefined,
   state: TState,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  kind: CheckpointKind = 'step'
 ): void {
   if (!sessionId) return; // no session → nothing to resume
   const cfg = config.checkpointing;
   if (!cfg?.enabled) return;
+
+  // Granularity gate: 'agent' granularity only saves on agent-completion calls.
+  const granularity = cfg.granularity ?? 'step';
+  if (granularity === 'agent' && kind !== 'agent') return;
+
+  const stepId = stepIdOrNull && stepIdOrNull.length > 0 ? stepIdOrNull : nextStepId(sessionId, agentId);
 
   try {
     const checkpointer = getCheckpointer(config);

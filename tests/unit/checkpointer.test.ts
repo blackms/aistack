@@ -6,9 +6,17 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { gzipSync } from 'node:zlib';
 import Database from 'better-sqlite3';
-import { Checkpointer } from '../../src/persistence/checkpointer.js';
+import {
+  Checkpointer,
+  saveCheckpointIfEnabled,
+  resetCheckpointer,
+  resetStepCounters,
+  __setCheckpointerForTests,
+} from '../../src/persistence/checkpointer.js';
 import { SQLiteStore } from '../../src/memory/sqlite-store.js';
+import type { AgentStackConfig } from '../../src/types.js';
 
 describe('Checkpointer', () => {
   let dbPath: string;
@@ -150,5 +158,149 @@ describe('Checkpointer', () => {
     expect(deleted).toBe(2);
     expect(checkpointer.count('sess-8a')).toBe(0);
     expect(checkpointer.count('sess-8b')).toBe(1);
+  });
+
+  it('rejects oversized gzip payloads (gzip-bomb guard)', () => {
+    // Construct a payload whose decompressed size easily exceeds a tiny cap.
+    // 1 MiB of zeros compresses to ~1 KiB — perfect bomb proxy.
+    const big = 'A'.repeat(1024 * 1024); // 1 MiB
+    const compressed = gzipSync(Buffer.from(JSON.stringify({ big }), 'utf8'));
+    const id = 'bomb-1';
+    const now = Date.now();
+    db.prepare(
+      `INSERT INTO agent_checkpoints
+         (id, session_id, agent_id, step_id, state_blob, format, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, 'sess-bomb', 'agent-bomb', 'step-bomb', compressed.toString('base64'), 'json+gzip', null, now);
+
+    // 1024 byte cap — must reject the 1 MiB payload.
+    const strict = new Checkpointer(db, { maxDecompressedBytes: 1024 });
+    expect(() => strict.loadLatest('sess-bomb')).toThrow(/decompression failed|gzip bomb/i);
+
+    // A generous cap accepts it fine — confirms the throw is from the cap, not corruption.
+    const lenient = new Checkpointer(db, { maxDecompressedBytes: 4 * 1024 * 1024 });
+    const loaded = lenient.loadLatest<{ big: string }>('sess-bomb');
+    expect(loaded?.state.big.length).toBe(1024 * 1024);
+  });
+});
+
+describe('saveCheckpointIfEnabled — granularity gate + deterministic stepId', () => {
+  let dbPath: string;
+  let store: SQLiteStore;
+  let db: Database.Database;
+
+  // Minimal config shape — only the fields the function actually reads.
+  function mkConfig(overrides: Partial<NonNullable<AgentStackConfig['checkpointing']>>): AgentStackConfig {
+    return {
+      checkpointing: {
+        enabled: true,
+        granularity: 'step',
+        retentionPerSession: 0,
+        ...overrides,
+      },
+    } as unknown as AgentStackConfig;
+  }
+
+  beforeEach(() => {
+    dbPath = join(tmpdir(), `aistack-cp-gran-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    store = new SQLiteStore(dbPath);
+    // @ts-expect-error — reuse the same handle the production code uses.
+    db = store.db as Database.Database;
+    resetStepCounters();
+    // Inject a Checkpointer wired to our test DB so saveCheckpointIfEnabled
+    // doesn't try to spin up a real MemoryManager from `config`.
+    __setCheckpointerForTests(new Checkpointer(db));
+  });
+
+  afterEach(() => {
+    resetCheckpointer();
+    resetStepCounters();
+    store.close();
+    for (const suffix of ['', '-wal', '-shm']) {
+      const path = `${dbPath}${suffix}`;
+      if (existsSync(path)) unlinkSync(path);
+    }
+  });
+
+  it("granularity='agent' skips per-step calls and persists only on completion", () => {
+    const cp = new Checkpointer(db);
+    __setCheckpointerForTests(cp);
+
+    const cfg = mkConfig({ granularity: 'agent' });
+    const sessionId = 'gran-sess';
+    const agentId = 'agent-gran';
+
+    // Three per-step calls — must all be dropped under granularity='agent'.
+    saveCheckpointIfEnabled(cfg, sessionId, agentId, null, { i: 1 }, undefined, 'step');
+    saveCheckpointIfEnabled(cfg, sessionId, agentId, null, { i: 2 }, undefined, 'step');
+    saveCheckpointIfEnabled(cfg, sessionId, agentId, null, { i: 3 }, undefined, 'step');
+    expect(cp.count(sessionId)).toBe(0);
+
+    // Terminal ('agent') call — must persist exactly one checkpoint.
+    saveCheckpointIfEnabled(
+      cfg,
+      sessionId,
+      agentId,
+      null,
+      { terminal: true },
+      undefined,
+      'agent'
+    );
+    expect(cp.count(sessionId)).toBe(1);
+    expect(cp.loadLatest<{ terminal: boolean }>(sessionId)?.state.terminal).toBe(true);
+  });
+
+  it("granularity='step' (default) persists every step", () => {
+    const cp = new Checkpointer(db);
+    __setCheckpointerForTests(cp);
+
+    const cfg = mkConfig({ granularity: 'step' });
+    const sessionId = 'gran-step';
+    const agentId = 'agent-step';
+
+    saveCheckpointIfEnabled(cfg, sessionId, agentId, null, { i: 1 });
+    saveCheckpointIfEnabled(cfg, sessionId, agentId, null, { i: 2 });
+    saveCheckpointIfEnabled(cfg, sessionId, agentId, null, { i: 3 }, undefined, 'agent');
+    expect(cp.count(sessionId)).toBe(3);
+  });
+
+  it('assigns deterministic stepIds and loadByStep can locate each one (replay)', () => {
+    const cp = new Checkpointer(db);
+    __setCheckpointerForTests(cp);
+
+    const cfg = mkConfig({ granularity: 'step' });
+    const sessionId = 'replay-sess';
+    const agentId = 'replay-agent';
+
+    saveCheckpointIfEnabled(cfg, sessionId, agentId, null, { payload: 'alpha' });
+    saveCheckpointIfEnabled(cfg, sessionId, agentId, null, { payload: 'beta' });
+    saveCheckpointIfEnabled(cfg, sessionId, agentId, null, { payload: 'gamma' });
+
+    // Deterministic format documented in saveCheckpointIfEnabled.
+    const mk = (n: number) => `${sessionId}:${agentId}:${n}`;
+    const s1 = cp.loadByStep<{ payload: string }>(sessionId, mk(1));
+    const s2 = cp.loadByStep<{ payload: string }>(sessionId, mk(2));
+    const s3 = cp.loadByStep<{ payload: string }>(sessionId, mk(3));
+
+    // All three steps locatable by deterministic id — the Date.now() impl
+    // produced near-collisions and made specific-step lookup impossible.
+    expect(s1?.state.payload).toBe('alpha');
+    expect(s2?.state.payload).toBe('beta');
+    expect(s3?.state.payload).toBe('gamma');
+
+    // Replay determinism: same stepId → same state on every load.
+    const replay1 = cp.loadByStep<{ payload: string }>(sessionId, mk(2));
+    const replay2 = cp.loadByStep<{ payload: string }>(sessionId, mk(2));
+    expect(replay1?.state).toEqual(replay2?.state);
+  });
+
+  it('honors an explicit stepId when provided', () => {
+    const cp = new Checkpointer(db);
+    __setCheckpointerForTests(cp);
+
+    const cfg = mkConfig({ granularity: 'step' });
+    saveCheckpointIfEnabled(cfg, 'sess-explicit', 'agent-x', 'workflow-step-A', { v: 1 });
+    const loaded = cp.loadByStep<{ v: number }>('sess-explicit', 'workflow-step-A');
+    expect(loaded?.state.v).toBe(1);
   });
 });

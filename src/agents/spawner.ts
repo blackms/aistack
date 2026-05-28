@@ -235,6 +235,22 @@ export function stopAgent(id: string): boolean {
   const agent = activeAgents.get(id);
   if (!agent) return false;
 
+  // Durable execution (AIG-633): emit a terminal checkpoint marking the
+  // agent's completion. Under granularity='agent' this is the only
+  // checkpoint produced for this agent — under 'step' it complements the
+  // per-step checkpoints written from executeAgent().
+  if (configRef) {
+    saveCheckpointIfEnabled(
+      configRef,
+      agent.sessionId,
+      id,
+      null,
+      { agentType: agent.type, name: agent.name, terminal: true, status: 'stopped' },
+      undefined,
+      'agent'
+    );
+  }
+
   agent.status = 'stopped';
   activeAgents.delete(id);
   agentsByName.delete(agent.name);
@@ -486,12 +502,19 @@ export async function executeAgent(
 
     // Durable execution (AIG-633): snapshot agent state after a successful step.
     // No-op when `config.checkpointing.enabled` is false or there's no sessionId.
+    // When config.checkpointing.granularity === 'agent', this 'step' call is
+    // skipped — only stopAgent() emits a checkpoint per full agent lifecycle.
+    // Passing `null` as stepId lets saveCheckpointIfEnabled assign a
+    // deterministic monotonic id of the form `${sessionId}:${agentId}:N`,
+    // which keeps Checkpointer.loadByStep() usable for replay.
     saveCheckpointIfEnabled(
       config,
       agent.sessionId,
       agentId,
-      `${agent.type}:${Date.now()}`,
-      { agentType: agent.type, task, response: response.content, model: response.model, duration }
+      null,
+      { agentType: agent.type, task, response: response.content, model: response.model, duration },
+      undefined,
+      'step'
     );
 
     return {
