@@ -351,6 +351,69 @@ const CheckpointingConfigSchema = z.object({
   retentionPerSession: z.number().int().min(0).max(10000).default(50),
 });
 
+// --- SSO (AIG-646) sub-field schemas. Validates SAML/OIDC/SCIM settings at
+// config load time. Providers themselves are wired only when the SSO module
+// is initialised (lazy require of @node-saml/node-saml, openid-client).
+const RoleEnum = z.enum(['admin', 'developer', 'viewer']);
+const GroupRoleMapSchema = z.record(z.string(), RoleEnum);
+
+const SsoSamlConfigSchema = z
+  .object({
+    providerName: z.string().min(1),
+    entityId: z.string().min(1),
+    idpSsoUrl: z.string().url(),
+    idpSloUrl: z.string().url().optional(),
+    idpCert: z.string().min(1),
+    callbackUrl: z.string().url(),
+    spPrivateKey: z.string().optional(),
+    spCert: z.string().optional(),
+    signatureAlgorithm: z.enum(['sha256', 'sha512']).optional(),
+    digestAlgorithm: z.enum(['sha256', 'sha512']).optional(),
+    acceptedClockSkewSec: z.number().min(0).max(300).optional(),
+    requestIdExpirationMs: z.number().min(60000).max(3600000).optional(),
+    groupRoleMap: GroupRoleMapSchema.optional(),
+    groupAttributeName: z.string().optional(),
+    emailAttributeName: z.string().optional(),
+    usernameAttributeName: z.string().optional(),
+  })
+  .passthrough();
+
+const SsoOidcConfigSchema = z
+  .object({
+    providerName: z.string().min(1),
+    issuerUrl: z.string().url(),
+    clientId: z.string().min(1),
+    clientSecret: z.string().optional(),
+    pkceRequired: z.boolean().optional(),
+    redirectUri: z.string().url(),
+    scopes: z.array(z.string()).optional(),
+    jwksUri: z.string().url().optional(),
+    groupsClaim: z.string().optional(),
+    groupRoleMap: GroupRoleMapSchema.optional(),
+  })
+  .passthrough();
+
+const SsoScimConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    bearerToken: z.string().min(16),
+    mutationsPerMinute: z.number().min(1).max(10000).optional(),
+    groupRoleMap: GroupRoleMapSchema.optional(),
+  })
+  .passthrough();
+
+const SsoConfigSchema = z.object({
+  saml: SsoSamlConfigSchema.optional(),
+  oidc: SsoOidcConfigSchema.optional(),
+  scim: SsoScimConfigSchema.optional(),
+  defaultRole: RoleEnum.optional(),
+  strictIdentityBinding: z.boolean().optional(),
+});
+
+const AuthConfigSchema = z.object({
+  sso: SsoConfigSchema.optional(),
+});
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -372,6 +435,7 @@ const ConfigSchema = z.object({
   sandbox: SandboxConfigSchema.default({}),
   integrations: IntegrationsConfigSchema.optional(),
   guardrails: GuardrailsConfigSchema.default({}),
+  auth: AuthConfigSchema.optional(),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
