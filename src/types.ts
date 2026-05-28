@@ -348,6 +348,17 @@ export interface AgentStackConfig {
   resourceExhaustion?: ResourceExhaustionConfig;
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
+  a2a?: A2AConfig;
+}
+
+// A2A (Agent-to-Agent) protocol config
+export interface A2AConfig {
+  enabled: boolean;
+  port?: number;
+  host?: string;
+  publicUrl?: string;
+  bearerToken?: string;
+  exposedAgents?: string[];
 }
 
 export interface MemoryConfig {

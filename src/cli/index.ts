@@ -14,6 +14,7 @@ import {
   createStatusCommand,
   createWorkflowCommand,
   createWebCommand,
+  createA2aCommand,
 } from './commands/index.js';
 
 // Read version from package.json would be ideal, but for now hardcode
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
   program.addCommand(createStatusCommand());
   program.addCommand(createWorkflowCommand());
   program.addCommand(createWebCommand());
+  program.addCommand(createA2aCommand());
 
   // Parse arguments
   await program.parseAsync(process.argv);

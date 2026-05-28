@@ -164,6 +164,15 @@ const SmartDispatcherConfigSchema = z.object({
   dispatchModel: z.string().default('claude-haiku-4-5-20251001'),
 });
 
+const A2AConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  port: z.number().min(1).max(65535).optional(),
+  host: z.string().optional(),
+  publicUrl: z.string().url().optional(),
+  bearerToken: z.string().optional(),
+  exposedAgents: z.array(z.string()).optional(),
+});
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -178,6 +187,7 @@ const ConfigSchema = z.object({
   resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
   consensus: ConsensusConfigSchema.default({}),
   smartDispatcher: SmartDispatcherConfigSchema.default({}),
+  a2a: A2AConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
