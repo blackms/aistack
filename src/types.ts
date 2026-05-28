@@ -578,6 +578,7 @@ export interface MemoryConfig {
   defaultNamespace: string;
   vectorSearch: {
     enabled: boolean;
+    /** One of `'openai' | 'ollama' | 'wasm-local'` (or future adapter id). */
     provider?: string;
     model?: string;
   };
@@ -635,6 +636,22 @@ export interface MemoryTieringConfig {
   intervalMs?: number;
   /** Maximum rows scanned per AutoPager tick. */
   batchSize?: number;
+}
+
+/**
+ * Configuration for the WASM-native (in-process) embedding provider.
+ * Consumed by `src/memory/embedding/wasm` — kept here so external consumers
+ * can typecheck their config without importing internal modules.
+ */
+export interface WasmEmbeddingConfig {
+  /** Hugging Face model id, e.g. `'Xenova/all-MiniLM-L6-v2'`. */
+  modelId?: string;
+  /** Embedding dimensions; defaults to 384 for MiniLM-L6-v2. */
+  dimensions?: number;
+  /** L2-normalize embeddings so cosine == dot product. Defaults to true. */
+  normalize?: boolean;
+  /** Override the on-disk cache directory (defaults to `~/.aistack/models`). */
+  cacheDir?: string;
 }
 
 export interface ProvidersConfig {
