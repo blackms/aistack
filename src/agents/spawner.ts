@@ -14,6 +14,7 @@ import { getIdentityService } from './identity-service.js';
 import { getResourceExhaustionService } from '../monitoring/resource-exhaustion-service.js';
 import { audit } from '../audit/index.js';
 import { saveCheckpointIfEnabled } from '../persistence/checkpointer.js';
+import { traceAsync, traceSync } from '../observability/index.js';
 
 const log = logger.child('spawner');
 
@@ -45,6 +46,24 @@ export interface SpawnOptions {
  * Spawn a new agent
  */
 export function spawnAgent(
+  type: string,
+  options: SpawnOptions = {},
+  config?: AgentStackConfig
+): SpawnedAgent {
+  return traceSync(config, 'aistack.agent.spawn', {
+    'agent.type': type,
+    'session.id': options.sessionId,
+    'agent.identity.id': options.identityId,
+  }, (span) => {
+    const agent = spawnAgentInternal(type, options, config);
+    span?.setAttribute('agent.id', agent.id);
+    span?.setAttribute('agent.name', agent.name);
+    span?.setAttribute('agent.status', agent.status);
+    return agent;
+  });
+}
+
+function spawnAgentInternal(
   type: string,
   options: SpawnOptions = {},
   config?: AgentStackConfig
@@ -398,6 +417,28 @@ export async function executeAgent(
   options: ExecuteOptions = {}
 ): Promise<ExecuteResult> {
   const agent = activeAgents.get(agentId);
+
+  return traceAsync(config, 'aistack.agent.execute', {
+    'agent.id': agentId,
+    'agent.type': agent?.type,
+    'agent.name': agent?.name,
+    'session.id': agent?.sessionId,
+    'llm.provider': options.provider ?? config.providers.default,
+  }, async (span) => {
+    const result = await executeAgentInternal(agentId, task, config, options);
+    span?.setAttribute('agent.duration_ms', result.duration);
+    span?.setAttribute('llm.response.model', result.model);
+    return result;
+  });
+}
+
+async function executeAgentInternal(
+  agentId: string,
+  task: string,
+  config: AgentStackConfig,
+  options: ExecuteOptions = {}
+): Promise<ExecuteResult> {
+  const agent = activeAgents.get(agentId);
   if (!agent) {
     throw new Error(`Agent not found: ${agentId}`);
   }
@@ -472,7 +513,25 @@ export async function executeAgent(
   try {
     log.info('Executing agent task', { agentId, type: agent.type, provider: providerName });
 
-    const response = await provider.chat(messages, { model: options.model });
+    const response = await traceAsync(config, 'aistack.llm.chat', {
+      'agent.id': agentId,
+      'agent.type': agent.type,
+      'llm.provider': providerName,
+      'llm.request.model': options.model,
+      'llm.request.messages': messages.length,
+    }, async (span) => {
+      const chatResponse = await provider.chat(messages, { model: options.model });
+      span?.setAttribute('llm.response.model', chatResponse.model);
+      if (chatResponse.usage) {
+        span?.setAttribute('llm.usage.input_tokens', chatResponse.usage.inputTokens);
+        span?.setAttribute('llm.usage.output_tokens', chatResponse.usage.outputTokens);
+        span?.setAttribute(
+          'llm.usage.total_tokens',
+          chatResponse.usage.inputTokens + chatResponse.usage.outputTokens
+        );
+      }
+      return chatResponse;
+    });
 
     const duration = Date.now() - startTime;
     updateAgentStatus(agentId, 'idle');

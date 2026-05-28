@@ -18,6 +18,7 @@ import { spawnAgent, executeAgent, stopAgent, updateAgentStatus } from '../agent
 import { logger } from '../utils/logger.js';
 import { getMemoryManager } from '../memory/index.js';
 import { Semaphore } from '../utils/semaphore.js';
+import { traceAsync } from '../observability/index.js';
 
 const log = logger.child('review-loop');
 
@@ -130,7 +131,13 @@ export class ReviewLoopCoordinator extends EventEmitter {
    */
   async start(): Promise<ReviewLoopState> {
     // Use semaphore to limit concurrent review loops
-    return reviewLoopSemaphore.execute(async () => {
+    return traceAsync(this.config, 'aistack.review_loop.start', {
+      'review_loop.id': this.state.id,
+      'review_loop.session_id': this.state.sessionId,
+      'review_loop.max_iterations': this.state.maxIterations,
+      'agent.coder.id': this.state.coderId,
+      'agent.adversarial.id': this.state.adversarialId,
+    }, async (span) => reviewLoopSemaphore.execute(async () => {
       try {
         this.emit('loop:start', this.state);
         log.info('Starting review loop', { id: this.state.id });
@@ -141,6 +148,9 @@ export class ReviewLoopCoordinator extends EventEmitter {
         // Run review iterations
         await this.runLoop();
 
+        span?.setAttribute('review_loop.status', this.state.status);
+        span?.setAttribute('review_loop.final_verdict', this.state.finalVerdict ?? 'none');
+        span?.setAttribute('review_loop.iterations', this.state.iteration);
         return this.state;
       } catch (error) {
         this.state.status = 'failed';
@@ -152,25 +162,33 @@ export class ReviewLoopCoordinator extends EventEmitter {
         });
         throw error;
       }
-    });
+    }));
   }
 
   /**
    * Generate initial code from input
    */
   private async generateInitialCode(): Promise<void> {
-    this.state.status = 'coding';
-    this.persistState();
-    updateAgentStatus(this.state.coderId, 'running');
+    await traceAsync(this.config, 'aistack.review_loop.generate_code', {
+      'review_loop.id': this.state.id,
+      'agent.id': this.state.coderId,
+      'agent.role': 'coder',
+    }, async (span) => {
+      this.state.status = 'coding';
+      this.persistState();
+      updateAgentStatus(this.state.coderId, 'running');
 
-    const task = `Generate code for the following requirements:\n\n${this.state.codeInput}\n\nProvide clean, well-structured code that addresses all requirements.`;
+      const task = `Generate code for the following requirements:\n\n${this.state.codeInput}\n\nProvide clean, well-structured code that addresses all requirements.`;
 
-    const result = await executeAgent(this.state.coderId, task, this.config);
-    this.state.currentCode = result.response;
-    this.persistState();
+      const result = await executeAgent(this.state.coderId, task, this.config);
+      this.state.currentCode = result.response;
+      this.persistState();
+      span?.setAttribute('llm.response.model', result.model);
+      span?.setAttribute('agent.duration_ms', result.duration);
 
-    updateAgentStatus(this.state.coderId, 'idle');
-    log.debug('Initial code generated', { id: this.state.id });
+      updateAgentStatus(this.state.coderId, 'idle');
+      log.debug('Initial code generated', { id: this.state.id });
+    });
   }
 
   /**
@@ -230,11 +248,17 @@ export class ReviewLoopCoordinator extends EventEmitter {
    * Perform adversarial review
    */
   private async performReview(): Promise<ReviewResult> {
-    this.state.status = 'reviewing';
-    this.persistState();
-    updateAgentStatus(this.state.adversarialId, 'running');
+    return traceAsync(this.config, 'aistack.review_loop.review', {
+      'review_loop.id': this.state.id,
+      'review_loop.iteration': this.state.iteration,
+      'agent.id': this.state.adversarialId,
+      'agent.role': 'adversarial',
+    }, async (span) => {
+      this.state.status = 'reviewing';
+      this.persistState();
+      updateAgentStatus(this.state.adversarialId, 'running');
 
-    const task = `Review the following code critically. Try to break it with edge cases, find security issues, and identify bugs.
+      const task = `Review the following code critically. Try to break it with edge cases, find security issues, and identify bugs.
 
 ## Code to Review
 \`\`\`
@@ -249,10 +273,16 @@ Provide your analysis in this format:
 2. For each issue, explain the attack vector and required fix
 3. End with either **VERDICT: APPROVE** or **VERDICT: REJECT**`;
 
-    const result = await executeAgent(this.state.adversarialId, task, this.config);
-    updateAgentStatus(this.state.adversarialId, 'idle');
+      const result = await executeAgent(this.state.adversarialId, task, this.config);
+      updateAgentStatus(this.state.adversarialId, 'idle');
 
-    return this.parseReviewResult(result.response);
+      const parsed = this.parseReviewResult(result.response);
+      span?.setAttribute('review.verdict', parsed.verdict);
+      span?.setAttribute('review.issue_count', parsed.issues.length);
+      span?.setAttribute('llm.response.model', result.model);
+      span?.setAttribute('agent.duration_ms', result.duration);
+      return parsed;
+    });
   }
 
   /**
@@ -324,15 +354,22 @@ Provide your analysis in this format:
    * Fix code based on review issues
    */
   private async fixCode(issues: ReviewIssue[]): Promise<void> {
-    this.state.status = 'fixing';
-    this.persistState();
-    updateAgentStatus(this.state.coderId, 'running');
+    await traceAsync(this.config, 'aistack.review_loop.fix_code', {
+      'review_loop.id': this.state.id,
+      'review_loop.iteration': this.state.iteration,
+      'review.issue_count': issues.length,
+      'agent.id': this.state.coderId,
+      'agent.role': 'coder',
+    }, async (span) => {
+      this.state.status = 'fixing';
+      this.persistState();
+      updateAgentStatus(this.state.coderId, 'running');
 
-    const issuesList = issues
-      .map((issue, i) => `${i + 1}. [${issue.severity}] ${issue.title}\n   Fix: ${issue.requiredFix}`)
-      .join('\n');
+      const issuesList = issues
+        .map((issue, i) => `${i + 1}. [${issue.severity}] ${issue.title}\n   Fix: ${issue.requiredFix}`)
+        .join('\n');
 
-    const task = `Fix the following issues in the code:
+      const task = `Fix the following issues in the code:
 
 ## Current Code
 \`\`\`
@@ -347,12 +384,15 @@ ${this.state.codeInput}
 
 Provide the corrected code that addresses all the identified issues.`;
 
-    const result = await executeAgent(this.state.coderId, task, this.config);
-    this.state.currentCode = result.response;
-    this.persistState();
+      const result = await executeAgent(this.state.coderId, task, this.config);
+      this.state.currentCode = result.response;
+      this.persistState();
+      span?.setAttribute('llm.response.model', result.model);
+      span?.setAttribute('agent.duration_ms', result.duration);
 
-    updateAgentStatus(this.state.coderId, 'idle');
-    log.debug('Code fixed', { id: this.state.id, issueCount: issues.length });
+      updateAgentStatus(this.state.coderId, 'idle');
+      log.debug('Code fixed', { id: this.state.id, issueCount: issues.length });
+    });
   }
 
   /**

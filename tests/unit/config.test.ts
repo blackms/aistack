@@ -33,6 +33,8 @@ describe('Configuration', () => {
     expect(config.hooks.sessionEnd).toBe(true);
     expect(config.hooks.preTask).toBe(true);
     expect(config.hooks.postTask).toBe(true);
+    expect(config.observability?.tracing?.enabled).toBe(false);
+    expect(config.observability?.tracing?.serviceName).toBe('aistack');
   });
 
   it('should validate correct config', () => {
@@ -234,6 +236,32 @@ describe('Config Validation', () => {
 
     const result = validateConfig(fullConfig);
     expect(result.valid).toBe(true);
+  });
+
+  it('should validate OpenTelemetry tracing config', () => {
+    const result = validateConfig({
+      observability: {
+        tracing: {
+          enabled: true,
+          exporter: 'otlp',
+          otlpEndpoint: 'http://localhost:4318/v1/traces',
+          samplingRatio: 0.25,
+          headers: { authorization: 'Bearer test' },
+        },
+      },
+    });
+
+    expect(result.valid).toBe(true);
+
+    const invalid = validateConfig({
+      observability: {
+        tracing: {
+          enabled: true,
+          samplingRatio: 1.5,
+        },
+      },
+    });
+    expect(invalid.valid).toBe(false);
   });
 });
 
