@@ -22,8 +22,12 @@ import { Semaphore } from '../utils/semaphore.js';
 const log = logger.child('review-loop');
 
 // Concurrency control for review loops
-// Max 5 concurrent review loops (each loop spawns 2 agents = 10 agents max)
-const reviewLoopSemaphore = new Semaphore('review-loops', 5);
+// Max 5 concurrent review loops (each loop spawns 2 agents = 10 agents max).
+// Exported so the rubric grader can gate its per-criterion spawns through the
+// same pool — otherwise a rubric loop could fan out N graders unbounded.
+// The reverse dependency (review-loop → rubric grader) is dynamic-only, so
+// the static cycle introduced by grader importing this symbol is benign.
+export const reviewLoopSemaphore = new Semaphore('review-loops', 5);
 
 export interface ReviewLoopOptions {
   maxIterations?: number;

@@ -14,7 +14,8 @@ export type AgentType =
   | 'analyst'
   | 'devops'
   | 'documentation'
-  | 'security-auditor';
+  | 'security-auditor'
+  | 'grader';
 
 export interface AgentDefinition {
   type: AgentType | string;
