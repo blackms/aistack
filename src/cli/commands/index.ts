@@ -14,3 +14,4 @@ export { createDaemonCommand } from './daemon.js';
 export { createWatchCommand } from './watch.js';
 export { createRunCommand } from './run.js';
 export { createAuditCommand } from './audit.js';
+export { createExportAgentsCommand } from './export-agents.js';

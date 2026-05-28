@@ -350,6 +350,47 @@ npx @blackms/aistack web start
 # Open http://localhost:3001
 ```
 
+## Use without NPM
+
+aistack ships its 11 expert agents as **native Claude Code subagent definitions**
+(`.claude/agents/aistack-*.md`). Once exported, Claude Code can invoke them
+directly via `@aistack-coder`, `@aistack-architect`, etc. — no MCP server, no
+running aistack process required.
+
+### One-shot export (project-scoped)
+
+```bash
+# Generate .claude/agents/aistack-*.md in the current project
+npx @blackms/aistack export-agents --project
+
+# Or install for your user (~/.claude/agents/), available in every project
+npx @blackms/aistack export-agents --user
+
+# Or pick an explicit directory
+npx @blackms/aistack export-agents -o ./my-team/.claude/agents
+```
+
+After export, restart Claude Code (or run `/agents` to refresh) and you'll see:
+
+```
+@aistack-coder              Write and modify code
+@aistack-researcher         Research codebases and documentation
+@aistack-tester             Write and run tests
+@aistack-reviewer           Review code for quality and security
+@aistack-adversarial        Aggressive critical code reviewer (opus)
+@aistack-architect          Design system architecture (opus)
+@aistack-coordinator        Orchestrate multi-agent workflows (opus)
+@aistack-analyst            Analyze data, performance, metrics
+@aistack-devops             CI/CD, containers, infrastructure
+@aistack-documentation      API docs, guides, tutorials
+@aistack-security-auditor   Vulnerability scanning & compliance (opus)
+```
+
+Each markdown file is **standalone** — it carries the full agent system prompt
+and tool whitelist inline, so you can commit it to your repo and use it on
+machines that don't have the aistack package installed. The aistack MCP server
+remains optional and adds memory, orchestration, and the web dashboard on top.
+
 ### Configuration
 
 Create `aistack.config.json` in your project root:
