@@ -1,0 +1,50 @@
+# Multi-agent research pipeline — researcher → analyst → documentation.
+#
+# Demonstrates linear flow with $steps.<id>.output chaining.
+#
+# Run:
+#   aistack workflow run templates/workflows/multi-agent-research.yaml \
+#     --input='{"input": "Best practices for prompt caching in 2026 Claude API"}'
+
+name: multi-agent-research
+description: Three-stage research pipeline (gather → analyze → document)
+version: "1"
+
+steps:
+  - id: gather
+    agent: researcher
+    name: Gather raw findings
+    input: |
+      Research the following topic and produce a structured set of findings
+      with citations. Aim for breadth first, depth second.
+
+      Topic: $task.input
+
+  - id: analyze
+    agent: analyst
+    name: Synthesize and rank findings
+    input: |
+      Synthesize the following research notes into a ranked list of insights.
+      Highlight contradictions, identify gaps, and recommend follow-ups.
+
+      ## Research notes
+      $steps.gather.output
+
+      ## Original brief
+      $task.input
+
+  - id: write
+    agent: documentation
+    name: Produce final document
+    input: |
+      Write a polished markdown document for the topic below using the analyst's
+      insights. Use H2 headings, include a TL;DR, and end with a "References" section.
+
+      ## Topic
+      $task.input
+
+      ## Insights
+      $steps.analyze.output
+
+      ## Source notes
+      $steps.gather.output
