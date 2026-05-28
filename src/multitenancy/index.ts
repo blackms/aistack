@@ -8,6 +8,7 @@
  * a dedicated file.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { IncomingMessage } from 'node:http';
 import type Database from 'better-sqlite3';
 import { logger } from '../utils/logger.js';
@@ -133,12 +134,12 @@ export function withTenantContext(
 // know which tenant/workspace they are operating under so they can scope
 // their data correctly. We expose two mechanisms:
 //
-//   1. `getActiveTenantContext()` — module-level AsyncLocalStorage-style
-//      accessor (here implemented as a simple module-scope ref because the
-//      codebase does not yet use AsyncLocalStorage). HTTP routes call
-//      `runWithTenantContext(ctx, fn)` to push a context for the duration
-//      of a request handler. Consumers call `getActiveTenantContext()` to
-//      read the current scope.
+//   1. `getActiveTenantContext()` — AsyncLocalStorage-backed accessor. HTTP
+//      routes call `runWithTenantContext(ctx, fn)` to push a context for the
+//      duration of a request handler; consumers call `getActiveTenantContext()`
+//      to read the current scope. Because the storage is async-aware, the
+//      context survives `await` boundaries WITHOUT leaking across concurrent
+//      requests interleaved in the same process.
 //
 //   2. Direct injection — for paths that already accept an options bag (e.g.
 //      `spawnAgent`, `MemoryManager.setAgentContext`), the route forwards
@@ -148,7 +149,7 @@ export function withTenantContext(
 // Both mechanisms are no-ops when multitenancy is disabled, so single-tenant
 // callers see zero behavior change.
 
-let activeContext: MultitenancyContext | undefined;
+const tenantContextStorage = new AsyncLocalStorage<MultitenancyContext>();
 
 /**
  * Returns the currently active tenant context, or undefined if none was set.
@@ -156,37 +157,35 @@ let activeContext: MultitenancyContext | undefined;
  * `undefined` as "single-tenant / no isolation needed".
  */
 export function getActiveTenantContext(): MultitenancyContext | undefined {
-  return activeContext;
+  return tenantContextStorage.getStore();
 }
 
 /**
- * Run `fn` with the given tenant context active. Restores the previous
- * context on return, even if `fn` throws. Intended for HTTP request scopes.
- *
- * NOTE: this uses a synchronous module-scope ref rather than
- * AsyncLocalStorage, so it is NOT safe for concurrent async handlers in the
- * same process — callers that hold onto the context across `await` boundaries
- * should pass it explicitly rather than relying on this helper.
+ * Run `fn` with the given tenant context active. Intended for HTTP request
+ * scopes. Backed by AsyncLocalStorage so the context propagates across
+ * `await` boundaries AND remains isolated between concurrent async handlers
+ * in the same process (no cross-tenant leak when requests interleave).
  */
 export function runWithTenantContext<T>(
   ctx: MultitenancyContext | undefined,
-  fn: () => T,
-): T {
-  const prev = activeContext;
-  activeContext = ctx;
-  try {
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  if (ctx === undefined) {
+    // AsyncLocalStorage.run requires a defined store; preserve the prior
+    // "undefined ctx is a pass-through" semantics by just invoking fn().
     return fn();
-  } finally {
-    activeContext = prev;
   }
+  return tenantContextStorage.run(ctx, fn);
 }
 
 /**
- * Test-only reset — clears the active context. Production code should rely
- * on the `runWithTenantContext` try/finally instead.
+ * Deprecated: no-op in the AsyncLocalStorage implementation. Kept for
+ * source-compat with tests that previously relied on the module-scope ref.
+ * The async storage is automatically scoped to the `run()` callback, so
+ * there is nothing to reset between tests.
  */
 export function _resetActiveTenantContext(): void {
-  activeContext = undefined;
+  // intentionally empty — AsyncLocalStorage scopes itself.
 }
 
 // ===== Single-tenant -> multi-tenant migration tool =====================

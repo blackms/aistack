@@ -262,5 +262,47 @@ describe('TenantService', () => {
       ).toThrow(/boom/);
       expect(getActiveTenantContext()).toBeUndefined();
     });
+
+    it('isolates context across concurrent async handlers (no cross-tenant leak)', async () => {
+      // Regression for the latent cross-tenant data-leak that existed when
+      // active context was a module-scope ref: while request A was awaiting
+      // I/O, request B's runWithTenantContext would overwrite the ref and A
+      // would observe B's tenant on resumption. With AsyncLocalStorage each
+      // async chain keeps its own store.
+      const tA = service.createTenant({ name: 'A', slug: 'tenant-a' });
+      const tB = service.createTenant({ name: 'B', slug: 'tenant-b' });
+      const ctxA = { tenantId: tA.id, tenantSlug: tA.slug, role: 'member' as const };
+      const ctxB = { tenantId: tB.id, tenantSlug: tB.slug, role: 'member' as const };
+
+      const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+      const observedA: string[] = [];
+      const observedB: string[] = [];
+
+      const runA = runWithTenantContext(ctxA, async () => {
+        observedA.push(getActiveTenantContext()!.tenantId);
+        await delay(20);
+        observedA.push(getActiveTenantContext()!.tenantId);
+        await delay(10);
+        observedA.push(getActiveTenantContext()!.tenantId);
+      }) as Promise<void>;
+
+      // Interleave: start B while A is awaiting.
+      const runB = runWithTenantContext(ctxB, async () => {
+        await delay(5);
+        observedB.push(getActiveTenantContext()!.tenantId);
+        await delay(10);
+        observedB.push(getActiveTenantContext()!.tenantId);
+      }) as Promise<void>;
+
+      await Promise.all([runA, runB]);
+
+      // Each handler must have observed ONLY its own tenant id across every
+      // await boundary — the assertion that catches the module-scope-ref bug.
+      expect(observedA).toEqual([tA.id, tA.id, tA.id]);
+      expect(observedB).toEqual([tB.id, tB.id]);
+      // After both chains complete, the outer scope has no active context.
+      expect(getActiveTenantContext()).toBeUndefined();
+    });
   });
 });
