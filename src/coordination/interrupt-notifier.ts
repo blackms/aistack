@@ -81,7 +81,7 @@ export class ConsoleSink implements NotifierSink {
     });
     // Also print to stderr for human operators tailing the CLI.
     process.stderr.write(
-      `\n[HITL] interrupt ${record.id} on session ${record.sessionId}\n  prompt: ${record.prompt}\n  resume with: aistack workflow resume ${record.sessionId} --input='<value>'\n`
+      `\n[HITL] interrupt ${record.id} on session ${record.sessionId}\n  prompt: ${record.prompt}\n  resume with: aistack workflow resume-interrupt ${record.sessionId} --input='<value>'\n`
     );
   }
 }

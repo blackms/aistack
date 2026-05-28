@@ -5,11 +5,16 @@
 ### Ultra-Modern Multi-Agent Orchestration for Claude Code
 
 [![npm version](https://img.shields.io/npm/v/@blackms/aistack?style=for-the-badge&color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@blackms/aistack)
+[![npm downloads](https://img.shields.io/npm/dw/@blackms/aistack?style=for-the-badge&color=CB3837&logo=npm&logoColor=white&label=downloads%2Fweek)](https://www.npmjs.com/package/@blackms/aistack)
+[![GitHub stars](https://img.shields.io/github/stars/blackms/aistack?style=for-the-badge&logo=github&logoColor=white)](https://github.com/blackms/aistack/stargazers)
+[![GitHub contributors](https://img.shields.io/github/contributors/blackms/aistack?style=for-the-badge&logo=github&logoColor=white)](https://github.com/blackms/aistack/graphs/contributors)
 [![CI](https://img.shields.io/github/actions/workflow/status/blackms/aistack/ci.yml?style=for-the-badge&logo=github&logoColor=white)](https://github.com/blackms/aistack/actions/workflows/ci.yml)
 [![codecov](https://img.shields.io/codecov/c/github/blackms/aistack?style=for-the-badge&logo=codecov&logoColor=white)](https://codecov.io/gh/blackms/aistack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/uQ6fDXDs7E)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+<!-- M0 followup AIG-655: live counters from stats.aistack.dev once endpoint deployed (review loops run, agents spawned, bugs caught). Will use https://img.shields.io/endpoint?url=https://stats.aistack.dev/loops.json once available. See docs/TELEMETRY.md. -->
+<!-- Note: "bugs caught" metric requires a test fixture / reproducible claim — tracked as separate followup. -->
 
 <br/>
 
@@ -68,6 +73,38 @@ aistack:
 
 Next time: The memory helps agents make better decisions automatically
 ```
+
+---
+
+## Why aistack
+
+aistack occupies a specific niche: a **Claude Code-native, local-first multi-agent orchestrator** with adversarial validation and consensus checkpoints baked into the core loop. We are not trying to be a general-purpose agent framework (LangGraph, Mastra), nor a hosted product (Letta, LangSmith), nor a thin SDK wrapper (Claude Agent SDK). If your workflow lives inside Claude Code and you want multiple specialized agents reviewing each other's work with persistent memory, aistack is built for you.
+
+We try to stay honest about what is shipped today versus what is on the roadmap — gaps are explicitly marked.
+
+### Comparison vs other agent orchestrators
+
+| Feature | aistack | claude-flow | Claude Agent SDK | Mastra | LangGraph |
+|---|---|---|---|---|---|
+| Orchestration model | Multi-agent + message bus | Multi-agent (swarm) | Single agent (loop) | Graph + workflows | Graph (state machine) |
+| Memory persistence | SQLite + FTS5 + optional vectors | SQLite | None (BYO) | LibSQL / Postgres | Checkpointer (Postgres / SQLite / Redis) |
+| Observability | Built-in metrics + web dashboard. OTel: ⚠️ M1 roadmap ([AIG-632](https://linear.app/aigensolutionsit/issue/AIG-632)) | Limited | Tracing via Anthropic API | OTel native + AI tracing | LangSmith (hosted) / OTel |
+| Sandboxed execution | ⚠️ M1 roadmap ([AIG-634](https://linear.app/aigensolutionsit/issue/AIG-634)) | Via hooks | Bash tool (host) | Via tools | Via tools |
+| OSS license | MIT | MIT | MIT | Elastic License 2.0 | MIT |
+| Distribution | NPM | NPM | NPM / PyPI | NPM | PyPI / NPM (JS port) |
+| Claude Code-native (MCP server built-in) | ✅ 46 MCP tools | ✅ | ✅ (it *is* the SDK) | ❌ (MCP client only) | ❌ |
+| Adversarial review built-in | ✅ dedicated agent + loop | ❌ | ❌ | ❌ | ❌ (DIY in graph) |
+| Consensus checkpoints | ✅ risk-gated, configurable | ❌ | ❌ | ❌ | ❌ (interrupt-based DIY) |
+| Background runner | ⚠️ M1 roadmap ([AIG-636](https://linear.app/aigensolutionsit/issue/AIG-636)) | ✅ | ❌ | ✅ workflows | ✅ |
+
+Feature claims for third-party projects reflect public documentation at time of writing; PRs welcome to correct inaccuracies.
+
+**What is uniquely aistack:**
+- **Adversarial review loop** as a first-class primitive — a dedicated agent attacks the coder's output up to N iterations until APPROVED.
+- **Consensus checkpoints** — high-risk task spawns can require human or different-model approval before proceeding, with full audit trail.
+- **46 MCP tools** wired directly into Claude Code, including memory, identity, drift detection, and consensus management.
+
+→ See [docs/COMPARISON.md](./docs/COMPARISON.md) for the extended analysis including CrewAI, AutoGen, and Letta.
 
 ---
 
@@ -279,6 +316,7 @@ Real-time notifications to your team:
   - [DATA.md](./docs/DATA.md) - Database schemas
   - [SECURITY.md](./docs/SECURITY.md) - Security model
   - [ONBOARDING.md](./docs/ONBOARDING.md) - Developer guide
+  - [BENCHMARK.md](./docs/BENCHMARK.md) - SWE-bench Verified plan + reproducible harness
 
 ---
 
@@ -311,6 +349,47 @@ npx @blackms/aistack web start
 
 # Open http://localhost:3001
 ```
+
+## Use without NPM
+
+aistack ships its 11 expert agents as **native Claude Code subagent definitions**
+(`.claude/agents/aistack-*.md`). Once exported, Claude Code can invoke them
+directly via `@aistack-coder`, `@aistack-architect`, etc. — no MCP server, no
+running aistack process required.
+
+### One-shot export (project-scoped)
+
+```bash
+# Generate .claude/agents/aistack-*.md in the current project
+npx @blackms/aistack export-agents --project
+
+# Or install for your user (~/.claude/agents/), available in every project
+npx @blackms/aistack export-agents --user
+
+# Or pick an explicit directory
+npx @blackms/aistack export-agents -o ./my-team/.claude/agents
+```
+
+After export, restart Claude Code (or run `/agents` to refresh) and you'll see:
+
+```
+@aistack-coder              Write and modify code
+@aistack-researcher         Research codebases and documentation
+@aistack-tester             Write and run tests
+@aistack-reviewer           Review code for quality and security
+@aistack-adversarial        Aggressive critical code reviewer (opus)
+@aistack-architect          Design system architecture (opus)
+@aistack-coordinator        Orchestrate multi-agent workflows (opus)
+@aistack-analyst            Analyze data, performance, metrics
+@aistack-devops             CI/CD, containers, infrastructure
+@aistack-documentation      API docs, guides, tutorials
+@aistack-security-auditor   Vulnerability scanning & compliance (opus)
+```
+
+Each markdown file is **standalone** — it carries the full agent system prompt
+and tool whitelist inline, so you can commit it to your repo and use it on
+machines that don't have the aistack package installed. The aistack MCP server
+remains optional and adds memory, orchestration, and the web dashboard on top.
 
 ### Configuration
 

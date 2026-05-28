@@ -148,12 +148,23 @@ describe('HealthMonitor', () => {
     });
 
     it('should check memory health', async () => {
+      const originalMemoryUsage = process.memoryUsage;
+      process.memoryUsage = vi.fn().mockReturnValue({
+        heapUsed: 500 * 1024 * 1024,
+        heapTotal: 1000 * 1024 * 1024,
+        external: 0,
+        rss: 1000 * 1024 * 1024,
+        arrayBuffers: 0,
+      });
+
       const monitor = new HealthMonitor(mockConfig);
       const result = await monitor.performHealthCheck();
 
       expect(result.checks.memory).toBeDefined();
       expect(result.checks.memory.status).toBe('pass');
       expect(result.checks.memory.message).toContain('Memory usage normal');
+
+      process.memoryUsage = originalMemoryUsage;
     });
 
     it('should detect high memory usage', async () => {

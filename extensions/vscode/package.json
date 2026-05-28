@@ -1,0 +1,197 @@
+{
+  "name": "aistack-vscode",
+  "displayName": "aistack",
+  "description": "Spawn and orchestrate Claude Code sub-agents from VS Code — multi-agent coding with review loop, memory browser and live agent activity sidebar.",
+  "version": "0.1.0",
+  "publisher": "aigensolutions",
+  "license": "MIT",
+  "homepage": "https://github.com/aigensolutions/aistack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aigensolutions/aistack.git",
+    "directory": "extensions/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/aigensolutions/aistack/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "Other",
+    "AI",
+    "Machine Learning",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ai",
+    "claude",
+    "agent",
+    "multi-agent",
+    "code-review",
+    "anthropic"
+  ],
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0f172a",
+    "theme": "dark"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aistack.spawnAgent",
+        "title": "aistack: Spawn Agent",
+        "category": "aistack"
+      },
+      {
+        "command": "aistack.spawnCoderOnSelection",
+        "title": "aistack: Spawn Coder Agent on Selection",
+        "category": "aistack"
+      },
+      {
+        "command": "aistack.viewMemory",
+        "title": "aistack: View Memory Browser",
+        "category": "aistack"
+      },
+      {
+        "command": "aistack.runReviewLoop",
+        "title": "aistack: Run Review Loop on Selection",
+        "category": "aistack"
+      },
+      {
+        "command": "aistack.refreshAgents",
+        "title": "aistack: Refresh Agent Activity",
+        "category": "aistack",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aistack.stopAgent",
+        "title": "aistack: Stop Agent",
+        "category": "aistack",
+        "icon": "$(stop-circle)"
+      },
+      {
+        "command": "aistack.setApiToken",
+        "title": "aistack: Set API Token",
+        "category": "aistack"
+      },
+      {
+        "command": "aistack.clearApiToken",
+        "title": "aistack: Clear API Token",
+        "category": "aistack"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "aistack.spawnCoderOnSelection",
+        "key": "ctrl+alt+shift+a",
+        "mac": "cmd+alt+shift+a",
+        "when": "editorHasSelection"
+      },
+      {
+        "command": "aistack.runReviewLoop",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "editorHasSelection"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aistack-sidebar",
+          "title": "aistack",
+          "icon": "media/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "aistack-sidebar": [
+        {
+          "id": "aistack.agentActivity",
+          "name": "Agent Activity",
+          "icon": "media/sidebar-icon.svg",
+          "contextualTitle": "aistack"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "aistack.refreshAgents",
+          "when": "view == aistack.agentActivity",
+          "group": "navigation"
+        },
+        {
+          "command": "aistack.spawnAgent",
+          "when": "view == aistack.agentActivity",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "aistack.stopAgent",
+          "when": "view == aistack.agentActivity && viewItem == agent",
+          "group": "inline"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "aistack.spawnCoderOnSelection",
+          "when": "editorHasSelection",
+          "group": "aistack@1"
+        },
+        {
+          "command": "aistack.runReviewLoop",
+          "when": "editorHasSelection",
+          "group": "aistack@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "aistack",
+      "properties": {
+        "aistack.daemonUrl": {
+          "type": "string",
+          "default": "http://localhost:3001",
+          "description": "Base URL of the aistack daemon REST API."
+        },
+        "aistack.refreshIntervalMs": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1000,
+          "description": "Interval in milliseconds for refreshing the agent activity view and review loop status bar."
+        },
+        "aistack.defaultAgentType": {
+          "type": "string",
+          "default": "coder",
+          "description": "Default agent type used by 'Spawn Coder Agent on Selection'."
+        },
+        "aistack.requestTimeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "description": "HTTP request timeout in milliseconds."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "echo \"(no linter configured)\"",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "typescript": "^5.4.0"
+  }
+}

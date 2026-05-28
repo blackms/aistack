@@ -16,7 +16,7 @@
  *   });
  *
  * The Promise resolves when an operator calls `resumeInterrupt()` via the
- * CLI (`aistack workflow resume`), the web UI (`POST /api/v1/interrupts/:id/resume`),
+ * CLI (`aistack workflow resume-interrupt`), the web UI (`POST /api/v1/interrupts/:id/resume`),
  * or programmatically. Resolution carries the (validated) input value back
  * into the workflow.
  *
@@ -554,7 +554,7 @@ export async function interrupt<T = unknown>(opts: InterruptOptions): Promise<T>
  * rolled back along with the status change, so the interrupt remains
  * pending and the operator can retry against a clean record.
  *
- * Used by the CLI (`workflow resume --input`) and the web route.
+ * Used by the CLI (`workflow resume-interrupt --input`) and the web route.
  */
 export async function resumeInterrupt(
   id: string,

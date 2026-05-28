@@ -9,16 +9,69 @@ import type { AgentStackConfig } from '../types.js';
 import { logger } from './logger.js';
 
 // Configuration schema using Zod
+// Known providers documented for users; remains an open string for
+// forward compatibility with future adapters.
+const VectorSearchProviderSchema = z
+  .enum(['openai', 'ollama', 'wasm-local'])
+  .or(z.string());
+
 const VectorSearchConfigSchema = z.object({
   enabled: z.boolean().default(false),
-  provider: z.string().optional(),
+  provider: VectorSearchProviderSchema.optional(),
   model: z.string().optional(),
+});
+
+// AIG-640: opt-in sub-blocks for Anthropic Memory Tool integration.
+const MemoryToolAdapterConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  namespace: z.string().optional(),
+  root: z.string().optional(),
+});
+
+const DreamingConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  intervalMs: z.number().min(1000).optional(),
+  batchSize: z.number().min(1).max(1000).optional(),
+  minClusterSize: z.number().min(2).optional(),
+  similarityThreshold: z.number().min(0).max(1).optional(),
+  namespace: z.string().optional(),
+  dreamNamespace: z.string().optional(),
+});
+
+const MemorySyncConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  watchPath: z.string().optional(),
+  namespace: z.string().optional(),
+  pollIntervalMs: z.number().min(500).optional(),
+  exportEnabled: z.boolean().optional(),
+  importEnabled: z.boolean().optional(),
+});
+
+// Hierarchical memory tiering (AIG-651). All fields optional — defaults come
+// from DEFAULT_PAGING_POLICY in src/memory/tiers/types.ts.
+const MemoryTieringConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  workingMaxEntries: z.number().min(1).max(10000).optional(),
+  // Hard cap on tokens kept in the working tier. Default 4000 matches the
+  // ~4k system-prompt budget claimed in docs/MEMORY.md.
+  workingMaxTokens: z.number().min(100).max(200000).optional(),
+  recallMaxEntries: z.number().min(10).max(1000000).optional(),
+  recallMaxAgeDays: z.number().min(0).max(3650).optional(),
+  promoteToWorkingMinAccessCount: z.number().min(1).optional(),
+  recentAccessWindowMs: z.number().min(60000).optional(),
+  archivalSummarize: z.boolean().optional(),
+  intervalMs: z.number().min(0).max(86400000).optional(),
+  batchSize: z.number().min(10).max(100000).optional(),
 });
 
 const MemoryConfigSchema = z.object({
   path: z.string().default('./data/aistack.db'),
   defaultNamespace: z.string().default('default'),
   vectorSearch: VectorSearchConfigSchema.default({}),
+  toolAdapter: MemoryToolAdapterConfigSchema.optional(),
+  dreaming: DreamingConfigSchema.optional(),
+  sync: MemorySyncConfigSchema.optional(),
+  tiering: MemoryTieringConfigSchema.optional(),
 });
 
 const AnthropicConfigSchema = z.object({
@@ -153,6 +206,169 @@ const ConsensusConfigSchema = z.object({
   ]),
 });
 
+/**
+ * Telemetry Configuration Schema (AIG-655)
+ *
+ * Opt-in anonymous usage telemetry. Disabled by default (privacy-first).
+ * When enabled, posts anonymized events (review_loop.completed, agent.spawned)
+ * to a configurable HTTPS endpoint. See docs/TELEMETRY.md.
+ */
+const TelemetryConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  endpoint: z.string().url().optional(),
+  anonymizeSessionId: z.boolean().default(true),
+  flushIntervalMs: z.number().min(1000).max(3600000).default(60000),
+  batchSize: z.number().min(1).max(1000).default(20),
+});
+
+/**
+ * Audit Log Configuration Schema (AIG-635)
+ *
+ * Controls the hash-chained append-only audit log for SOC2/ISO27001/HIPAA evidence.
+ *
+ * @property enabled - Enable audit logging (creates a separate SQLite file at `<memory.path>.audit.db` by default)
+ * @property path - Override audit DB path
+ * @property signatureKey - HMAC-SHA256 key; prefer env var AISTACK_AUDIT_KEY over inlining here
+ * @property retentionDays - Informational retention hint; chain itself is append-only and never auto-pruned
+ * @property redactFields - Top-level payload fields to redact before hashing/storage
+ */
+const AuditConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  path: z.string().optional(),
+  signatureKey: z.string().optional(),
+  retentionDays: z.number().min(1).max(36500).optional(),
+  redactFields: z.array(z.string()).default([]),
+});
+
+/**
+ * Sandbox Configuration Schema (AIG-634)
+ *
+ * Controls sandboxed code execution for the coder agent and any caller of
+ * `createSandbox()`. Disabled by default — opt-in by setting
+ * `sandbox.provider` to one of 'docker' | 'e2b' | 'daytona'.
+ *
+ * Security defaults are intentionally conservative:
+ *   - network: false (no egress from Docker)
+ *   - memory: 512MB, cpus: 1, pidsLimit: 100
+ *   - timeout: 30s wall clock
+ * See docs/SANDBOX.md "Security Model" for the full threat model.
+ */
+const SandboxConfigSchema = z.object({
+  provider: z.enum(['none', 'docker', 'e2b', 'daytona']).default('none'),
+  timeout: z.number().min(1000).max(600_000).default(30_000),
+  memoryMb: z.number().min(64).max(8192).default(512),
+  cpus: z.number().min(0.1).max(8).default(1),
+  pidsLimit: z.number().min(10).max(4096).default(100),
+  network: z.boolean().default(false),
+  images: z
+    .object({
+      python: z.string().optional(),
+      javascript: z.string().optional(),
+      typescript: z.string().optional(),
+      bash: z.string().optional(),
+    })
+    .partial()
+    .optional(),
+  e2bApiKey: z.string().optional(),
+  daytonaApiUrl: z.string().url().optional(),
+  daytonaApiKey: z.string().optional(),
+});
+
+const PostgresIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  connectionString: z.string().optional(),
+  packageName: z.string().optional(),
+});
+
+const GithubRemoteIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  token: z.string().optional(),
+  toolsets: z.array(z.string()).optional(),
+  image: z.string().optional(),
+});
+
+const SentryIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  authToken: z.string().optional(),
+  organization: z.string().optional(),
+  host: z.string().optional(),
+  packageName: z.string().optional(),
+});
+
+const PlaywrightIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  browser: z.enum(['chromium', 'firefox', 'webkit']).optional(),
+  headless: z.boolean().optional(),
+  userDataDir: z.string().optional(),
+  packageName: z.string().optional(),
+});
+
+const SlackMcpIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  botToken: z.string().optional(),
+  teamId: z.string().optional(),
+  channelIds: z.array(z.string()).optional(),
+  packageName: z.string().optional(),
+});
+
+const IntegrationsConfigSchema = z.object({
+  postgres: PostgresIntegrationSchema.optional(),
+  githubRemote: GithubRemoteIntegrationSchema.optional(),
+  sentry: SentryIntegrationSchema.optional(),
+  playwright: PlaywrightIntegrationSchema.optional(),
+  slack: SlackMcpIntegrationSchema.optional(),
+});
+
+const GuardrailsConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  builtin: z.array(z.string()).default([]),
+  customPaths: z.array(z.string()).optional(),
+  timeoutMs: z.number().min(50).max(60000).default(2000),
+  killSwitch: z.boolean().default(true),
+});
+
+const FederationTlsConfigSchema = z.object({
+  certPath: z.string().optional(),
+  keyPath: z.string().optional(),
+  caPath: z.string().optional(),
+  requireClientCert: z.boolean().default(true),
+  bearerToken: z.string().optional(),
+  /** CN/SAN allowlist for peer certs. Empty array = accept any CA-signed cert. */
+  trustedPeerCNs: z.array(z.string()).default([]),
+  /** Explicit opt-in for plain HTTP / unauthenticated federation (dev only). */
+  allowPlainText: z.boolean().default(false),
+});
+
+const FederationDiscoverySigningConfigSchema = z.object({
+  privateKeyPath: z.string().optional(),
+  publicKeyPath: z.string().optional(),
+  trustedPublicKeys: z.array(z.string()).default([]),
+});
+
+/**
+ * Federation configuration (AIG-652).
+ *
+ * Sibling slot - additive only. When `enabled` is false the federation
+ * module is a no-op and nothing else in aistack is affected.
+ */
+const FederationConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  nodeId: z.string().optional(),
+  name: z.string().optional(),
+  discoveryMethod: z.enum(['mdns', 'registry', 'static']).default('static'),
+  advertise: z.boolean().default(false),
+  peers: z.array(z.string()).default([]),
+  registryUrl: z.string().optional(),
+  mdnsServiceType: z.string().default('_aistack._tcp.local'),
+  bindAddress: z.string().default('0.0.0.0'),
+  bindPort: z.number().min(0).max(65535).default(0),
+  routingPolicy: z.enum(['round-robin', 'least-loaded', 'capability-match']).default('least-loaded'),
+  maxInputLength: z.number().min(64).max(65536).default(4096),
+  tls: FederationTlsConfigSchema.optional(),
+  discoverySigning: FederationDiscoverySigningConfigSchema.optional(),
+  requestTimeoutMs: z.number().min(100).max(120000).default(10000),
+});
+
 const SmartDispatcherConfigSchema = z.object({
   enabled: z.boolean().default(true),
   cacheEnabled: z.boolean().default(true),
@@ -162,6 +378,106 @@ const SmartDispatcherConfigSchema = z.object({
   maxDescriptionLength: z.number().min(100).max(10000).default(1000),
   // Claude 4.5 models: claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929, claude-opus-4-5-20251101
   dispatchModel: z.string().default('claude-haiku-4-5-20251001'),
+});
+
+/** AIG-636 — daemon (background headless runner). Sibling field, no overlap with other agents. */
+const DaemonConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  dataDir: z.string().optional(),
+  queueBackend: z.enum(['file', 'redis']).default('file'),
+  redisUrl: z.string().optional(),
+  webhook: z.object({
+    enabled: z.boolean().default(true),
+    port: z.number().min(0).max(65535).default(8787),
+    host: z.string().default('127.0.0.1'),
+    hmacSecret: z.string().optional(),
+  }).default({}),
+  maxConcurrent: z.number().min(1).max(64).default(4),
+  pollIntervalMs: z.number().min(50).max(60000).default(500),
+  logRotationBytes: z.number().min(1024).default(5 * 1024 * 1024),
+});
+
+/**
+ * Durable execution / checkpointing config.
+ *
+ * When `enabled` is true, agent state is serialized after every step to
+ * the `agent_checkpoints` table (see migrations/004_add_checkpoints.sql),
+ * making workflows resumable via `aistack workflow resume <session-id>`
+ * after a crash.
+ *
+ * @property enabled - Master switch. Default false (opt-in).
+ * @property granularity - 'step' (default): write after every step.
+ *   'agent': write only when an agent completes. Trade fidelity for write volume.
+ * @property retentionPerSession - Keep only the latest N checkpoints per session.
+ *   Default 50. Set to 0 to keep every checkpoint forever (unbounded growth).
+ */
+const CheckpointingConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  granularity: z.enum(['step', 'agent']).default('step'),
+  retentionPerSession: z.number().int().min(0).max(10000).default(50),
+});
+
+// --- SSO (AIG-646) sub-field schemas. Validates SAML/OIDC/SCIM settings at
+// config load time. Providers themselves are wired only when the SSO module
+// is initialised (lazy require of @node-saml/node-saml, openid-client).
+const RoleEnum = z.enum(['admin', 'developer', 'viewer']);
+const GroupRoleMapSchema = z.record(z.string(), RoleEnum);
+
+const SsoSamlConfigSchema = z
+  .object({
+    providerName: z.string().min(1),
+    entityId: z.string().min(1),
+    idpSsoUrl: z.string().url(),
+    idpSloUrl: z.string().url().optional(),
+    idpCert: z.string().min(1),
+    callbackUrl: z.string().url(),
+    spPrivateKey: z.string().optional(),
+    spCert: z.string().optional(),
+    signatureAlgorithm: z.enum(['sha256', 'sha512']).optional(),
+    digestAlgorithm: z.enum(['sha256', 'sha512']).optional(),
+    acceptedClockSkewSec: z.number().min(0).max(300).optional(),
+    requestIdExpirationMs: z.number().min(60000).max(3600000).optional(),
+    groupRoleMap: GroupRoleMapSchema.optional(),
+    groupAttributeName: z.string().optional(),
+    emailAttributeName: z.string().optional(),
+    usernameAttributeName: z.string().optional(),
+  })
+  .passthrough();
+
+const SsoOidcConfigSchema = z
+  .object({
+    providerName: z.string().min(1),
+    issuerUrl: z.string().url(),
+    clientId: z.string().min(1),
+    clientSecret: z.string().optional(),
+    pkceRequired: z.boolean().optional(),
+    redirectUri: z.string().url(),
+    scopes: z.array(z.string()).optional(),
+    jwksUri: z.string().url().optional(),
+    groupsClaim: z.string().optional(),
+    groupRoleMap: GroupRoleMapSchema.optional(),
+  })
+  .passthrough();
+
+const SsoScimConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    bearerToken: z.string().min(16),
+    mutationsPerMinute: z.number().min(1).max(10000).optional(),
+    groupRoleMap: GroupRoleMapSchema.optional(),
+  })
+  .passthrough();
+
+const SsoConfigSchema = z.object({
+  saml: SsoSamlConfigSchema.optional(),
+  oidc: SsoOidcConfigSchema.optional(),
+  scim: SsoScimConfigSchema.optional(),
+  defaultRole: RoleEnum.optional(),
+  strictIdentityBinding: z.boolean().optional(),
+});
+
+const AuthConfigSchema = z.object({
+  sso: SsoConfigSchema.optional(),
 });
 
 const ConfigSchema = z.object({
@@ -178,26 +494,53 @@ const ConfigSchema = z.object({
   resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
   consensus: ConsensusConfigSchema.default({}),
   smartDispatcher: SmartDispatcherConfigSchema.default({}),
+  daemon: DaemonConfigSchema.default({}),
+  telemetry: TelemetryConfigSchema.default({}),
+  audit: AuditConfigSchema.default({}),
+  checkpointing: CheckpointingConfigSchema.default({}),
+  sandbox: SandboxConfigSchema.default({}),
+  integrations: IntegrationsConfigSchema.optional(),
+  guardrails: GuardrailsConfigSchema.default({}),
+  auth: AuthConfigSchema.optional(),
+  federation: FederationConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
 
 /**
- * Interpolate environment variables in config values
+ * Interpolate `${VAR_NAME}` placeholders in config values from process.env.
+ *
+ * Throws when a referenced env var is unset — silently substituting "" hides
+ * misconfiguration (e.g. an empty Postgres connection string would fall back
+ * to libpq defaults and connect to the wrong DB). Callers that want
+ * best-effort interpolation can catch and downgrade.
+ *
+ * Escape with `$${VAR}` if you need a literal `${VAR}` in your config.
  */
-function interpolateEnvVars(obj: unknown): unknown {
+function interpolateEnvVars(obj: unknown, env: NodeJS.ProcessEnv = process.env): unknown {
   if (typeof obj === 'string') {
-    return obj.replace(/\$\{([^}]+)\}/g, (_, envVar: string) => {
-      return process.env[envVar] ?? '';
+    // Honor the `$${VAR}` escape: protect, substitute, then restore.
+    const ESCAPE_SENTINEL = 'ESC_DOLLAR';
+    const protectedStr = obj.replace(/\$\$\{/g, ESCAPE_SENTINEL);
+    const substituted = protectedStr.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/gi, (_, envVar: string) => {
+      const value = env[envVar];
+      if (value === undefined) {
+        throw new Error(
+          `Environment variable \${${envVar}} referenced in aistack.config.json is not set. ` +
+          `Export it before starting aistack, or remove the reference.`
+        );
+      }
+      return value;
     });
+    return substituted.replace(new RegExp(ESCAPE_SENTINEL, 'g'), '${');
   }
   if (Array.isArray(obj)) {
-    return obj.map(interpolateEnvVars);
+    return obj.map((item) => interpolateEnvVars(item, env));
   }
   if (obj !== null && typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
-      result[key] = interpolateEnvVars(value);
+      result[key] = interpolateEnvVars(value, env);
     }
     return result;
   }

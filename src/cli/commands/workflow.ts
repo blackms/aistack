@@ -3,30 +3,55 @@
  */
 
 import { Command } from 'commander';
+import { existsSync } from 'node:fs';
 import { runDocSync, getWorkflowRunner, resetWorkflowRunner } from '../../workflows/index.js';
 import { registerDefaultTriggers, getWorkflowTriggers, clearWorkflowTriggers } from '../../hooks/index.js';
 import { logger } from '../../utils/logger.js';
 import { resumeLatestForSession, resumeInterrupt } from '../../coordination/interrupt.js';
+import { loadConfig } from '../../utils/config.js';
+import { getCheckpointer } from '../../persistence/checkpointer.js';
 import { createWorkflowInspectCommand } from './workflow-inspect.js';
 
 const log = logger.child('workflow');
+
+// File extensions that route to the DSL executor instead of the named-workflow runner.
+const DSL_EXTENSIONS = ['.yaml', '.yml', '.json'];
+
+function looksLikeWorkflowFile(arg: string): boolean {
+  const lower = arg.toLowerCase();
+  if (DSL_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true;
+  // Also accept any existing file path.
+  if (existsSync(arg)) return true;
+  return false;
+}
 
 export function createWorkflowCommand(): Command {
   const command = new Command('workflow')
     .description('Run and manage workflows');
 
-  // Run subcommand
+  // Run subcommand — accepts either a named workflow (legacy) or a DSL file path.
   command
     .command('run <workflow>')
-    .description('Run a workflow')
+    .description('Run a workflow (named workflow or YAML/JSON DSL file)')
     .option('-d, --docs <path>', 'Documentation directory', './docs')
     .option('-s, --source <path>', 'Source code directory', '.')
     .option('-v, --verbose', 'Verbose output')
+    .option('--input <json>', 'Task input as JSON string (DSL mode)')
+    .option('--watch', 'Hot-reload: re-run on file change (DSL mode)')
     .action(async (workflow: string, options) => {
-      const { docs, verbose } = options as {
+      const { docs, verbose, input, watch } = options as {
         docs: string;
         verbose?: boolean;
+        input?: string;
+        watch?: boolean;
       };
+
+      // Route to DSL executor if argument looks like a workflow file path.
+      if (looksLikeWorkflowFile(workflow)) {
+        const { runDslWorkflowFile } = await import('./workflow-dsl-runner.js');
+        await runDslWorkflowFile(workflow, { input, watch, verbose });
+        return;
+      }
 
       console.log(`Running workflow: ${workflow}\n`);
 
@@ -136,12 +161,61 @@ export function createWorkflowCommand(): Command {
   // Inspect subcommand (AIG-644 HITL)
   command.addCommand(createWorkflowInspectCommand());
 
-  // Resume subcommand (AIG-644 HITL): resume a session paused on interrupt().
-  // Accepts --input <json> for the value to feed back, and repeatable
-  // --edit-state <path=value> for ad-hoc state mutations before resume.
+  // Resume subcommand — durable execution (AIG-633)
   command
-    .command('resume <session-id>')
-    .description('Resume a workflow paused on an HITL interrupt')
+    .command('resume <sessionId>')
+    .description('Resume a workflow from its latest checkpoint (durable execution)')
+    .option('--from-step <stepId>', 'Resume from a specific step instead of the latest checkpoint')
+    .option('--dry-run', 'Print the loaded checkpoint state without re-executing the workflow')
+    .action(async (sessionId: string, options) => {
+      const { fromStep, dryRun } = options as { fromStep?: string; dryRun?: boolean };
+
+      const config = loadConfig();
+      if (!config.checkpointing?.enabled) {
+        console.error('Checkpointing is disabled in aistack.config.json.');
+        console.error('Enable it with:  "checkpointing": { "enabled": true }');
+        process.exit(1);
+      }
+
+      const checkpointer = getCheckpointer(config);
+      const checkpoint = fromStep
+        ? checkpointer.loadByStep(sessionId, fromStep)
+        : checkpointer.loadLatest(sessionId);
+
+      if (!checkpoint) {
+        console.error(`No checkpoint found for session ${sessionId}${fromStep ? ` at step ${fromStep}` : ''}.`);
+        process.exit(1);
+      }
+
+      console.log(`Loaded checkpoint for session ${sessionId}`);
+      console.log(`  agent:      ${checkpoint.agentId}`);
+      console.log(`  step:       ${checkpoint.stepId}`);
+      console.log(`  created at: ${checkpoint.createdAt.toISOString()}`);
+      console.log(`  format:     ${checkpoint.format}`);
+
+      if (dryRun) {
+        console.log('\n--dry-run: loaded state (truncated to 2 KiB):');
+        const blob = JSON.stringify(checkpoint.state, null, 2);
+        console.log(blob.length > 2048 ? blob.slice(0, 2048) + '\n... [truncated]' : blob);
+        return;
+      }
+
+      // Resume hook: the workflow runtime is expected to consult the
+      // checkpoint state via `getCheckpointer().loadLatest(sessionId)` at
+      // startup. For now we surface the checkpoint and let downstream
+      // workflow executors pick it up — full reattachment to a specific
+      // workflow definition is workflow-specific and out of scope for
+      // this command.
+      console.log('\nCheckpoint is now available to the workflow runtime.');
+      console.log('Re-run the original workflow with the same session id to continue execution.');
+      log.info('Workflow resume requested', { sessionId, stepId: checkpoint.stepId });
+    });
+
+  // Resume-interrupt subcommand (AIG-644 HITL): resume a session paused on interrupt().
+  // Keep `workflow resume` dedicated to durable checkpoints from AIG-633.
+  command
+    .command('resume-interrupt <sessionId>')
+    .description('Resume a workflow paused on a HITL interrupt')
     .option('--input <json>', 'JSON value to feed back to the interrupt() Promise')
     .option('--interrupt-id <id>', 'Target a specific interrupt instead of the latest pending')
     .option('--edit-state <pathEq>', 'State edit "path=value" (repeatable, dot notation)', collectEdits, [] as string[])
@@ -153,7 +227,7 @@ export function createWorkflowCommand(): Command {
         ? await resumeInterrupt(options.interruptId, payload)
         : await resumeLatestForSession(sessionId, payload);
       console.log(`Resumed interrupt ${record.id} on session ${sessionId}`);
-      log.info('Workflow resumed via CLI', { sessionId, interruptId: record.id });
+      log.info('Workflow interrupt resumed via CLI', { sessionId, interruptId: record.id });
     });
 
   return command;

@@ -63,7 +63,7 @@ const port = await interrupt<number>({
 
 | Field            | Required | Notes                                                                                  |
 |------------------|----------|----------------------------------------------------------------------------------------|
-| `sessionId`      | yes      | Workflow/session identifier — used by `workflow inspect` and `workflow resume`.        |
+| `sessionId`      | yes      | Workflow/session identifier — used by `workflow inspect` and `workflow resume-interrupt`. |
 | `workflowId`     | no       | Logical workflow tag (e.g. DSL workflow name).                                         |
 | `prompt`         | yes      | Free-form question shown to the reviewer.                                              |
 | `schema`         | no       | Lightweight descriptor (`type` + optional `enum` / `default`).                          |
@@ -104,14 +104,14 @@ Interrupts: 1
       }
 
     Resume with:
-      aistack workflow resume sess-abc --input='<json>'
+      aistack workflow resume-interrupt sess-abc --input='<json>'
     Or edit state first:
-      aistack workflow resume sess-abc --edit-state='path.to.field=value' --input='<json>'
+      aistack workflow resume-interrupt sess-abc --edit-state='path.to.field=value' --input='<json>'
 ```
 
 Use `--json` for a machine-readable dump (suitable for piping to `jq`).
 
-### `aistack workflow resume <session-id>`
+### `aistack workflow resume-interrupt <session-id>`
 
 Resumes the latest pending interrupt for a session, or a specific one
 with `--interrupt-id`. `--input` carries the JSON-encoded value to feed
@@ -120,10 +120,10 @@ applies ad-hoc state mutations *before* the Promise resolves.
 
 ```bash
 # Simple resume
-aistack workflow resume sess-abc --input='"staging"'
+aistack workflow resume-interrupt sess-abc --input='"staging"'
 
 # Bump a retry counter and then resume
-aistack workflow resume sess-abc \
+aistack workflow resume-interrupt sess-abc \
   --edit-state='retries=5' \
   --edit-state='config.featureFlag=true' \
   --input='"production"'

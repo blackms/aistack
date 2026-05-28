@@ -14,7 +14,8 @@ export type AgentType =
   | 'analyst'
   | 'devops'
   | 'documentation'
-  | 'security-auditor';
+  | 'security-auditor'
+  | 'grader';
 
 export interface AgentDefinition {
   type: AgentType | string;
@@ -348,6 +349,228 @@ export interface AgentStackConfig {
   resourceExhaustion?: ResourceExhaustionConfig;
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
+  daemon?: DaemonConfig;
+  telemetry?: TelemetryConfig;
+  audit?: AuditConfig;
+  checkpointing?: CheckpointingConfig;
+  sandbox?: SandboxConfig;
+  integrations?: IntegrationsConfig;
+  guardrails?: GuardrailsConfig;
+  /** Authentication config (extended for SSO via auth.sso sub-field). AIG-646. */
+  auth?: AuthConfig;
+  federation?: FederationConfig;
+}
+
+// AIG-636 — daemon (background headless runner) config. Optional sibling field.
+export interface DaemonConfig {
+  enabled: boolean;
+  dataDir?: string;
+  queueBackend: 'file' | 'redis';
+  redisUrl?: string;
+  webhook: {
+    enabled: boolean;
+    port: number;
+    host: string;
+    hmacSecret?: string;
+  };
+  maxConcurrent: number;
+  pollIntervalMs: number;
+  logRotationBytes: number;
+}
+
+/**
+ * Opt-in anonymous telemetry configuration (AIG-655).
+ *
+ * Privacy-first: disabled by default. When enabled, the client posts
+ * anonymized usage events (e.g. review_loop.completed, agent.spawned)
+ * to a configurable endpoint. See docs/TELEMETRY.md for full policy.
+ */
+export interface TelemetryConfig {
+  enabled: boolean;
+  endpoint?: string;
+  anonymizeSessionId?: boolean;
+  flushIntervalMs?: number;
+  batchSize?: number;
+}
+
+// Audit log configuration (AIG-635 — hash-chained immutable audit trail)
+export interface AuditConfig {
+  enabled: boolean;
+  /** Override the audit DB path. Defaults to `<memory.path>.audit.db`. */
+  path?: string;
+  /**
+   * HMAC-SHA256 signing key (>=32 bytes). Prefer the `AISTACK_AUDIT_KEY` env
+   * var over inlining this in config files; never commit a real key to git.
+   */
+  signatureKey?: string;
+  /** Days to retain entries before manual rotation. Informational only — the chain itself is append-only. */
+  retentionDays?: number;
+  /** Top-level payload fields to redact before hashing/storage (PII / secrets). */
+  redactFields?: string[];
+}
+
+/**
+ * Durable execution / checkpointing configuration.
+ *
+ * Controls whether agent state is serialized to `agent_checkpoints` after
+ * each step so that workflows can be resumed via
+ * `aistack workflow resume <session-id>` after a crash.
+ *
+ * @property enabled - Master switch. When false, all checkpoint writes are no-ops.
+ * @property granularity - 'step' writes after each agent step (fine-grained,
+ *   higher resume fidelity); 'agent' writes only at agent completion (cheaper).
+ *   Default: 'step'.
+ * @property retentionPerSession - Keep only the latest N checkpoints per session.
+ *   Older rows are pruned best-effort after each save. Default: 50.
+ *   Set to 0 to disable pruning.
+ */
+export interface CheckpointingConfig {
+  enabled: boolean;
+  granularity?: 'step' | 'agent';
+  retentionPerSession?: number;
+}
+
+export interface SandboxConfig {
+  provider: 'none' | 'docker' | 'e2b' | 'daytona';
+  timeout: number;
+  memoryMb: number;
+  cpus: number;
+  pidsLimit: number;
+  network: boolean;
+  images?: {
+    python?: string;
+    javascript?: string;
+    typescript?: string;
+    bash?: string;
+  };
+  e2bApiKey?: string;
+  daytonaApiUrl?: string;
+  daytonaApiKey?: string;
+}
+
+// Battle pack integrations (top-5 MCP servers)
+// See src/integrations/ for adapter implementations.
+export interface IntegrationsConfig {
+  postgres?: PostgresIntegrationConfig;
+  githubRemote?: GithubRemoteIntegrationConfig;
+  sentry?: SentryIntegrationConfig;
+  playwright?: PlaywrightIntegrationConfig;
+  slack?: SlackMcpIntegrationConfig;
+}
+
+export interface PostgresIntegrationConfig {
+  enabled?: boolean;
+  connectionString?: string;
+  packageName?: string;
+  /** Default false. When false, the Postgres connection is forced read-only. */
+  allowWrites?: boolean;
+}
+
+export interface GithubRemoteIntegrationConfig {
+  enabled?: boolean;
+  token?: string;
+  toolsets?: string[];
+  image?: string;
+}
+
+export interface SentryIntegrationConfig {
+  enabled?: boolean;
+  authToken?: string;
+  organization?: string;
+  host?: string;
+  packageName?: string;
+}
+
+export interface PlaywrightIntegrationConfig {
+  enabled?: boolean;
+  browser?: 'chromium' | 'firefox' | 'webkit';
+  headless?: boolean;
+  userDataDir?: string;
+  packageName?: string;
+}
+
+export interface SlackMcpIntegrationConfig {
+  enabled?: boolean;
+  botToken?: string;
+  teamId?: string;
+  channelIds?: string[];
+  packageName?: string;
+  /** Default false. Write tools (post_message, reply, reaction) are disabled unless true. */
+  enableWrites?: boolean;
+}
+
+/**
+ * Guardrails configuration (see `src/guardrails/`).
+ *
+ * The framework is opt-in: `enabled: false` (default) is a no-op even
+ * if `builtin` is populated. `builtin` references guardrail names
+ * registered in the default registry — currently:
+ *   - `secrets`
+ *   - `pii`
+ *   - `prompt-injection`
+ *   (`zod-schema` is a factory and is composed programmatically.)
+ *
+ * `customPaths` lists module paths whose default export registers extra
+ * guardrails. Each module is expected to call `registerGuardrail(...)`
+ * on import. Resolution happens lazily in the call site that uses the
+ * framework.
+ */
+export interface GuardrailsConfig {
+  enabled: boolean;
+  builtin: string[];
+  customPaths?: string[];
+  /** Per-guardrail timeout (ms). Default 2000. */
+  timeoutMs?: number;
+  /** Abort remaining guardrails on first high-severity failure. Default true. */
+  killSwitch?: boolean;
+}
+
+/**
+ * Authentication config (AIG-646).
+ *
+ * The existing JWT+bcrypt+RBAC AuthService keeps its own state; this sibling
+ * field only carries the optional SSO sub-config so operators can configure
+ * SAML/OIDC/SCIM via aistack.config.json. The structural shape mirrors
+ * `SsoConfig` in src/auth/sso/types.ts but is duplicated here to avoid a
+ * circular import from the SSO module into the root types file.
+ */
+export interface AuthConfig {
+  sso?: {
+    saml?: Record<string, unknown>;
+    oidc?: Record<string, unknown>;
+    scim?: Record<string, unknown>;
+    defaultRole?: 'admin' | 'developer' | 'viewer';
+    strictIdentityBinding?: boolean;
+  };
+}
+
+// Federation types (multi-machine federation, AIG-652)
+export type FederationDiscoveryMethod = 'mdns' | 'registry' | 'static';
+export type FederationRoutingPolicy = 'round-robin' | 'least-loaded' | 'capability-match';
+
+export interface FederationTlsConfig {
+  certPath?: string;
+  keyPath?: string;
+  caPath?: string;
+  requireClientCert?: boolean;
+  bearerToken?: string;
+}
+
+export interface FederationConfig {
+  enabled: boolean;
+  nodeId?: string;
+  name?: string;
+  discoveryMethod: FederationDiscoveryMethod;
+  advertise: boolean;
+  peers: string[];
+  registryUrl?: string;
+  mdnsServiceType?: string;
+  bindAddress?: string;
+  bindPort?: number;
+  routingPolicy: FederationRoutingPolicy;
+  maxInputLength?: number;
+  tls?: FederationTlsConfig;
+  requestTimeoutMs?: number;
 }
 
 export interface MemoryConfig {
@@ -355,9 +578,96 @@ export interface MemoryConfig {
   defaultNamespace: string;
   vectorSearch: {
     enabled: boolean;
+    /** One of `'openai' | 'ollama' | 'wasm-local'` (or future adapter id). */
     provider?: string;
     model?: string;
   };
+  // AIG-640: Anthropic Memory Tool + Dreaming + filesystem sync (all opt-in)
+  toolAdapter?: {
+    enabled: boolean;
+    namespace?: string;
+    root?: string;
+  };
+  dreaming?: {
+    enabled: boolean;
+    intervalMs?: number;
+    batchSize?: number;
+    minClusterSize?: number;
+    similarityThreshold?: number;
+    namespace?: string;
+    dreamNamespace?: string;
+  };
+  sync?: {
+    enabled: boolean;
+    watchPath?: string;
+    namespace?: string;
+    pollIntervalMs?: number;
+    exportEnabled?: boolean;
+    importEnabled?: boolean;
+  };
+  /** Hierarchical tiering configuration — see src/memory/tiers/ (AIG-651). */
+  tiering?: MemoryTieringConfig;
+}
+
+/**
+ * Configuration for OS-style hierarchical memory tiers (AIG-651).
+ *
+ * All fields are optional; omitted values fall back to DEFAULT_PAGING_POLICY
+ * in src/memory/tiers/types.ts.
+ */
+export interface MemoryTieringConfig {
+  /** Master switch — when false, AutoPager.start() is a no-op. */
+  enabled?: boolean;
+  /** Maximum entries kept in the hot in-context "working" tier. */
+  workingMaxEntries?: number;
+  /** Maximum estimated tokens kept in the working tier (defaults to 4000). */
+  workingMaxTokens?: number;
+  /** Soft cap on the warm "recall" tier; LRU tail demotes to archival when exceeded. */
+  recallMaxEntries?: number;
+  /** Age (in days) after which a recall entry is demoted to archival. */
+  recallMaxAgeDays?: number;
+  /** Access count threshold for recall -> working promotion. */
+  promoteToWorkingMinAccessCount?: number;
+  /** Recency window (ms) used together with access count for promotion. */
+  recentAccessWindowMs?: number;
+  /** When true, AutoPager calls the configured LLM summarizer on archival. */
+  archivalSummarize?: boolean;
+  /** AutoPager run interval in ms. */
+  intervalMs?: number;
+  /** Maximum rows scanned per AutoPager tick. */
+  batchSize?: number;
+}
+
+/**
+ * Configuration for the WASM-native (in-process) embedding provider.
+ * Consumed by `src/memory/embedding/wasm` — kept here so external consumers
+ * can typecheck their config without importing internal modules.
+ *
+ * Note: the on-disk cache directory is controlled by the `AISTACK_MODELS_DIR`
+ * environment variable rather than this object, so there is no `cacheDir`
+ * field — the field used to exist but was never read by the loader and was
+ * removed in the AIG-653 review pass.
+ */
+export interface WasmEmbeddingConfig {
+  /** Hugging Face model id, e.g. `'Xenova/all-MiniLM-L6-v2'`. */
+  modelId?: string;
+  /** Embedding dimensions; defaults to 384 for MiniLM-L6-v2. */
+  dimensions?: number;
+  /** L2-normalize embeddings so cosine == dot product. Defaults to true. */
+  normalize?: boolean;
+  /**
+   * SHA-256 over the on-disk ONNX bytes. Required for any non-default
+   * `modelId`; recommended even for the default to harden the Hub path.
+   */
+  expectedSha256?: string;
+  /**
+   * Max inputs per pipeline forward pass. Defaults to 32.
+   */
+  batchChunkSize?: number;
+  /**
+   * Soft WASM heap cap (MiB). Defaults to 256.
+   */
+  wasmMemoryCapMib?: number;
 }
 
 export interface ProvidersConfig {

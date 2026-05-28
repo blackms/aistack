@@ -10,10 +10,18 @@ import {
   createAgentCommand,
   createMemoryCommand,
   createMcpCommand,
+  createMcpBridgeCommand,
   createPluginCommand,
   createStatusCommand,
   createWorkflowCommand,
   createWebCommand,
+  createDaemonCommand,
+  createWatchCommand,
+  createRunCommand,
+  createAuditCommand,
+  createExportAgentsCommand,
+  createAgentPortableCommand,
+  createFederationCommand,
 } from './commands/index.js';
 
 // Read version from package.json would be ideal, but for now hardcode
@@ -43,10 +51,18 @@ async function main(): Promise<void> {
   program.addCommand(createAgentCommand());
   program.addCommand(createMemoryCommand());
   program.addCommand(createMcpCommand());
+  program.addCommand(createMcpBridgeCommand());
   program.addCommand(createPluginCommand());
   program.addCommand(createStatusCommand());
   program.addCommand(createWorkflowCommand());
   program.addCommand(createWebCommand());
+  program.addCommand(createDaemonCommand());
+  program.addCommand(createWatchCommand());
+  program.addCommand(createRunCommand());
+  program.addCommand(createAuditCommand());
+  program.addCommand(createExportAgentsCommand());
+  program.addCommand(createAgentPortableCommand());
+  program.addCommand(createFederationCommand());
 
   // Parse arguments
   await program.parseAsync(process.argv);
