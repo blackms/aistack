@@ -350,6 +350,7 @@ export interface AgentStackConfig {
   smartDispatcher?: SmartDispatcherConfig;
   daemon?: DaemonConfig;
   telemetry?: TelemetryConfig;
+  audit?: AuditConfig;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.
@@ -382,6 +383,22 @@ export interface TelemetryConfig {
   anonymizeSessionId?: boolean;
   flushIntervalMs?: number;
   batchSize?: number;
+}
+
+// Audit log configuration (AIG-635 — hash-chained immutable audit trail)
+export interface AuditConfig {
+  enabled: boolean;
+  /** Override the audit DB path. Defaults to `<memory.path>.audit.db`. */
+  path?: string;
+  /**
+   * HMAC-SHA256 signing key (>=32 bytes). Prefer the `AISTACK_AUDIT_KEY` env
+   * var over inlining this in config files; never commit a real key to git.
+   */
+  signatureKey?: string;
+  /** Days to retain entries before manual rotation. Informational only — the chain itself is append-only. */
+  retentionDays?: number;
+  /** Top-level payload fields to redact before hashing/storage (PII / secrets). */
+  redactFields?: string[];
 }
 
 export interface MemoryConfig {

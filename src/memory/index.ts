@@ -22,6 +22,7 @@ import { SQLiteStore } from './sqlite-store.js';
 import { FTSSearch } from './fts-search.js';
 import { VectorSearch } from './vector-search.js';
 import { MemoryAccessControl, getAccessControl } from './access-control.js';
+import { audit } from '../audit/index.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('memory');
@@ -116,6 +117,7 @@ export class MemoryManager {
     }
 
     log.debug('Stored memory entry', { key, namespace, agentId });
+    audit(this.config, 'memory.write', { entryId: entry.id, key, namespace, agentId, shared: false });
     return entry;
   }
 
@@ -154,6 +156,7 @@ export class MemoryManager {
     }
 
     log.debug('Stored shared memory entry', { key, namespace });
+    audit(this.config, 'memory.write', { entryId: entry.id, key, namespace, shared: true });
     return entry;
   }
 
@@ -227,7 +230,11 @@ export class MemoryManager {
       );
     }
 
-    return this.sqliteStore.delete(key, effectiveNamespace);
+    const deleted = this.sqliteStore.delete(key, effectiveNamespace);
+    if (deleted) {
+      audit(this.config, 'memory.delete', { key, namespace: effectiveNamespace });
+    }
+    return deleted;
   }
 
   /**
@@ -526,7 +533,9 @@ export class MemoryManager {
       consensusCheckpointId?: string;
     }
   ): Task {
-    return this.sqliteStore.createTask(agentType, input, sessionId, options);
+    const task = this.sqliteStore.createTask(agentType, input, sessionId, options);
+    audit(this.config, 'task.create', { taskId: task.id, agentType, sessionId, riskLevel: options?.riskLevel, parentTaskId: options?.parentTaskId, depth: options?.depth });
+    return task;
   }
 
   getTask(id: string): Task | null {
@@ -534,7 +543,12 @@ export class MemoryManager {
   }
 
   updateTaskStatus(id: string, status: Task['status'], output?: string): boolean {
-    return this.sqliteStore.updateTaskStatus(id, status, output);
+    const updated = this.sqliteStore.updateTaskStatus(id, status, output);
+    if (updated && (status === 'completed' || status === 'failed' || status === 'running')) {
+      const eventType = status === 'completed' ? 'task.complete' : status === 'failed' ? 'task.fail' : 'task.assign';
+      audit(this.config, eventType, { taskId: id, status });
+    }
+    return updated;
   }
 
   listTasks(sessionId?: string, status?: Task['status']): Task[] {

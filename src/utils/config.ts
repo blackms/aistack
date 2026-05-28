@@ -168,6 +168,25 @@ const TelemetryConfigSchema = z.object({
   batchSize: z.number().min(1).max(1000).default(20),
 });
 
+/**
+ * Audit Log Configuration Schema (AIG-635)
+ *
+ * Controls the hash-chained append-only audit log for SOC2/ISO27001/HIPAA evidence.
+ *
+ * @property enabled - Enable audit logging (creates a separate SQLite file at `<memory.path>.audit.db` by default)
+ * @property path - Override audit DB path
+ * @property signatureKey - HMAC-SHA256 key; prefer env var AISTACK_AUDIT_KEY over inlining here
+ * @property retentionDays - Informational retention hint; chain itself is append-only and never auto-pruned
+ * @property redactFields - Top-level payload fields to redact before hashing/storage
+ */
+const AuditConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  path: z.string().optional(),
+  signatureKey: z.string().optional(),
+  retentionDays: z.number().min(1).max(36500).optional(),
+  redactFields: z.array(z.string()).default([]),
+});
+
 const SmartDispatcherConfigSchema = z.object({
   enabled: z.boolean().default(true),
   cacheEnabled: z.boolean().default(true),
@@ -212,6 +231,7 @@ const ConfigSchema = z.object({
   smartDispatcher: SmartDispatcherConfigSchema.default({}),
   daemon: DaemonConfigSchema.default({}),
   telemetry: TelemetryConfigSchema.default({}),
+  audit: AuditConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';

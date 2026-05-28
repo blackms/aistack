@@ -12,6 +12,7 @@ import { getMemoryManager, getAccessControl } from '../memory/index.js';
 import { Semaphore, AgentPool } from '../utils/semaphore.js';
 import { getIdentityService } from './identity-service.js';
 import { getResourceExhaustionService } from '../monitoring/resource-exhaustion-service.js';
+import { audit } from '../audit/index.js';
 
 const log = logger.child('spawner');
 
@@ -165,6 +166,9 @@ export function spawnAgent(
   }
 
   log.info('Spawned agent', { id, type, name, identityId });
+  if (configRef) {
+    audit(configRef, 'agent.spawn', { agentId: id, type, name, identityId, sessionId: options.sessionId });
+  }
 
   return agent;
 }
@@ -264,6 +268,9 @@ export function stopAgent(id: string): boolean {
   }
 
   log.info('Stopped agent', { id, name: agent.name, identityId: agent.identityId });
+  if (configRef) {
+    audit(configRef, 'agent.stop', { agentId: id, name: agent.name, identityId: agent.identityId });
+  }
   return true;
 }
 
@@ -488,6 +495,7 @@ export async function executeAgent(
       agentId,
       error: error instanceof Error ? error.message : String(error)
     });
+    audit(config, 'agent.error', { agentId, type: agent.type, error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
 }

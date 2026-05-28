@@ -13,3 +13,4 @@ export { createWebCommand } from './web.js';
 export { createDaemonCommand } from './daemon.js';
 export { createWatchCommand } from './watch.js';
 export { createRunCommand } from './run.js';
+export { createAuditCommand } from './audit.js';
