@@ -250,6 +250,51 @@ const SandboxConfigSchema = z.object({
   daytonaApiKey: z.string().optional(),
 });
 
+const PostgresIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  connectionString: z.string().optional(),
+  packageName: z.string().optional(),
+});
+
+const GithubRemoteIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  token: z.string().optional(),
+  toolsets: z.array(z.string()).optional(),
+  image: z.string().optional(),
+});
+
+const SentryIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  authToken: z.string().optional(),
+  organization: z.string().optional(),
+  host: z.string().optional(),
+  packageName: z.string().optional(),
+});
+
+const PlaywrightIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  browser: z.enum(['chromium', 'firefox', 'webkit']).optional(),
+  headless: z.boolean().optional(),
+  userDataDir: z.string().optional(),
+  packageName: z.string().optional(),
+});
+
+const SlackMcpIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  botToken: z.string().optional(),
+  teamId: z.string().optional(),
+  channelIds: z.array(z.string()).optional(),
+  packageName: z.string().optional(),
+});
+
+const IntegrationsConfigSchema = z.object({
+  postgres: PostgresIntegrationSchema.optional(),
+  githubRemote: GithubRemoteIntegrationSchema.optional(),
+  sentry: SentryIntegrationSchema.optional(),
+  playwright: PlaywrightIntegrationSchema.optional(),
+  slack: SlackMcpIntegrationSchema.optional(),
+});
+
 const SmartDispatcherConfigSchema = z.object({
   enabled: z.boolean().default(true),
   cacheEnabled: z.boolean().default(true),
@@ -317,26 +362,45 @@ const ConfigSchema = z.object({
   audit: AuditConfigSchema.default({}),
   checkpointing: CheckpointingConfigSchema.default({}),
   sandbox: SandboxConfigSchema.default({}),
+  integrations: IntegrationsConfigSchema.optional(),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
 
 /**
- * Interpolate environment variables in config values
+ * Interpolate `${VAR_NAME}` placeholders in config values from process.env.
+ *
+ * Throws when a referenced env var is unset — silently substituting "" hides
+ * misconfiguration (e.g. an empty Postgres connection string would fall back
+ * to libpq defaults and connect to the wrong DB). Callers that want
+ * best-effort interpolation can catch and downgrade.
+ *
+ * Escape with `$${VAR}` if you need a literal `${VAR}` in your config.
  */
-function interpolateEnvVars(obj: unknown): unknown {
+function interpolateEnvVars(obj: unknown, env: NodeJS.ProcessEnv = process.env): unknown {
   if (typeof obj === 'string') {
-    return obj.replace(/\$\{([^}]+)\}/g, (_, envVar: string) => {
-      return process.env[envVar] ?? '';
+    // Honor the `$${VAR}` escape: protect, substitute, then restore.
+    const ESCAPE_SENTINEL = 'ESC_DOLLAR';
+    const protectedStr = obj.replace(/\$\$\{/g, ESCAPE_SENTINEL);
+    const substituted = protectedStr.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/gi, (_, envVar: string) => {
+      const value = env[envVar];
+      if (value === undefined) {
+        throw new Error(
+          `Environment variable \${${envVar}} referenced in aistack.config.json is not set. ` +
+          `Export it before starting aistack, or remove the reference.`
+        );
+      }
+      return value;
     });
+    return substituted.replace(new RegExp(ESCAPE_SENTINEL, 'g'), '${');
   }
   if (Array.isArray(obj)) {
-    return obj.map(interpolateEnvVars);
+    return obj.map((item) => interpolateEnvVars(item, env));
   }
   if (obj !== null && typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
-      result[key] = interpolateEnvVars(value);
+      result[key] = interpolateEnvVars(value, env);
     }
     return result;
   }
