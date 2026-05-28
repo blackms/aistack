@@ -18,19 +18,23 @@
  * `docs/AGENT_FILE_SPEC.md` for the full security model.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type { AgentStackConfig, AgentIdentity, MemoryEntry } from '../types.js';
 import { getAgentDefinition } from './registry.js';
 import { getIdentityService } from './identity-service.js';
 import { getMemoryManager } from '../memory/index.js';
 import { logger } from '../utils/logger.js';
 import {
+  IncompatibleFileVersionError,
   PORTABLE_FORMAT_VERSION,
   PORTABLE_MAGIC,
   PortableAgentFileSchema,
+  SUPPORTED_MAJOR_VERSION,
+  parseFormatVersion,
   stripSecrets,
   type PortableAgentFile,
   type PortableAgentSection,
+  type PortableIntegrity,
   type PortableMemoryEntry,
   type PortableMemorySnapshot,
 } from './portable-schema.js';
@@ -105,6 +109,8 @@ export function exportAgent(
     name: identity.displayName ?? definition.name,
     identity_id: identity.agentId,
     system_prompt_override: extractSystemPromptOverride(identity, definition.systemPrompt),
+    tool_whitelist: extractToolWhitelist(identity),
+    model: extractModel(identity),
     capabilities: identity.capabilities?.filter((c) => c.enabled).map((c) => c.name),
     description: identity.description ?? definition.description,
   };
@@ -124,10 +130,15 @@ export function exportAgent(
       aistack_version: opts.aistackVersion,
       labels: opts.labels,
     },
+    integrity: null,
   };
 
-  // Validate before returning so we never emit a broken file.
-  return validatePortableFile(file);
+  // Validate before sealing so we never emit a broken file. Then attach
+  // the SHA-256 digest computed over the envelope with `integrity: null`,
+  // which gives importers a stable byte-for-byte target to recompute.
+  const validated = validatePortableFile(file);
+  validated.integrity = computeIntegrity(validated);
+  return validated;
 }
 
 /**
@@ -160,9 +171,12 @@ export function exportAgentByType(
       aistack_version: opts.aistackVersion,
       labels: opts.labels ?? ['template'],
     },
+    integrity: null,
   };
 
-  return validatePortableFile(file);
+  const validated = validatePortableFile(file);
+  validated.integrity = computeIntegrity(validated);
+  return validated;
 }
 
 function emptySnapshot(): PortableMemorySnapshot {
@@ -182,6 +196,27 @@ function extractSystemPromptOverride(
     return override;
   }
   return null;
+}
+
+/**
+ * Pull `tool_whitelist` from `identity.metadata`. Accept both `toolWhitelist`
+ * (camelCase, the canonical aistack key) and `tool_whitelist` (snake_case,
+ * mirroring the on-disk field). Returns undefined when neither is present or
+ * the value is not a non-empty string[] — empty arrays are dropped so they
+ * do not survive a round-trip as `[]`.
+ */
+function extractToolWhitelist(identity: AgentIdentity): string[] | undefined {
+  const raw =
+    identity.metadata?.toolWhitelist ?? identity.metadata?.tool_whitelist;
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const filtered = raw.filter((v): v is string => typeof v === 'string');
+  return filtered.length > 0 ? filtered : undefined;
+}
+
+/** Pull `model` (suggested model alias) from `identity.metadata`. */
+function extractModel(identity: AgentIdentity): string | undefined {
+  const raw = identity.metadata?.model;
+  return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
 }
 
 function collectMemorySnapshot(
@@ -223,9 +258,52 @@ export function parse(text: string): PortableAgentFile {
   return validatePortableFile(raw);
 }
 
-/** Validate any value against the portable schema. */
+/**
+ * Validate any value against the portable schema AND enforce the documented
+ * major-version gate. A bundle whose `format_version` major does not match
+ * `SUPPORTED_MAJOR_VERSION` is rejected with `IncompatibleFileVersionError`
+ * — the docs promise this and the importer must back it up.
+ */
 export function validatePortableFile(value: unknown): PortableAgentFile {
-  return PortableAgentFileSchema.parse(value);
+  const parsed = PortableAgentFileSchema.parse(value);
+  const v = parseFormatVersion(parsed.format_version);
+  if (!v || v.major !== SUPPORTED_MAJOR_VERSION) {
+    throw new IncompatibleFileVersionError(
+      parsed.format_version,
+      SUPPORTED_MAJOR_VERSION
+    );
+  }
+  return parsed;
+}
+
+/**
+ * Compute the bundle's SHA-256 integrity digest. The digest is taken over
+ * the JSON-serialized envelope with `integrity` set to `null` so that the
+ * field can be embedded after the fact without invalidating itself. The
+ * serialization is the same deterministic 2-space-indent JSON used by
+ * `serialize`, guaranteeing reproducible digests across runtimes.
+ */
+export function computeIntegrity(file: PortableAgentFile): PortableIntegrity {
+  const canonical: PortableAgentFile = { ...file, integrity: null };
+  const bytes = Buffer.from(serialize(canonical), 'utf8');
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  return { algo: 'sha256', digest };
+}
+
+/**
+ * Verify the embedded `integrity` digest matches the actual content.
+ * No-op for bundles without an `integrity` field (older exports). Throws
+ * on mismatch with enough context to debug a tampered or corrupted file.
+ */
+export function verifyIntegrity(file: PortableAgentFile): void {
+  if (!file.integrity) return;
+  const recomputed = computeIntegrity(file);
+  if (recomputed.digest !== file.integrity.digest) {
+    throw new Error(
+      `Bundle integrity check failed: expected sha256 ${file.integrity.digest}, ` +
+        `recomputed ${recomputed.digest}. Bundle may be corrupted or tampered.`
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -244,17 +322,13 @@ export async function importAgent(
   opts: ImportOptions = {}
 ): Promise<ImportResult> {
   const validated = validatePortableFile(file);
+  // Bundle hash check: any tampering between export and import — manual
+  // edits in a text editor, truncation during transfer, etc. — surfaces
+  // here rather than as a subtle behavioural drift downstream.
+  verifyIntegrity(validated);
   const warnings: string[] = [];
 
-  // IdentityService.createIdentity currently always allocates a fresh UUID,
-  // so we cannot reuse the bundled identity_id verbatim. Detect the
-  // (rare but possible) clash up-front so the post-create warning can
-  // distinguish "id was in use" from "we just always rewrite".
   const identityService = getIdentityService(config);
-  const desiredId = validated.agent.identity_id;
-  const desiredIdClashes = Boolean(
-    !opts.newIdentity && desiredId && identityService.getIdentity(desiredId)
-  );
 
   // Verify agent type is registered locally.
   const definition = getAgentDefinition(validated.agent.type);
@@ -266,6 +340,7 @@ export async function importAgent(
   }
 
   const displayName = opts.rename ?? validated.agent.name;
+  const desiredId = validated.agent.identity_id;
 
   const identity = identityService.createIdentity({
     agentType: validated.agent.type,
@@ -280,21 +355,21 @@ export async function importAgent(
       importedAt: new Date().toISOString(),
       originalIdentityId: validated.agent.identity_id,
       systemPromptOverride: validated.agent.system_prompt_override ?? undefined,
+      // Round-trip tool_whitelist / model so a re-export reproduces the
+      // bundle losslessly (regression guard for the silent-drop bug).
+      toolWhitelist: validated.agent.tool_whitelist,
+      model: validated.agent.model,
     },
     autoActivate: true,
   });
 
-  // Surface the id-rewrite so consumers can update any external references.
-  if (desiredId && identity.agentId !== desiredId) {
-    if (desiredIdClashes) {
-      warnings.push(
-        `Bundle identity ${desiredId} already existed locally; allocated ${identity.agentId} instead`
-      );
-    } else if (!opts.newIdentity) {
-      warnings.push(
-        `Allocated new identity ${identity.agentId} (bundle requested ${desiredId})`
-      );
-    }
+  // IdentityService.createIdentity always allocates a fresh UUID, so the
+  // bundled identity_id is informational only. Surface the rewrite so
+  // consumers can update any external references.
+  if (desiredId && identity.agentId !== desiredId && !opts.newIdentity) {
+    warnings.push(
+      `Allocated new identity ${identity.agentId} (bundle requested ${desiredId})`
+    );
   }
 
   // Restore memory entries
@@ -416,7 +491,11 @@ export function importLettaAf(raw: unknown): PortableAgentFile {
   const llmConfig = (obj.llm_config ?? {}) as Record<string, unknown>;
   const model = typeof llmConfig.model === 'string' ? llmConfig.model : undefined;
 
-  // core_memory -> memory entries under namespace `letta-imported`
+  // core_memory -> memory entries under namespace `letta-imported`. Apply
+  // the same `stripSecrets` filter the native exporter uses: a Letta block
+  // may carry arbitrary attributes (limit, persisted_at, ...) and we do
+  // not want anything that looks like an API key to ride along into the
+  // local memory store.
   const coreMemory = Array.isArray(obj.core_memory) ? obj.core_memory : [];
   const entries: PortableMemoryEntry[] = [];
   for (const block of coreMemory) {
@@ -424,11 +503,23 @@ export function importLettaAf(raw: unknown): PortableAgentFile {
     const b = block as Record<string, unknown>;
     const label = typeof b.label === 'string' ? b.label : `block-${entries.length}`;
     const value = typeof b.value === 'string' ? b.value : JSON.stringify(b);
+    // Preserve any other block attributes (limit, description, etc.) as
+    // metadata, minus secrets.
+    const extra: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(b)) {
+      if (k === 'label' || k === 'value') continue;
+      extra[k] = v;
+    }
+    const cleanedExtra = stripSecrets(extra);
     entries.push({
       key: label,
       namespace: 'letta-imported',
       content: value,
       tags: ['letta-import', 'core-memory'],
+      metadata:
+        cleanedExtra && Object.keys(cleanedExtra).length > 0
+          ? cleanedExtra
+          : undefined,
     });
   }
 
@@ -458,7 +549,10 @@ export function importLettaAf(raw: unknown): PortableAgentFile {
         original_id: typeof obj.id === 'string' ? obj.id : undefined,
       },
     },
+    integrity: null,
   };
 
-  return validatePortableFile(file);
+  const validated = validatePortableFile(file);
+  validated.integrity = computeIntegrity(validated);
+  return validated;
 }

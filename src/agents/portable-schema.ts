@@ -20,8 +20,49 @@ import { z } from 'zod';
 /** Current spec version. Bump when introducing a breaking change. */
 export const PORTABLE_FORMAT_VERSION = '1.0';
 
+/**
+ * Major version this build can deserialize. `validatePortableFile` refuses
+ * any bundle whose `format_version` major does not match — minor bumps are
+ * backward-compatible (additive only) and must continue to load.
+ */
+export const SUPPORTED_MAJOR_VERSION = 1;
+
 /** Magic string written into every bundle for sanity checks. */
 export const PORTABLE_MAGIC = 'aistack-agent';
+
+/**
+ * Thrown by `validatePortableFile` when a bundle declares a `format_version`
+ * whose major component does not match `SUPPORTED_MAJOR_VERSION`. Distinct
+ * from a generic schema error so CLI/UI surfaces can show a tailored
+ * "upgrade aistack" hint.
+ */
+export class IncompatibleFileVersionError extends Error {
+  readonly bundleVersion: string;
+  readonly supportedMajor: number;
+  constructor(bundleVersion: string, supportedMajor: number) {
+    super(
+      `Incompatible .aistack-agent format_version '${bundleVersion}': ` +
+        `this build only supports major version ${supportedMajor}.x. ` +
+        `Upgrade aistack or re-export with --format-version ${supportedMajor}.0.`
+    );
+    this.name = 'IncompatibleFileVersionError';
+    this.bundleVersion = bundleVersion;
+    this.supportedMajor = supportedMajor;
+  }
+}
+
+/**
+ * Parse `"<major>.<minor>"` into its numeric components. Returns `null`
+ * for syntactically invalid input — the zod regex already guards the
+ * happy path so this is mainly defence in depth for direct callers.
+ */
+export function parseFormatVersion(
+  v: string
+): { major: number; minor: number } | null {
+  const m = /^(\d+)\.(\d+)$/.exec(v);
+  if (!m) return null;
+  return { major: Number(m[1]), minor: Number(m[2]) };
+}
 
 // ---------------------------------------------------------------------------
 // Sub-schemas
@@ -92,6 +133,15 @@ const MetadataSectionSchema = z
 // Top-level file schema
 // ---------------------------------------------------------------------------
 
+const IntegritySchema = z
+  .object({
+    /** Hash algorithm. Only `sha256` is defined for v1. */
+    algo: z.literal('sha256'),
+    /** Lowercase hex digest of the envelope with `integrity` set to null. */
+    digest: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict();
+
 export const PortableAgentFileSchema = z
   .object({
     /** Magic literal so simple file-type detection works. */
@@ -101,6 +151,14 @@ export const PortableAgentFileSchema = z
     agent: AgentSectionSchema,
     memory_snapshot: MemorySnapshotSchema,
     metadata: MetadataSectionSchema,
+    /**
+     * Optional content-addressed integrity hash. When present, importers
+     * recompute the digest over the envelope (with `integrity` blanked to
+     * `null`) and reject the bundle on mismatch. Always populated by
+     * `exportAgent` / `exportAgentByType`; older bundles without this
+     * field are still accepted for backward compatibility.
+     */
+    integrity: IntegritySchema.nullable().optional(),
   })
   .strict();
 
@@ -109,6 +167,7 @@ export type PortableAgentSection = z.infer<typeof AgentSectionSchema>;
 export type PortableMemorySnapshot = z.infer<typeof MemorySnapshotSchema>;
 export type PortableMemoryEntry = z.infer<typeof MemoryEntrySchema>;
 export type PortableMetadata = z.infer<typeof MetadataSectionSchema>;
+export type PortableIntegrity = z.infer<typeof IntegritySchema>;
 
 // ---------------------------------------------------------------------------
 // Helpers

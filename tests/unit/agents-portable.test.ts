@@ -8,13 +8,16 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  computeIntegrity,
   exportAgentByType,
   parse,
   serialize,
   validatePortableFile,
+  verifyIntegrity,
   importLettaAf,
 } from '../../src/agents/portable.js';
 import {
+  IncompatibleFileVersionError,
   PORTABLE_FORMAT_VERSION,
   PORTABLE_MAGIC,
   stripSecrets,
@@ -194,5 +197,110 @@ describe('importLettaAf (best-effort)', () => {
   it('throws on non-object input', () => {
     expect(() => importLettaAf('not an object')).toThrow(/expected a JSON object/);
     expect(() => importLettaAf(null)).toThrow(/expected a JSON object/);
+  });
+
+  it('strips secret-looking keys from core_memory block metadata', () => {
+    const portable = importLettaAf({
+      agent_type: 'memgpt_agent',
+      name: 'leaky',
+      core_memory: [
+        {
+          label: 'persona',
+          value: 'I am helpful',
+          // simulate a malicious or careless Letta export that smuggled
+          // a credential into the block alongside its normal attributes
+          apiKey: 'sk-should-be-stripped',
+          limit: 4000,
+        },
+      ],
+    });
+    const entry = portable.memory_snapshot.entries[0];
+    expect(entry.metadata).toBeDefined();
+    expect(entry.metadata).not.toHaveProperty('apiKey');
+    expect(entry.metadata?.limit).toBe(4000);
+  });
+});
+
+describe('Major-version gate (validatePortableFile)', () => {
+  it('accepts the same major with a higher minor (backward-compatible)', () => {
+    const file = exportAgentByType('coder');
+    const future = { ...file, format_version: '1.99', integrity: null };
+    expect(() => validatePortableFile(future)).not.toThrow();
+  });
+
+  it('rejects a future major version with IncompatibleFileVersionError', () => {
+    const file = exportAgentByType('coder');
+    const v2 = { ...file, format_version: '2.0', integrity: null };
+    expect(() => validatePortableFile(v2)).toThrow(IncompatibleFileVersionError);
+  });
+
+  it('rejects an older major version with IncompatibleFileVersionError', () => {
+    const file = exportAgentByType('coder');
+    const v0 = { ...file, format_version: '0.9', integrity: null };
+    expect(() => validatePortableFile(v0)).toThrow(IncompatibleFileVersionError);
+  });
+});
+
+describe('Bundle integrity (sha256)', () => {
+  it('exportAgentByType stamps a sha256 integrity digest', () => {
+    const file = exportAgentByType('coder', { labels: ['integrity-test'] });
+    expect(file.integrity).toBeDefined();
+    expect(file.integrity?.algo).toBe('sha256');
+    expect(file.integrity?.digest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('integrity digest is deterministic across exports of the same data', () => {
+    const a = exportAgentByType('coder', { labels: ['x'] });
+    const b: typeof a = {
+      ...a,
+      metadata: { ...a.metadata, exported_at: a.metadata.exported_at },
+    };
+    expect(computeIntegrity(a).digest).toBe(computeIntegrity(b).digest);
+  });
+
+  it('verifyIntegrity accepts an untampered bundle', () => {
+    const file = exportAgentByType('reviewer');
+    expect(() => verifyIntegrity(file)).not.toThrow();
+  });
+
+  it('verifyIntegrity detects content tampering', () => {
+    const file = exportAgentByType('reviewer');
+    const tampered: typeof file = {
+      ...file,
+      agent: { ...file.agent, name: 'hijacked' },
+    };
+    expect(() => verifyIntegrity(tampered)).toThrow(/integrity check failed/);
+  });
+
+  it('verifyIntegrity is a no-op when no integrity field is present', () => {
+    const file = exportAgentByType('coder');
+    const stripped: typeof file = { ...file, integrity: null };
+    expect(() => verifyIntegrity(stripped)).not.toThrow();
+  });
+
+  it('round-trips losslessly through serialize/parse with integrity intact', () => {
+    const file = exportAgentByType('architect');
+    const reparsed = parse(serialize(file));
+    expect(reparsed.integrity).toEqual(file.integrity);
+    expect(() => verifyIntegrity(reparsed)).not.toThrow();
+  });
+});
+
+describe('Lossless tool_whitelist / model round-trip', () => {
+  it('Letta import -> serialize -> parse preserves tool_whitelist and model', () => {
+    const portable = importLettaAf({
+      agent_type: 'memgpt_agent',
+      name: 'roundtrip-agent',
+      llm_config: { model: 'claude-opus-4-7' },
+      tools: [{ name: 'send_message' }, { name: 'custom_tool' }],
+    });
+    expect(portable.agent.tool_whitelist).toContain('Reply');
+    expect(portable.agent.tool_whitelist).toContain('custom_tool');
+    expect(portable.agent.model).toBe('claude-opus-4-7');
+
+    const text = serialize(portable);
+    const reparsed = parse(text);
+    expect(reparsed.agent.tool_whitelist).toEqual(portable.agent.tool_whitelist);
+    expect(reparsed.agent.model).toBe(portable.agent.model);
   });
 });
