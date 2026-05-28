@@ -2,10 +2,12 @@
  * Unit tests for A2A server route handling.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   handleMessage,
   registerA2ARoutes,
+  timingSafeEqualString,
+  __resetReplayCacheForTests,
   AGENT_CARD_PATH,
   MESSAGE_PATH,
   type A2AServerConfig,
@@ -26,6 +28,12 @@ function makeReq(overrides: Partial<WebhookRequest> = {}): WebhookRequest {
     ...overrides,
   };
 }
+
+// Reset module-level replay cache between every test so reused messageIds
+// (e.g. the "m1" sentinel used across many cases below) don't cross-pollinate.
+beforeEach(() => {
+  __resetReplayCacheForTests();
+});
 
 describe('A2A agent card', () => {
   it('generates a spec-valid card with all registered agents', () => {
@@ -201,6 +209,120 @@ describe('A2A handleMessage — validation', () => {
     const body = res.body as { status: string; parts: Array<{ text?: string }> };
     expect(body.status).toBe('failed');
     expect(body.parts[0].text).toContain('boom');
+  });
+});
+
+describe('timingSafeEqualString', () => {
+  it('returns true for identical strings', () => {
+    expect(timingSafeEqualString('sekret', 'sekret')).toBe(true);
+  });
+
+  it('returns false for different strings of equal length', () => {
+    expect(timingSafeEqualString('sekret', 'secret')).toBe(false);
+  });
+
+  it('returns false (and does NOT throw) for length mismatch — covers both shorter and longer', () => {
+    // The whole point of the helper is that it pads both sides so the
+    // underlying crypto.timingSafeEqual call never sees mismatched lengths.
+    expect(() => timingSafeEqualString('short', 'much-longer-token')).not.toThrow();
+    expect(timingSafeEqualString('short', 'much-longer-token')).toBe(false);
+    expect(timingSafeEqualString('much-longer-token', 'short')).toBe(false);
+  });
+
+  it('handles empty strings on either side', () => {
+    expect(timingSafeEqualString('', '')).toBe(true);
+    expect(timingSafeEqualString('', 'x')).toBe(false);
+    expect(timingSafeEqualString('x', '')).toBe(false);
+  });
+});
+
+describe('A2A handleMessage — replay/messageId dedup', () => {
+  beforeEach(() => {
+    __resetReplayCacheForTests();
+  });
+
+  const cfg: A2AServerConfig = { url: 'http://localhost:8787' };
+
+  function buildReq(messageId: string): WebhookRequest {
+    return makeReq({
+      body: JSON.stringify({
+        messageId,
+        parts: [{ kind: 'text', text: 'hi' }],
+        skillId: 'coder',
+      }),
+    });
+  }
+
+  it('returns cached response on duplicate messageId without re-invoking executor', async () => {
+    let calls = 0;
+    const executor = async (_s: string, p: string): Promise<string> => {
+      calls += 1;
+      return `out:${p}:${calls}`;
+    };
+
+    const first = await handleMessage(buildReq('dup-1'), cfg, executor);
+    const second = await handleMessage(buildReq('dup-1'), cfg, executor);
+    const third = await handleMessage(buildReq('dup-1'), cfg, executor);
+
+    expect(calls).toBe(1);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(third.status).toBe(200);
+    // Cached response is byte-equal to the original (same generated
+    // messageId, same payload).
+    expect(second.body).toEqual(first.body);
+    expect(third.body).toEqual(first.body);
+  });
+
+  it('5 concurrent retries with same messageId invoke executor exactly once', async () => {
+    let calls = 0;
+    let release: (() => void) | undefined;
+    const executor = async (_s: string, p: string): Promise<string> => {
+      calls += 1;
+      // Block until released so all 5 retries are genuinely in-flight at
+      // the same time — exercises the inFlight collapsing path.
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return `out:${p}`;
+    };
+
+    const results = Promise.all(
+      Array.from({ length: 5 }, () => handleMessage(buildReq('race-1'), cfg, executor)),
+    );
+
+    // Spin until the first call has entered the executor, then release.
+    // This guarantees concurrent submission window covers the inFlight map.
+    await new Promise<void>((resolve) => {
+      const tick = (): void => {
+        if (release) resolve();
+        else setImmediate(tick);
+      };
+      tick();
+    });
+    release!();
+
+    const resolved = await results;
+    expect(calls).toBe(1);
+    expect(resolved.every((r) => r.status === 200)).toBe(true);
+    // All 5 responses share the same payload (cached + in-flight collapse).
+    const first = resolved[0].body;
+    for (const r of resolved.slice(1)) {
+      expect(r.body).toEqual(first);
+    }
+  });
+
+  it('does NOT cache 5xx failures — executor is retried on subsequent calls', async () => {
+    let calls = 0;
+    const executor = async (): Promise<string> => {
+      calls += 1;
+      throw new Error('transient');
+    };
+    const a = await handleMessage(buildReq('fail-1'), cfg, executor);
+    const b = await handleMessage(buildReq('fail-1'), cfg, executor);
+    expect(a.status).toBe(500);
+    expect(b.status).toBe(500);
+    expect(calls).toBe(2);
   });
 });
 

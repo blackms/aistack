@@ -43,6 +43,24 @@ interface RegisteredRoute {
 export interface A2ARouterOptions {
   port?: number;
   host?: string;
+  /**
+   * Max accepted request-body size in bytes. Requests exceeding this are
+   * aborted with HTTP 413. Defaults to 1 MiB to mirror the AIG-636
+   * WebhookServer cap.
+   */
+  maxBytes?: number;
+}
+
+/** Default request-body size cap (1 MiB). */
+export const DEFAULT_A2A_MAX_BYTES = 1024 * 1024;
+
+/** Sentinel thrown by `readBody` when the body exceeds the configured cap. */
+export class PayloadTooLargeError extends Error {
+  readonly code = 'payload_too_large';
+  constructor(public readonly limit: number) {
+    super(`Request body exceeded ${limit} bytes`);
+    this.name = 'PayloadTooLargeError';
+  }
 }
 
 /**
@@ -56,10 +74,12 @@ export class A2ARouter {
   private routes: RegisteredRoute[] = [];
   private readonly port: number;
   private readonly host: string;
+  private readonly maxBytes: number;
 
   constructor(options: A2ARouterOptions = {}) {
     this.port = options.port ?? 8787;
     this.host = options.host ?? '127.0.0.1';
+    this.maxBytes = options.maxBytes ?? DEFAULT_A2A_MAX_BYTES;
   }
 
   /**
@@ -119,7 +139,17 @@ export class A2ARouter {
         }
       }
 
-      const body = await readBody(req);
+      let body: string;
+      try {
+        body = await readBody(req, this.maxBytes);
+      } catch (err) {
+        if (err instanceof PayloadTooLargeError) {
+          log.warn('Rejected oversized A2A request body', { limit: err.limit, url });
+          sendJson(res, 413, { error: 'payload_too_large', limit: err.limit });
+          return;
+        }
+        throw err;
+      }
       const method = (req.method ?? 'GET').toUpperCase();
 
       const route = this.routes.find((r) => r.method === method && r.path === rawPath);
@@ -158,12 +188,32 @@ export class A2ARouter {
   }
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-    req.on('error', reject);
+    let size = 0;
+    let aborted = false;
+    req.on('data', (chunk: Buffer) => {
+      if (aborted) return;
+      size += chunk.length;
+      if (size > maxBytes) {
+        aborted = true;
+        // Destroy the socket so the client stops uploading and we don't
+        // buffer more bytes in memory.
+        req.destroy();
+        reject(new PayloadTooLargeError(maxBytes));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (aborted) return;
+      resolve(Buffer.concat(chunks).toString('utf-8'));
+    });
+    req.on('error', (err) => {
+      if (aborted) return;
+      reject(err);
+    });
   });
 }
 
