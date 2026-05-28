@@ -279,6 +279,7 @@ Real-time notifications to your team:
   - [DATA.md](./docs/DATA.md) - Database schemas
   - [SECURITY.md](./docs/SECURITY.md) - Security model
   - [ONBOARDING.md](./docs/ONBOARDING.md) - Developer guide
+  - [BENCHMARK.md](./docs/BENCHMARK.md) - SWE-bench Verified plan + reproducible harness
 
 ---
 
