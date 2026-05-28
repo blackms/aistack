@@ -349,6 +349,7 @@ export interface AgentStackConfig {
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
   a2a?: A2AConfig;
+  daemon?: DaemonConfig;
 }
 
 // A2A (Agent-to-Agent) protocol config
@@ -359,6 +360,23 @@ export interface A2AConfig {
   publicUrl?: string;
   bearerToken?: string;
   exposedAgents?: string[];
+}
+
+// AIG-636 — daemon (background headless runner) config. Optional sibling field.
+export interface DaemonConfig {
+  enabled: boolean;
+  dataDir?: string;
+  queueBackend: 'file' | 'redis';
+  redisUrl?: string;
+  webhook: {
+    enabled: boolean;
+    port: number;
+    host: string;
+    hmacSecret?: string;
+  };
+  maxConcurrent: number;
+  pollIntervalMs: number;
+  logRotationBytes: number;
 }
 
 export interface MemoryConfig {

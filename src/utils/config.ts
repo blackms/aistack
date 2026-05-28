@@ -173,6 +173,23 @@ const A2AConfigSchema = z.object({
   exposedAgents: z.array(z.string()).optional(),
 });
 
+/** AIG-636 — daemon (background headless runner). Sibling field, no overlap with other agents. */
+const DaemonConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  dataDir: z.string().optional(),
+  queueBackend: z.enum(['file', 'redis']).default('file'),
+  redisUrl: z.string().optional(),
+  webhook: z.object({
+    enabled: z.boolean().default(true),
+    port: z.number().min(0).max(65535).default(8787),
+    host: z.string().default('127.0.0.1'),
+    hmacSecret: z.string().optional(),
+  }).default({}),
+  maxConcurrent: z.number().min(1).max(64).default(4),
+  pollIntervalMs: z.number().min(50).max(60000).default(500),
+  logRotationBytes: z.number().min(1024).default(5 * 1024 * 1024),
+});
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -188,6 +205,7 @@ const ConfigSchema = z.object({
   consensus: ConsensusConfigSchema.default({}),
   smartDispatcher: SmartDispatcherConfigSchema.default({}),
   a2a: A2AConfigSchema.default({}),
+  daemon: DaemonConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';

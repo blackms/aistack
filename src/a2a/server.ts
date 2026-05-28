@@ -1,7 +1,8 @@
 /**
  * A2A server — registers /.well-known/a2a-agent-card.json and
- * /v1/a2a/message routes onto an existing WebhookServer instance
- * (shared with AIG-636 / AIG-637 to avoid HTTP port duplication).
+ * /v1/a2a/message routes onto an A2ARouter (dedicated multi-route
+ * HTTP listener, separate from AIG-636's task-ingestion WebhookServer
+ * which is pinned to POST /v1/tasks).
  */
 
 import {
@@ -13,7 +14,7 @@ import {
 import { generateAgentCard, type AgentCardOptions } from './agent-card.js';
 import { hasAgentType } from '../agents/registry.js';
 import { runAgent } from '../agents/spawner.js';
-import type { WebhookServer, WebhookRequest, WebhookResponse } from '../transport/webhook.js';
+import type { A2ARouter, WebhookRequest, WebhookResponse } from '../transport/a2a-router.js';
 import type { AgentStackConfig } from '../types.js';
 import { logger } from '../utils/logger.js';
 import { randomUUID } from 'node:crypto';
@@ -43,13 +44,14 @@ export interface RegisterA2AOptions {
 }
 
 /**
- * Register A2A routes on an existing WebhookServer.
+ * Register A2A routes on an A2ARouter.
  *
- * Pattern intentionally mirrors AIG-637 github-webhook so both can
- * coexist on the same HTTP server with no port collision.
+ * The router is dedicated to A2A endpoints; the daemon's task-ingestion
+ * WebhookServer (AIG-636) lives on its own port. Mirrors AIG-637's
+ * IntegrationRouter split so each protocol surface owns its routing.
  */
 export function registerA2ARoutes(
-  webhookServer: WebhookServer,
+  router: A2ARouter,
   options: RegisterA2AOptions,
 ): void {
   const { config, a2a } = options;
@@ -63,7 +65,7 @@ export function registerA2ARoutes(
 
   const card = generateAgentCard(a2a);
 
-  webhookServer.registerRoute('GET', AGENT_CARD_PATH, () => ({
+  router.registerRoute('GET', AGENT_CARD_PATH, () => ({
     status: 200,
     headers: { 'Content-Type': 'application/json' },
     body: card,
@@ -76,7 +78,7 @@ export function registerA2ARoutes(
       return result.response;
     });
 
-  webhookServer.registerRoute('POST', MESSAGE_PATH, async (req) =>
+  router.registerRoute('POST', MESSAGE_PATH, async (req) =>
     handleMessage(req, a2a, executor),
   );
 

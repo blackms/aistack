@@ -7,7 +7,7 @@
  */
 
 import { Command } from 'commander';
-import { WebhookServer } from '../../transport/webhook.js';
+import { A2ARouter } from '../../transport/a2a-router.js';
 import { registerA2ARoutes } from '../../a2a/server.js';
 import { a2aCall, fetchAgentCard, A2AClientError } from '../../a2a/client.js';
 import { responseText, textMessage } from '../../a2a/types.js';
@@ -52,7 +52,7 @@ export function createA2aCommand(): Command {
         );
       }
 
-      const server = new WebhookServer({ port, host });
+      const server = new A2ARouter({ port, host });
       registerA2ARoutes(server, {
         config,
         a2a: {

@@ -98,10 +98,11 @@ Error responses (4xx/5xx) follow the shape:
 
 ## Server setup
 
-The A2A server is **not a standalone HTTP server**. It registers two routes
-onto the shared `WebhookServer` introduced by AIG-636 so that A2A,
-GitHub webhooks (AIG-637), and any future webhook-driven feature live on the
-same port without collision.
+The A2A server registers two routes onto an `A2ARouter` — a dedicated
+multi-route HTTP listener for A2A endpoints. AIG-636's `WebhookServer`
+(the daemon task-ingestion endpoint, pinned to `POST /v1/tasks`) and the
+SCM `IntegrationRouter` from AIG-637 run on their own listeners so each
+protocol surface owns its routing table.
 
 ### CLI
 
@@ -120,12 +121,12 @@ aistack a2a serve --port 8787 --no-auth
 ### Programmatic
 
 ```ts
-import { WebhookServer } from '@blackms/aistack/transport/webhook';
+import { A2ARouter } from '@blackms/aistack/transport/a2a-router';
 import { registerA2ARoutes } from '@blackms/aistack/a2a';
 import { getConfig } from '@blackms/aistack';
 
 const config = getConfig();
-const server = new WebhookServer({ port: 8787, host: '127.0.0.1' });
+const server = new A2ARouter({ port: 8787, host: '127.0.0.1' });
 
 registerA2ARoutes(server, {
   config,
@@ -138,10 +139,6 @@ registerA2ARoutes(server, {
 
 await server.start();
 ```
-
-> Once AIG-636 lands in `main`, the canonical `WebhookServer` will be served
-> from `src/transport/webhook.ts`. This branch ships a forward-compatible stub
-> so AIG-639 can be reviewed independently — the public API is identical.
 
 ### Configuration
 
@@ -260,7 +257,7 @@ the same.
 ## Acceptance criteria checklist
 
 - [x] Agent card JSON spec valid (A2A v1) — `generateAgentCard()` round-trips through Zod
-- [x] Server endpoint functional — `registerA2ARoutes()` on `WebhookServer`
+- [x] Server endpoint functional — `registerA2ARoutes()` on `A2ARouter`
 - [x] Client TS API `a2aCall(url, msg)` returns response — `src/a2a/client.ts`
 - [x] E2E roundtrip aistack <-> CrewAI mock — `tests/integration/a2a-roundtrip.test.ts`
 - [x] Documented — this file

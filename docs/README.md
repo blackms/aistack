@@ -18,6 +18,7 @@ aistack is a lightweight, production-ready multi-agent orchestration framework d
 | [Security](SECURITY.md) | Security model and best practices |
 | [Operations](OPERATIONS.md) | Deployment, monitoring, and troubleshooting |
 | [Onboarding](ONBOARDING.md) | Getting started guide for developers |
+| [Comparison](COMPARISON.md) | aistack vs claude-flow, Claude Agent SDK, Mastra, LangGraph, CrewAI, AutoGen, Letta |
 | [ADRs](ADRs/) | Architecture Decision Records (6 ADRs) |
 
 ## Quick Start

@@ -12,7 +12,7 @@ import {
 } from '../../../src/a2a/server.js';
 import { generateAgentCard } from '../../../src/a2a/agent-card.js';
 import { A2A_PROTOCOL_VERSION } from '../../../src/a2a/types.js';
-import { WebhookServer, type WebhookRequest } from '../../../src/transport/webhook.js';
+import { A2ARouter, type WebhookRequest } from '../../../src/transport/a2a-router.js';
 import type { AgentStackConfig } from '../../../src/types.js';
 
 function makeReq(overrides: Partial<WebhookRequest> = {}): WebhookRequest {
@@ -205,8 +205,8 @@ describe('A2A handleMessage — validation', () => {
 });
 
 describe('A2A registerA2ARoutes', () => {
-  it('registers both card and message routes on the webhook server', () => {
-    const server = new WebhookServer({ port: 0 });
+  it('registers both card and message routes on the A2A router', () => {
+    const server = new A2ARouter({ port: 0 });
     const cfg = { providers: { default: 'anthropic' } } as unknown as AgentStackConfig;
     registerA2ARoutes(server, {
       config: cfg,

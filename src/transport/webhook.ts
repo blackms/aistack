@@ -1,176 +1,177 @@
 /**
- * Local stub of WebhookServer (originally introduced by AIG-636 background-runner branch).
+ * Webhook transport - HTTP POST /v1/tasks endpoint with optional HMAC verification.
  *
- * This stub provides a minimal HTTP server with route registration so that
- * sibling modules (A2A server in AIG-639, github-webhook in AIG-637) can compile
- * and run before the AIG-636 branch is merged to main.
- *
- * Once AIG-636 lands in main, this file should be deleted and replaced by the
- * canonical implementation from that PR. The public API (registerRoute,
- * start, stop) MUST remain identical so dependent modules keep working.
+ * Uses Node's built-in `http` module (zero new deps). Body parsing is intentionally
+ * minimal (JSON only, 1 MiB cap) to stay focused; production users can put this
+ * behind a reverse proxy or swap for Express/Fastify by reusing DaemonRuntime.
  */
 
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
+import * as http from 'node:http';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { logger } from '../utils/logger.js';
+import type { DaemonRuntime, QueueTask } from '../daemon/index.js';
 
-const log = logger.child('webhook-server');
+const log = logger.child('transport:webhook');
 
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
 
-export interface WebhookRequest {
-  method: string;
-  url: string;
-  path: string;
-  headers: Record<string, string | string[] | undefined>;
-  body: string;
-  query: Record<string, string>;
-}
-
-export interface WebhookResponse {
-  status: number;
-  headers?: Record<string, string>;
-  body: string | object;
-}
-
-export type RouteHandler = (req: WebhookRequest) => Promise<WebhookResponse> | WebhookResponse;
-
-interface RegisteredRoute {
-  method: HttpMethod;
-  path: string;
-  handler: RouteHandler;
-}
-
-export interface WebhookServerOptions {
-  port?: number;
+export interface WebhookServerConfig {
+  port: number;
   host?: string;
+  /** Optional HMAC-SHA256 shared secret. When set, requests must include X-Aistack-Signature: sha256=<hex>. */
+  hmacSecret?: string;
+  /** Header name carrying the HMAC signature. Defaults to 'x-aistack-signature'. */
+  signatureHeader?: string;
+}
+
+export interface WebhookTaskRequest {
+  agentType: string;
+  input: string;
+  metadata?: Record<string, unknown>;
+  id?: string;
 }
 
 /**
- * Minimal HTTP server with method/path routing.
- * Mirrors the shape introduced by AIG-636 so A2A and github-webhook can share it.
+ * Verify an HMAC-SHA256 signature using constant-time comparison.
+ * Accepted formats: 'sha256=<hex>' (GitHub-style) or raw '<hex>'.
  */
+export function verifyHmacSignature(
+  body: Buffer | string,
+  secret: string,
+  providedSignature: string | undefined,
+): boolean {
+  if (!providedSignature) return false;
+  const expected = createHmac('sha256', secret).update(body).digest('hex');
+  const provided = providedSignature.startsWith('sha256=')
+    ? providedSignature.slice(7)
+    : providedSignature;
+  // Length check before timingSafeEqual (which throws on mismatched lengths)
+  if (provided.length !== expected.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(provided, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
 export class WebhookServer {
-  private server: Server | null = null;
-  private routes: RegisteredRoute[] = [];
-  private readonly port: number;
-  private readonly host: string;
+  private server: http.Server | null = null;
+  private readonly signatureHeader: string;
 
-  constructor(options: WebhookServerOptions = {}) {
-    this.port = options.port ?? 8787;
-    this.host = options.host ?? '127.0.0.1';
+  constructor(
+    private readonly runtime: DaemonRuntime,
+    private readonly config: WebhookServerConfig,
+  ) {
+    this.signatureHeader = (config.signatureHeader ?? 'x-aistack-signature').toLowerCase();
   }
 
-  /**
-   * Register a route. Last registration wins for identical method+path.
-   */
-  registerRoute(method: HttpMethod, path: string, handler: RouteHandler): void {
-    // Dedupe identical registrations
-    this.routes = this.routes.filter((r) => !(r.method === method && r.path === path));
-    this.routes.push({ method, path, handler });
-    log.debug('Registered route', { method, path });
-  }
-
-  getRoutes(): ReadonlyArray<{ method: HttpMethod; path: string }> {
-    return this.routes.map((r) => ({ method: r.method, path: r.path }));
-  }
-
-  async start(): Promise<{ port: number; host: string }> {
-    if (this.server) {
-      throw new Error('WebhookServer already started');
-    }
-
-    this.server = createServer((req, res) => {
-      void this.handleRequest(req, res);
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      this.server!.once('error', reject);
-      this.server!.listen(this.port, this.host, () => {
-        this.server!.removeListener('error', reject);
+  async start(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.server = http.createServer((req, res) => {
+        void this.handle(req, res).catch(err => {
+          log.error('Unhandled webhook error', { error: (err as Error).message });
+          if (!res.headersSent) {
+            res.writeHead(500, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'internal' }));
+          }
+        });
+      });
+      this.server.on('error', reject);
+      this.server.listen(this.config.port, this.config.host ?? '127.0.0.1', () => {
+        const addr = this.server!.address();
+        const port = typeof addr === 'object' && addr ? addr.port : this.config.port;
+        log.info('Webhook server listening', { host: this.config.host ?? '127.0.0.1', port });
         resolve();
       });
     });
-
-    log.info('WebhookServer listening', { host: this.host, port: this.port });
-    return { port: this.port, host: this.host };
   }
 
   async stop(): Promise<void> {
     if (!this.server) return;
-    const server = this.server;
+    await new Promise<void>(resolve => this.server!.close(() => resolve()));
     this.server = null;
-    await new Promise<void>((resolve, reject) => {
-      server.close((err) => (err ? reject(err) : resolve()));
-    });
-    log.info('WebhookServer stopped');
   }
 
-  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    try {
-      const url = req.url ?? '/';
-      const [rawPath, rawQuery = ''] = url.split('?');
-      const query: Record<string, string> = {};
-      if (rawQuery) {
-        for (const pair of rawQuery.split('&')) {
-          const [k, v = ''] = pair.split('=');
-          if (k) query[decodeURIComponent(k)] = decodeURIComponent(v);
-        }
-      }
+  /** Get the actual bound port (useful when port=0 for tests). */
+  getPort(): number | null {
+    if (!this.server) return null;
+    const addr = this.server.address();
+    return typeof addr === 'object' && addr ? addr.port : null;
+  }
 
-      const body = await readBody(req);
-      const method = (req.method ?? 'GET').toUpperCase();
+  private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    // Routing
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok' }));
+      return;
+    }
+    if (req.method !== 'POST' || req.url !== '/v1/tasks') {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not_found' }));
+      return;
+    }
 
-      const route = this.routes.find((r) => r.method === method && r.path === rawPath);
+    const body = await readBody(req);
+    if (body === null) {
+      res.writeHead(413, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'payload_too_large' }));
+      return;
+    }
 
-      if (!route) {
-        sendJson(res, 404, { error: 'not_found', path: rawPath });
+    // HMAC verification (if configured)
+    if (this.config.hmacSecret) {
+      const sig = req.headers[this.signatureHeader];
+      const sigStr = Array.isArray(sig) ? sig[0] : sig;
+      if (!verifyHmacSignature(body, this.config.hmacSecret, sigStr)) {
+        log.warn('Webhook signature verification failed', { url: req.url });
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_signature' }));
         return;
       }
-
-      const webhookReq: WebhookRequest = {
-        method,
-        url,
-        path: rawPath,
-        headers: req.headers,
-        body,
-        query,
-      };
-
-      const result = await route.handler(webhookReq);
-      const headers = result.headers ?? {};
-      if (typeof result.body === 'string') {
-        res.writeHead(result.status, headers);
-        res.end(result.body);
-      } else {
-        sendJson(res, result.status, result.body, headers);
-      }
-    } catch (error) {
-      log.error('Route handler failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      sendJson(res, 500, {
-        error: 'internal_error',
-        message: error instanceof Error ? error.message : String(error),
-      });
     }
+
+    let payload: WebhookTaskRequest;
+    try {
+      payload = JSON.parse(body.toString('utf-8')) as WebhookTaskRequest;
+    } catch {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'invalid_json' }));
+      return;
+    }
+    if (typeof payload.agentType !== 'string' || typeof payload.input !== 'string') {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'missing_fields', required: ['agentType', 'input'] }));
+      return;
+    }
+
+    const task: QueueTask = await this.runtime.enqueue({
+      agentType: payload.agentType,
+      input: payload.input,
+      source: 'webhook',
+      metadata: payload.metadata,
+      id: payload.id,
+    });
+
+    res.writeHead(202, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ taskId: task.id, status: task.status }));
   }
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+function readBody(req: http.IncomingMessage): Promise<Buffer | null> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        req.destroy();
+        resolve(null);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
-}
-
-function sendJson(
-  res: ServerResponse,
-  status: number,
-  body: object,
-  extraHeaders: Record<string, string> = {},
-): void {
-  res.writeHead(status, { 'Content-Type': 'application/json', ...extraHeaders });
-  res.end(JSON.stringify(body));
 }

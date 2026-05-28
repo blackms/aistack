@@ -4,10 +4,10 @@
  * Acceptance criterion 4: aistack agent calls a (mock) CrewAI A2A endpoint
  * and vice versa.
  *
- * We spin up TWO local WebhookServer instances:
+ * We spin up TWO local A2ARouter instances:
  *   1. "aistack" — uses registerA2ARoutes with a stub executor so we don't
  *      need real Claude/OpenAI providers in CI.
- *   2. "crewai-dummy" — a hand-rolled WebhookServer that mimics a remote
+ *   2. "crewai-dummy" — a hand-rolled A2ARouter that mimics a remote
  *      CrewAI-style A2A endpoint (returns a canned A2AResponse). This is
  *      the "mock external agent" called by aistack.
  *
@@ -17,10 +17,10 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import {
-  WebhookServer,
+  A2ARouter,
   type WebhookRequest,
   type WebhookResponse,
-} from '../../src/transport/webhook.js';
+} from '../../src/transport/a2a-router.js';
 import {
   registerA2ARoutes,
   AGENT_CARD_PATH,
@@ -53,14 +53,14 @@ async function freePort(): Promise<number> {
 }
 
 interface RunningServer {
-  server: WebhookServer;
+  server: A2ARouter;
   baseUrl: string;
 }
 
 async function startAistackServer(token?: string): Promise<RunningServer> {
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const server = new WebhookServer({ port, host: '127.0.0.1' });
+  const server = new A2ARouter({ port, host: '127.0.0.1' });
   registerA2ARoutes(server, {
     config: minimalConfig,
     a2a: {
@@ -79,7 +79,7 @@ async function startAistackServer(token?: string): Promise<RunningServer> {
 async function startCrewAIDummy(): Promise<RunningServer> {
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const server = new WebhookServer({ port, host: '127.0.0.1' });
+  const server = new A2ARouter({ port, host: '127.0.0.1' });
 
   // Hand-rolled card to prove cross-implementation compatibility
   server.registerRoute('GET', AGENT_CARD_PATH, () => ({
