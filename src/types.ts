@@ -458,6 +458,8 @@ export interface PostgresIntegrationConfig {
   enabled?: boolean;
   connectionString?: string;
   packageName?: string;
+  /** Default false. When false, the Postgres connection is forced read-only. */
+  allowWrites?: boolean;
 }
 
 export interface GithubRemoteIntegrationConfig {
@@ -489,6 +491,8 @@ export interface SlackMcpIntegrationConfig {
   teamId?: string;
   channelIds?: string[];
   packageName?: string;
+  /** Default false. Write tools (post_message, reply, reaction) are disabled unless true. */
+  enableWrites?: boolean;
 }
 
 export interface MemoryConfig {

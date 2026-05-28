@@ -40,6 +40,13 @@ export interface BattlePackEntry {
   command: string;
   args: string[];
   env: Record<string, string>;
+  /**
+   * Optional allow-list of tool names the host / policy layer must reject.
+   * Used by adapters that expose dangerous capabilities (e.g. Slack writes)
+   * to enforce "no auto-enable" without disabling the server entirely.
+   * Omitted from `.mcp.json` when empty.
+   */
+  disabledTools?: string[];
 }
 
 /** Adapter contract: every provider exposes its env vars + a builder. */
@@ -56,6 +63,8 @@ export interface McpJsonOutput {
     command: string;
     args: string[];
     env?: Record<string, string>;
+    /** Tool names the host / policy layer must reject. */
+    disabledTools?: string[];
   }>;
 }
 
@@ -146,6 +155,9 @@ export function buildMcpJson(
       command: entry.command,
       args: entry.args,
       ...(Object.keys(entry.env).length > 0 ? { env: entry.env } : {}),
+      ...(entry.disabledTools && entry.disabledTools.length > 0
+        ? { disabledTools: entry.disabledTools }
+        : {}),
     };
     report.enabled.push(adapter.name);
   }

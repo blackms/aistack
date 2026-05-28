@@ -15,6 +15,17 @@ import {
   playwrightAdapter,
   slackMcpAdapter,
 } from '../../../src/integrations/index.js';
+import {
+  enforceReadOnly,
+  POSTGRES_MCP_VERSION,
+} from '../../../src/integrations/postgres.js';
+import { PLAYWRIGHT_MCP_VERSION } from '../../../src/integrations/playwright.js';
+import { SENTRY_MCP_VERSION } from '../../../src/integrations/sentry.js';
+import { GITHUB_MCP_IMAGE_TAG } from '../../../src/integrations/github-remote.js';
+import {
+  SLACK_MCP_VERSION,
+  SLACK_WRITE_TOOLS,
+} from '../../../src/integrations/slack-mcp.js';
 import type { IntegrationsConfig } from '../../../src/types.js';
 
 describe('battle pack: listBattlePackAdapters', () => {
@@ -49,22 +60,27 @@ describe('battle pack: buildMcpJson', () => {
     expect(report.enabled).toEqual([]);
   });
 
-  it('enables postgres with inline connection string', () => {
+  it('enables postgres with inline connection string (rewritten read-only)', () => {
     const cfg: IntegrationsConfig = {
       postgres: { connectionString: 'postgres://localhost/db' },
     };
     const { output, report } = buildMcpJson(cfg);
     expect(report.enabled).toEqual(['postgres']);
     expect(output.mcpServers.postgres.command).toBe('npx');
-    expect(output.mcpServers.postgres.args).toContain('@modelcontextprotocol/server-postgres');
-    expect(output.mcpServers.postgres.args).toContain('postgres://localhost/db');
+    expect(output.mcpServers.postgres.args).toContain(
+      `@modelcontextprotocol/server-postgres@${POSTGRES_MCP_VERSION}`
+    );
+    const rewritten = output.mcpServers.postgres.args[output.mcpServers.postgres.args.length - 1];
+    expect(rewritten).toContain('postgres://localhost/db');
+    expect(rewritten).toContain('default_transaction_read_only');
   });
 
-  it('enables postgres with env-var DATABASE_URL when no inline string', () => {
+  it('enables postgres with env-var DATABASE_URL when no inline string (PGOPTIONS read-only)', () => {
     const cfg: IntegrationsConfig = { postgres: {} };
     const { output } = buildMcpJson(cfg);
     expect(output.mcpServers.postgres.args).toContain('${DATABASE_URL}');
     expect(output.mcpServers.postgres.env?.DATABASE_URL).toBe('${DATABASE_URL}');
+    expect(output.mcpServers.postgres.env?.PGOPTIONS).toContain('default_transaction_read_only=on');
   });
 
   it('skips providers with enabled=false', () => {
@@ -104,14 +120,14 @@ describe('battle pack: buildMcpJson', () => {
     expect(report.enabled).toEqual(['sentry']);
   });
 
-  it('generates github-remote with docker + toolsets', () => {
+  it('generates github-remote with docker + toolsets (pinned image tag)', () => {
     const cfg: IntegrationsConfig = {
       githubRemote: { toolsets: ['repos', 'issues'] },
     };
     const { output } = buildMcpJson(cfg);
     const entry = output.mcpServers['github-remote'];
     expect(entry.command).toBe('docker');
-    expect(entry.args).toContain('ghcr.io/github/github-mcp-server');
+    expect(entry.args).toContain(`ghcr.io/github/github-mcp-server:${GITHUB_MCP_IMAGE_TAG}`);
     expect(entry.args.join(' ')).toContain('GITHUB_TOOLSETS=repos,issues');
     expect(entry.env?.GITHUB_PERSONAL_ACCESS_TOKEN).toBe('${GITHUB_PERSONAL_ACCESS_TOKEN}');
   });
@@ -128,15 +144,20 @@ describe('battle pack: buildMcpJson', () => {
     expect(entry.env).toBeUndefined(); // no env vars → field omitted
   });
 
-  it('generates slack-mcp with channel restriction', () => {
+  it('generates slack-mcp with channel restriction (pinned version, writes off by default)', () => {
     const cfg: IntegrationsConfig = {
       slack: { channelIds: ['C123', 'C456'] },
     };
     const { output } = buildMcpJson(cfg);
     const entry = output.mcpServers['slack-mcp'];
     expect(entry.command).toBe('npx');
-    expect(entry.args).toContain('@modelcontextprotocol/server-slack');
+    expect(entry.args).toContain(`@modelcontextprotocol/server-slack@${SLACK_MCP_VERSION}`);
     expect(entry.env?.SLACK_CHANNEL_IDS).toBe('C123,C456');
+    expect(entry.env?.SLACK_MCP_READ_ONLY).toBe('1');
+    // All write tools disabled by default
+    for (const tool of SLACK_WRITE_TOOLS) {
+      expect(entry.disabledTools).toContain(tool);
+    }
   });
 
   it('handles all 5 providers enabled together', () => {
@@ -171,14 +192,123 @@ describe('battle pack: individual adapters', () => {
     expect(entry.env.SENTRY_HOST).toBe('sentry.internal.example.com');
   });
 
-  it('playwright adapter defaults to no extra args', () => {
+  it('playwright adapter defaults to no extra args (pinned version, never @latest)', () => {
     const entry = playwrightAdapter.build({});
-    // -y + package only
-    expect(entry.args).toEqual(['-y', '@playwright/mcp@latest']);
+    // -y + pinned package only
+    expect(entry.args).toEqual(['-y', `@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}`]);
+    expect(entry.args.some((a) => a.endsWith('@latest'))).toBe(false);
   });
 
   it('slack adapter omits SLACK_CHANNEL_IDS when none provided', () => {
     const entry = slackMcpAdapter.build({ botToken: 't', teamId: 'T1' });
     expect(entry.env.SLACK_CHANNEL_IDS).toBeUndefined();
+  });
+
+  it('sentry adapter uses a pinned npm version', () => {
+    const entry = sentryAdapter.build({});
+    expect(entry.args).toContain(`@sentry/mcp-server@${SENTRY_MCP_VERSION}`);
+  });
+});
+
+// =============================================================================
+// Fix #3: every bundled server pins its version (no `@latest`, no floating tag).
+// =============================================================================
+
+describe('battle pack: version pinning', () => {
+  it('no adapter emits a floating version tag', () => {
+    const cfg: IntegrationsConfig = {
+      postgres: { connectionString: 'postgres://x/y' },
+      githubRemote: {},
+      sentry: {},
+      playwright: {},
+      slack: {},
+    };
+    const { output } = buildMcpJson(cfg);
+    for (const server of Object.values(output.mcpServers)) {
+      for (const arg of server.args) {
+        expect(arg.endsWith('@latest')).toBe(false);
+        // Docker images must carry an explicit `:vX.Y.Z` tag, never bare or `:latest`.
+        if (arg.includes('ghcr.io/') || arg.includes('docker.io/')) {
+          expect(arg).toMatch(/:v?\d+\.\d+\.\d+/);
+        }
+      }
+    }
+  });
+});
+
+// =============================================================================
+// Fix #2: Postgres read-only enforcement.
+// =============================================================================
+
+describe('battle pack: postgres read-only enforcement', () => {
+  it('appends default_transaction_read_only=on to URI connection strings', () => {
+    const rewritten = enforceReadOnly('postgres://u:p@h:5432/db');
+    expect(rewritten).toMatch(/^postgres:\/\/u:p@h:5432\/db\?options=/);
+    expect(decodeURIComponent(rewritten)).toContain('default_transaction_read_only=on');
+  });
+
+  it('uses & when the URI already has a query string', () => {
+    const rewritten = enforceReadOnly('postgres://h/db?sslmode=require');
+    expect(rewritten).toContain('?sslmode=require&options=');
+    expect(decodeURIComponent(rewritten)).toContain('default_transaction_read_only=on');
+  });
+
+  it('uses keyword-form for libpq keyword=value strings', () => {
+    const rewritten = enforceReadOnly('host=h port=5432 dbname=db');
+    expect(rewritten).toBe(
+      `host=h port=5432 dbname=db options='-c default_transaction_read_only=on'`
+    );
+  });
+
+  it('is idempotent when already read-only', () => {
+    const already = 'postgres://h/db?options=-c%20default_transaction_read_only%3Don';
+    expect(enforceReadOnly(already)).toBe(already);
+  });
+
+  it('allowWrites:true preserves the original connection string', () => {
+    const cfg: IntegrationsConfig = {
+      postgres: { connectionString: 'postgres://h/db', allowWrites: true },
+    };
+    const { output } = buildMcpJson(cfg);
+    const lastArg = output.mcpServers.postgres.args[output.mcpServers.postgres.args.length - 1];
+    expect(lastArg).toBe('postgres://h/db');
+    expect(output.mcpServers.postgres.env?.PGOPTIONS).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// Fix #4: Slack write tools require explicit opt-in.
+// =============================================================================
+
+describe('battle pack: slack write opt-in', () => {
+  it('disables all write tools when slack config is empty', () => {
+    const cfg: IntegrationsConfig = { slack: {} };
+    const { output } = buildMcpJson(cfg);
+    const entry = output.mcpServers['slack-mcp'];
+    expect(entry.disabledTools).toEqual([...SLACK_WRITE_TOOLS]);
+    expect(entry.env?.SLACK_MCP_READ_ONLY).toBe('1');
+  });
+
+  it('disables writes when enableWrites is omitted but other fields set', () => {
+    const cfg: IntegrationsConfig = {
+      slack: { botToken: 'xoxb', teamId: 'T1', channelIds: ['C1'] },
+    };
+    const { output } = buildMcpJson(cfg);
+    expect(output.mcpServers['slack-mcp'].disabledTools).toEqual([...SLACK_WRITE_TOOLS]);
+  });
+
+  it('disables writes when enableWrites is explicitly false', () => {
+    const cfg: IntegrationsConfig = { slack: { enableWrites: false } };
+    const { output } = buildMcpJson(cfg);
+    expect(output.mcpServers['slack-mcp'].disabledTools).toEqual([...SLACK_WRITE_TOOLS]);
+  });
+
+  it('enables writes only when enableWrites is exactly true', () => {
+    const cfg: IntegrationsConfig = { slack: { enableWrites: true } };
+    const { output } = buildMcpJson(cfg);
+    const entry = output.mcpServers['slack-mcp'];
+    // disabledTools is empty → omitted from .mcp.json entry
+    expect(entry.disabledTools).toBeUndefined();
+    expect(entry.env?.SLACK_MCP_READ_ONLY).toBeUndefined();
   });
 });

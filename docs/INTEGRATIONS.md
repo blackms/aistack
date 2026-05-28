@@ -7,13 +7,36 @@ outside world without bespoke glue.
 
 ## What's included
 
-| Provider | Package | What it gives you |
+All versions below are **pinned** — aistack never resolves `@latest` from npm
+or `:latest` from a Docker registry. Bump the constants in
+`src/integrations/<provider>.ts` to upgrade.
+
+| Provider | Pinned package / image | What it gives you |
 |---|---|---|
-| Postgres | `@modelcontextprotocol/server-postgres` | Read-only SQL queries against any Postgres DB |
-| GitHub remote | `ghcr.io/github/github-mcp-server` (docker) | Repos, issues, PRs, code search, actions |
-| Sentry | `@sentry/mcp-server` | Errors, events, releases — for incident response |
-| Playwright | `@playwright/mcp` (Microsoft) | Real-browser automation for E2E + visual tests |
-| Slack | `@modelcontextprotocol/server-slack` | Channels, messages, search — bidirectional |
+| Postgres | `@modelcontextprotocol/server-postgres@0.6.2` | Read-only SQL queries (server-enforced — see Safety) |
+| GitHub remote | `ghcr.io/github/github-mcp-server:v1.0.5` (docker) | Repos, issues, PRs, code search, actions |
+| Sentry | `@sentry/mcp-server@0.35.0` | Errors, events, releases — for incident response |
+| Playwright | `@playwright/mcp@0.0.75` (Microsoft) | Real-browser automation for E2E + visual tests |
+| Slack | `@modelcontextprotocol/server-slack@2025.4.25` | Channels, messages, search — writes off by default |
+
+## Safety defaults
+
+- **Postgres is read-only.** aistack rewrites the connection string to include
+  `options=-c default_transaction_read_only=on` (URI form) or sets
+  `PGOPTIONS` when the URL is supplied via env. Any write statement
+  (INSERT/UPDATE/DELETE/DDL) is rejected by the Postgres server itself, not
+  just by the MCP client. Opt out with `"allowWrites": true` on the
+  `postgres` integration.
+- **Slack writes require explicit opt-in.** With `"slack": {}` you get a
+  read-only Slack surface: `slack_post_message`, `slack_reply_to_thread`,
+  `slack_add_reaction`, and `slack_post_to_user` are listed under
+  `disabledTools` in the generated `.mcp.json` and the spawned server is
+  invoked with `SLACK_MCP_READ_ONLY=1`. Set
+  `"slack": { "enableWrites": true }` to enable them.
+- **Missing env vars fail loudly.** Any `${VAR}` placeholder in
+  `aistack.config.json` that resolves to an unset environment variable
+  throws at config-load time instead of silently substituting `""`. Use
+  `$${VAR}` if you need a literal `${VAR}` in your config.
 
 ## How it works
 

@@ -11,6 +11,9 @@
 
 import type { BattlePackAdapter, BattlePackEntry, ProviderConfig } from './index.js';
 
+/** Pinned image tag for github/github-mcp-server. Bump deliberately, never `latest`. */
+export const GITHUB_MCP_IMAGE_TAG = 'v1.0.5';
+
 export interface GithubRemoteIntegrationConfig extends ProviderConfig {
   /** Personal access token. Prefer env var GITHUB_PERSONAL_ACCESS_TOKEN. */
   token?: string;
@@ -25,7 +28,7 @@ export const githubRemoteAdapter: BattlePackAdapter<GithubRemoteIntegrationConfi
   envVars: ['GITHUB_PERSONAL_ACCESS_TOKEN'],
 
   build(config: GithubRemoteIntegrationConfig): BattlePackEntry {
-    const image = config.image ?? 'ghcr.io/github/github-mcp-server';
+    const image = config.image ?? `ghcr.io/github/github-mcp-server:${GITHUB_MCP_IMAGE_TAG}`;
     const args = [
       'run', '-i', '--rm',
       '-e', 'GITHUB_PERSONAL_ACCESS_TOKEN',

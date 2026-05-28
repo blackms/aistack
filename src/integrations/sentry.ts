@@ -9,6 +9,9 @@
 
 import type { BattlePackAdapter, BattlePackEntry, ProviderConfig } from './index.js';
 
+/** Pinned version of @sentry/mcp-server. Bump deliberately, never `latest`. */
+export const SENTRY_MCP_VERSION = '0.35.0';
+
 export interface SentryIntegrationConfig extends ProviderConfig {
   /** Sentry auth token (User Auth Token or Internal Integration). */
   authToken?: string;
@@ -25,7 +28,7 @@ export const sentryAdapter: BattlePackAdapter<SentryIntegrationConfig> = {
   envVars: ['SENTRY_AUTH_TOKEN', 'SENTRY_ORG'],
 
   build(config: SentryIntegrationConfig): BattlePackEntry {
-    const pkg = config.packageName ?? '@sentry/mcp-server';
+    const pkg = config.packageName ?? `@sentry/mcp-server@${SENTRY_MCP_VERSION}`;
 
     const env: Record<string, string> = {
       SENTRY_AUTH_TOKEN: config.authToken ?? '${SENTRY_AUTH_TOKEN}',
