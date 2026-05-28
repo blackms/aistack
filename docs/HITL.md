@@ -14,7 +14,7 @@ state and *return data* into the workflow, not just gate a decision.
 
 ## Concept
 
-```
+```text
   agent code ──┐
                │ await interrupt({...})
                ▼
@@ -87,7 +87,7 @@ Shows the pending interrupts (or all, with `--all`) for a session,
 including the captured state snapshot and schema for the expected resume
 value.
 
-```
+```text
 $ aistack workflow inspect sess-abc
 Session: sess-abc
 Interrupts: 1
@@ -104,9 +104,9 @@ Interrupts: 1
       }
 
     Resume with:
-      aistack workflow resume-interrupt sess-abc --input='<json>'
+      aistack workflow resume-interrupt sess-abc --interrupt-id int_1c8b... --input='<json>'
     Or edit state first:
-      aistack workflow resume-interrupt sess-abc --edit-state='path.to.field=value' --input='<json>'
+      aistack workflow resume-interrupt sess-abc --interrupt-id int_1c8b... --edit-state='path.to.field=value' --input='<json>'
 ```
 
 Use `--json` for a machine-readable dump (suitable for piping to `jq`).

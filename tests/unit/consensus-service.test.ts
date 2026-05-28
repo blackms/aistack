@@ -445,7 +445,11 @@ describe('ConsensusService', () => {
       });
 
       // Approve before expiration
-      service.approveCheckpoint(checkpoint.id, 'reviewer-1');
+      const approval = service.approveCheckpoint(checkpoint.id, 'reviewer-1');
+      expect(approval.success).toBe(true);
+      store.db
+        .prepare('UPDATE consensus_checkpoints SET expires_at = ? WHERE id = ?')
+        .run(Date.now() - 1, checkpoint.id);
 
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       return delay(10).then(() => {

@@ -36,6 +36,29 @@ interface DeployState {
   retries: number;
   succeeded?: boolean;
 }
+
+async function waitFor<T>(
+  probe: () => T | undefined | null | false,
+  label: string,
+  timeoutMs = 1000,
+  intervalMs = 5
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = probe();
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
+async function waitForPendingInterrupt(sessionId: string): Promise<InterruptRecord> {
+  return waitFor(
+    () => getInterruptStore().latestPendingForSession(sessionId),
+    `pending interrupt for ${sessionId}`
+  );
+}
+
 async function runDeployWorkflow(sessionId: string): Promise<DeployState> {
   const state: DeployState = { build: { sha: 'abc1234' }, retries: 1 };
   const target = await interrupt<string>({
@@ -156,8 +179,7 @@ describe('interrupt()', () => {
       notify: ['webhook'],
       pollIntervalMs: 10,
     });
-    // Wait one microtask for the fire-and-forget notify to land.
-    await new Promise((r) => setTimeout(r, 5));
+    await waitFor(() => received[0], 'webhook notification');
     expect(received).toHaveLength(1);
     expect(received[0]!.prompt).toBe('notify');
     const rec = getInterruptStore().list({ sessionId: 'sess-6' })[0]!;
@@ -201,12 +223,11 @@ describe('HITL interrupt end-to-end (workflow → inspect → resume)', () => {
   it('pauses, surfaces inspectable state, resumes with operator input', async () => {
     const sessionId = 'sess-e2e-1';
     const workflowPromise = runDeployWorkflow(sessionId);
-    await new Promise((r) => setTimeout(r, 10));
+    const rec = await waitForPendingInterrupt(sessionId);
 
     // CLI "inspect" equivalent — what an operator would see.
     const pending = getInterruptStore().list({ sessionId, status: 'pending' });
     expect(pending).toHaveLength(1);
-    const rec = pending[0]!;
     expect(rec.prompt).toBe('Choose deployment target');
     expect(rec.schema).toEqual({ type: 'enum', enum: ['staging', 'production'] });
     expect(rec.state).toMatchObject({ build: { sha: 'abc1234' }, retries: 1 });
@@ -222,8 +243,7 @@ describe('HITL interrupt end-to-end (workflow → inspect → resume)', () => {
   it('allows the operator to edit captured state before resuming', async () => {
     const sessionId = 'sess-e2e-2';
     const workflowPromise = runDeployWorkflow(sessionId);
-    await new Promise((r) => setTimeout(r, 10));
-    const rec = getInterruptStore().latestPendingForSession(sessionId)!;
+    const rec = await waitForPendingInterrupt(sessionId);
     await resumeInterrupt(rec.id, {
       input: 'production',
       stateEdits: [{ path: 'retries', value: '5' }],
@@ -235,8 +255,7 @@ describe('HITL interrupt end-to-end (workflow → inspect → resume)', () => {
   it('rejects an invalid resume value and keeps the interrupt pending', async () => {
     const sessionId = 'sess-e2e-3';
     const workflowPromise = runDeployWorkflow(sessionId).catch((e: unknown) => e);
-    await new Promise((r) => setTimeout(r, 10));
-    const rec = getInterruptStore().latestPendingForSession(sessionId)!;
+    const rec = await waitForPendingInterrupt(sessionId);
     await resumeInterrupt(rec.id, { input: 'devvvv' });
     const result = await workflowPromise;
     expect(result).toBeInstanceOf(Error);
@@ -425,14 +444,13 @@ describe('atomic resume + reopen (transactional)', () => {
     // 1 more save (resolveAtomic). Reopen would do the 3rd — that one fails.
     failOnSave = 3;
     await resumeInterrupt(rec.id, { input: 'bogus' });
-    // Wait long enough for the async reopen attempt to settle.
-    await new Promise((r) => setTimeout(r, 30));
+    const result = await promise;
+    expect(result).toBeInstanceOf(InterruptValidationError);
 
     const after = getInterruptStore().get(rec.id)!;
     // Because the reopen-save failed, the rollback restored the prior
     // (resolved) status — disk and memory agree on "still resolved".
     expect(after.status).toBe('resolved');
-    await promise; // validation rejection bubbles via the catch above
   });
 
   it('serializes concurrent resolve calls — second one sees "not pending"', async () => {

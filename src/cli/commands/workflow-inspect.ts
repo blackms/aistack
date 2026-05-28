@@ -65,9 +65,9 @@ export function createWorkflowInspectCommand(): Command {
         if (r.status === 'pending') {
           console.log('');
           console.log(`    Resume with:`);
-          console.log(`      aistack workflow resume-interrupt ${r.sessionId} --input='<json>'`);
+          console.log(`      aistack workflow resume-interrupt ${r.sessionId} --interrupt-id ${r.id} --input='<json>'`);
           console.log(`    Or edit state first:`);
-          console.log(`      aistack workflow resume-interrupt ${r.sessionId} --edit-state='path.to.field=value' --input='<json>'`);
+          console.log(`      aistack workflow resume-interrupt ${r.sessionId} --interrupt-id ${r.id} --edit-state='path.to.field=value' --input='<json>'`);
         }
         console.log('');
       }

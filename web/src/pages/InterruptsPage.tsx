@@ -60,12 +60,23 @@ interface ResumePayload {
 }
 async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api/v1${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     ...init,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
   });
   const body = (await res.json()) as { success: boolean; data?: T; error?: string };
   if (!res.ok || !body.success) throw new Error(body.error ?? `Request failed (${res.status})`);
   return body.data as T;
+}
+
+function parseEditValue(raw: string): unknown {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return '';
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return trimmed;
+  }
 }
 const interruptsApi = {
   list: (filter?: { status?: InterruptStatus; sessionId?: string }): Promise<InterruptRecord[]> => {
@@ -146,7 +157,7 @@ export default function InterruptsPage(): JSX.Element {
       .map((line) => {
         const idx = line.indexOf('=');
         if (idx === -1) throw new Error(`Invalid edit (need path=value): ${line}`);
-        return { path: line.slice(0, idx).trim(), value: line.slice(idx + 1) };
+        return { path: line.slice(0, idx).trim(), value: parseEditValue(line.slice(idx + 1)) };
       });
     return { input, stateEdits };
   };

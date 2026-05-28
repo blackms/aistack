@@ -101,6 +101,14 @@ export function registerInterruptRoutes(router: Router, _config: AgentStackConfi
     requireInterruptsAuth(req, res);
     const statusParam = params.query.status;
     const sessionId = params.query.sessionId;
+    if (
+      statusParam !== undefined &&
+      statusParam !== 'pending' &&
+      statusParam !== 'resolved' &&
+      statusParam !== 'cancelled'
+    ) {
+      throw badRequest('status must be one of: pending, resolved, cancelled');
+    }
     const status: InterruptStatus | undefined =
       statusParam === 'pending' || statusParam === 'resolved' || statusParam === 'cancelled'
         ? statusParam

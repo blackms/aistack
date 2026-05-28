@@ -7,7 +7,12 @@ import { existsSync } from 'node:fs';
 import { runDocSync, getWorkflowRunner, resetWorkflowRunner } from '../../workflows/index.js';
 import { registerDefaultTriggers, getWorkflowTriggers, clearWorkflowTriggers } from '../../hooks/index.js';
 import { logger } from '../../utils/logger.js';
-import { resumeLatestForSession, resumeInterrupt } from '../../coordination/interrupt.js';
+import {
+  getInterruptStore,
+  resumeLatestForSession,
+  resumeInterrupt,
+  type ResumePayload,
+} from '../../coordination/interrupt.js';
 import { loadConfig } from '../../utils/config.js';
 import { getCheckpointer } from '../../persistence/checkpointer.js';
 import { createWorkflowInspectCommand } from './workflow-inspect.js';
@@ -224,7 +229,7 @@ export function createWorkflowCommand(): Command {
       const stateEdits = (options.editState ?? []).map(parseEdit);
       const payload = { input, stateEdits };
       const record = options.interruptId
-        ? await resumeInterrupt(options.interruptId, payload)
+        ? await resumeValidatedInterrupt(sessionId, options.interruptId, payload)
         : await resumeLatestForSession(sessionId, payload);
       console.log(`Resumed interrupt ${record.id} on session ${sessionId}`);
       log.info('Workflow interrupt resumed via CLI', { sessionId, interruptId: record.id });
@@ -241,4 +246,21 @@ function parseEdit(raw: string): { path: string; value: string } {
   const idx = raw.indexOf('=');
   if (idx === -1) throw new Error(`--edit-state requires path=value, got: ${raw}`);
   return { path: raw.slice(0, idx).trim(), value: raw.slice(idx + 1) };
+}
+
+async function resumeValidatedInterrupt(
+  sessionId: string,
+  interruptId: string,
+  payload: ResumePayload
+) {
+  const record = getInterruptStore().get(interruptId);
+  if (!record) {
+    console.error(`No interrupt found with id ${interruptId}.`);
+    process.exit(1);
+  }
+  if (record.sessionId !== sessionId) {
+    console.error(`Interrupt ${interruptId} belongs to session ${record.sessionId}, not ${sessionId}.`);
+    process.exit(1);
+  }
+  return resumeInterrupt(interruptId, payload);
 }

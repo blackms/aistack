@@ -167,6 +167,16 @@ describe('interrupts REST auth gate', () => {
     expect(status()).toBe(200);
   });
 
+  it('GET /api/v1/interrupts rejects invalid status filters', async () => {
+    const { res, status, body } = makeRes();
+    const req = makeReq('GET', '/api/v1/interrupts?status=bogus', {
+      authorization: `Bearer ${SECRET}`,
+    });
+    await router.handle(req, res);
+    expect(status()).toBe(400);
+    expect(body()).toContain('status must be one of');
+  });
+
   it('resume cannot mutate state without auth (verifies record stays pending)', async () => {
     await getInterruptStore().create({
       id: 'int_protected',
@@ -202,6 +212,7 @@ describe('interrupts REST auth gate', () => {
 describe('interrupts REST auth gate — dev-mode bypass regression', () => {
   let router: Router;
   let restoreEnv: { token: string | undefined; nodeEnv: string | undefined };
+  let interruptModule: typeof import('../../../../src/coordination/interrupt.js') | undefined;
 
   beforeEach(async () => {
     // Reset the module graph so the real middleware (not the mock above) is
@@ -218,8 +229,9 @@ describe('interrupts REST auth gate — dev-mode bypass regression', () => {
     // + no env token + no auth service caused the middleware's dev-mode
     // "allow" branch to grant access with zero credentials.
     process.env.NODE_ENV = 'development';
-    resetInterruptStore();
     const { Router: RealRouter } = await import('../../../../src/web/router.js');
+    interruptModule = await import('../../../../src/coordination/interrupt.js');
+    interruptModule.resetInterruptStore();
     const { registerInterruptRoutes: realRegister } = await import(
       '../../../../src/web/routes/interrupts.js'
     );
@@ -232,7 +244,8 @@ describe('interrupts REST auth gate — dev-mode bypass regression', () => {
     else process.env.AISTACK_INTERRUPTS_TOKEN = restoreEnv.token;
     if (restoreEnv.nodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = restoreEnv.nodeEnv;
-    resetInterruptStore();
+    interruptModule?.resetInterruptStore();
+    interruptModule = undefined;
     // Restore the mock for any later describe blocks loaded in the same file.
     vi.resetModules();
   });
@@ -266,7 +279,7 @@ describe('interrupts REST auth gate — dev-mode bypass regression', () => {
   }
 
   it('does not mutate state on resume when auth bypass would have applied', async () => {
-    await getInterruptStore().create({
+    await interruptModule!.getInterruptStore().create({
       id: 'int_bypass_target',
       sessionId: 's1',
       prompt: 'p',
@@ -284,7 +297,7 @@ describe('interrupts REST auth gate — dev-mode bypass regression', () => {
     );
     await router.handle(req, res);
     expect(status()).toBe(401);
-    const rec = getInterruptStore().get('int_bypass_target');
+    const rec = interruptModule!.getInterruptStore().get('int_bypass_target');
     expect(rec?.status).toBe('pending');
     expect(rec?.state).toEqual({ secret: 'untouched' });
   });
