@@ -27,7 +27,7 @@ function makeServer(): {
 } {
   const db = new Database(':memory:');
   const migration = readFileSync(
-    join(process.cwd(), 'migrations', '004_sso_provisioning.sql'),
+    join(process.cwd(), 'migrations', '006_sso_provisioning.sql'),
     'utf-8'
   );
   // AuthService initialises users + refresh_tokens tables.

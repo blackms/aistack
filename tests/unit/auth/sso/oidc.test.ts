@@ -39,7 +39,7 @@ function makeDb(): Database.Database {
     );
   `);
   const migration = readFileSync(
-    join(process.cwd(), 'migrations', '004_sso_provisioning.sql'),
+    join(process.cwd(), 'migrations', '006_sso_provisioning.sql'),
     'utf-8'
   );
   db.exec(migration);

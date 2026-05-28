@@ -1,4 +1,4 @@
--- Migration 004: SSO + SCIM provisioning
+-- Migration 006: SSO + SCIM provisioning
 -- AIG-646: Enterprise SSO (SAML 2.0 + OIDC) and SCIM v2 provisioning
 --
 -- Adds:

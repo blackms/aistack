@@ -312,5 +312,5 @@ threat classes are explicitly addressed.
   unit tests use stub factories.
 - **Migrations**: the new tables (`sso_identities`, `sso_sessions`,
   `sso_replay_cache`, `scim_groups`, `scim_group_members`) live in
-  `migrations/004_sso_provisioning.sql`. They are additive and do not
+  `migrations/006_sso_provisioning.sql`. They are additive and do not
   modify existing tables.
