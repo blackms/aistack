@@ -328,6 +328,16 @@ const FederationTlsConfigSchema = z.object({
   caPath: z.string().optional(),
   requireClientCert: z.boolean().default(true),
   bearerToken: z.string().optional(),
+  /** CN/SAN allowlist for peer certs. Empty array = accept any CA-signed cert. */
+  trustedPeerCNs: z.array(z.string()).default([]),
+  /** Explicit opt-in for plain HTTP / unauthenticated federation (dev only). */
+  allowPlainText: z.boolean().default(false),
+});
+
+const FederationDiscoverySigningConfigSchema = z.object({
+  privateKeyPath: z.string().optional(),
+  publicKeyPath: z.string().optional(),
+  trustedPublicKeys: z.array(z.string()).default([]),
 });
 
 /**
@@ -350,6 +360,7 @@ const FederationConfigSchema = z.object({
   routingPolicy: z.enum(['round-robin', 'least-loaded', 'capability-match']).default('least-loaded'),
   maxInputLength: z.number().min(64).max(65536).default(4096),
   tls: FederationTlsConfigSchema.optional(),
+  discoverySigning: FederationDiscoverySigningConfigSchema.optional(),
   requestTimeoutMs: z.number().min(100).max(120000).default(10000),
 });
 

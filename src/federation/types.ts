@@ -127,6 +127,14 @@ export interface TaskDelegationResult {
  *
  * All paths are read from the local filesystem at startup. Never embed
  * certs/keys in the config file itself.
+ *
+ * Security posture:
+ *   - If `certPath` is configured but the file is missing, startup THROWS
+ *     (no silent downgrade to plain HTTP).
+ *   - When `trustedPeerCNs` is non-empty, peer certs MUST present a
+ *     CN/SAN in the list (pinning), in addition to passing the CA chain.
+ *   - `allowPlainText` defaults to `false`; you must explicitly opt-in
+ *     to unauthenticated/plain-HTTP federation (dev only).
  */
 export interface FederationTlsConfig {
   /** Path to the client/server certificate (PEM). */
@@ -139,6 +147,33 @@ export interface FederationTlsConfig {
   requireClientCert?: boolean;
   /** Fallback bearer token for environments without mTLS (NOT recommended in prod). */
   bearerToken?: string;
+  /** Explicit CN/SAN allowlist for peer certs. Empty = accept any CA-signed cert. */
+  trustedPeerCNs?: string[];
+  /** Explicit opt-in for plain HTTP / unauthenticated federation (dev only). */
+  allowPlainText?: boolean;
+}
+
+/**
+ * Discovery beacon signing configuration.
+ *
+ * Discovery beacons (mDNS TXT records, registry payloads) are unauthenticated
+ * by default on the wire. We layer an Ed25519 signature on top so peers can
+ * reject spoofed/poisoned announcements on a hostile LAN.
+ *
+ * - `privateKeyPath` and `publicKeyPath` are PEM Ed25519 keys.
+ * - `trustedPublicKeys` is the allowlist of peer PUBLIC keys (PEM strings).
+ *   When non-empty, unsigned or unknown-signer beacons are dropped.
+ * - When `privateKeyPath`/`publicKeyPath` are unset and `trustedPublicKeys`
+ *   is empty, beacons are unsigned (legacy / dev mode) and a warning is
+ *   logged at startup.
+ */
+export interface FederationDiscoverySigningConfig {
+  /** PEM Ed25519 private key used to sign our outbound beacons. */
+  privateKeyPath?: string;
+  /** PEM Ed25519 public key advertised so peers can register us. */
+  publicKeyPath?: string;
+  /** Allowlist of peer Ed25519 public keys (PEM strings). */
+  trustedPublicKeys?: string[];
 }
 
 /**
@@ -174,6 +209,8 @@ export interface FederationConfig {
   maxInputLength?: number;
   /** TLS configuration. */
   tls?: FederationTlsConfig;
+  /** Discovery beacon signing (Ed25519). */
+  discoverySigning?: FederationDiscoverySigningConfig;
   /** Network timeout for peer calls (ms). */
   requestTimeoutMs?: number;
 }

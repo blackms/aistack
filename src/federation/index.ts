@@ -16,7 +16,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger.js';
-import { createDiscovery, Discovery } from './discovery.js';
+import { buildBeaconSigner, BeaconSigner, createDiscovery, Discovery } from './discovery.js';
 import { TaskRouter } from './routing.js';
 import {
   FederationClient,
@@ -42,6 +42,9 @@ export {
   buildHttpsAgent,
   verifyPeerRequest,
   sanitizeDelegation,
+  timingSafeEqualString,
+  extractPeerCertNames,
+  MAX_BODY_BYTES,
   FederationClient,
 } from './transport.js';
 export {
@@ -49,8 +52,11 @@ export {
   MdnsDiscovery,
   RegistryDiscovery,
   createDiscovery,
+  buildBeaconSigner,
+  verifyBeacon,
+  canonicalBeaconPayload,
 } from './discovery.js';
-export { FederationServer } from './server.js';
+export { FederationServer, readJson } from './server.js';
 
 const log = logger.child('federation');
 
@@ -83,6 +89,7 @@ export class FederationManager {
   private readonly credentials: FederationCredentials;
   private readonly client: FederationClient;
   private readonly router: TaskRouter;
+  private readonly signer: BeaconSigner;
   private discovery: Discovery | null = null;
   private server: FederationServer | null = null;
   private selfInfo: NodeInfo;
@@ -92,7 +99,25 @@ export class FederationManager {
 
   constructor(config: FederationConfig) {
     this.config = { ...FEDERATION_DEFAULTS, ...config };
-    this.credentials = loadCredentials(this.config.tls);
+    // When federation is disabled the manager is a no-op; we MUST NOT enforce
+    // the strict credential gates (otherwise `aistack federation status` on
+    // a config without any TLS knobs would throw). The strict checks fire
+    // the moment the operator flips `enabled = true`.
+    if (this.config.enabled) {
+      this.credentials = loadCredentials(this.config.tls);
+      this.signer = buildBeaconSigner(this.config.discoverySigning);
+    } else {
+      this.credentials = {
+        cert: null,
+        key: null,
+        ca: null,
+        bearerToken: null,
+        requireClientCert: true,
+        trustedPeerCNs: [],
+        allowPlainText: true,
+      };
+      this.signer = buildBeaconSigner(undefined);
+    }
     this.client = new FederationClient(this.credentials, {
       maxInputLength: this.config.maxInputLength,
       timeoutMs: this.config.requestTimeoutMs,
@@ -160,7 +185,7 @@ export class FederationManager {
 
     // Discovery
     const staticPeers = parseStaticPeers(this.config.peers);
-    this.discovery = createDiscovery(this.config, staticPeers);
+    this.discovery = createDiscovery(this.config, staticPeers, this.signer);
     await this.discovery.start(this.selfInfo, this.config.advertise);
 
     this.joinedAt = new Date();

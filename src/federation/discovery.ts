@@ -12,14 +12,24 @@
  * A simple 'static' discovery (just the configured peers list) is provided by
  * `StaticDiscovery` and is used as bootstrap for the other strategies.
  *
+ * Beacon signing (AIG-652 review fix #4):
+ *   Discovery beacons are unauthenticated on the wire (mDNS especially is
+ *   trivially spoofable on a LAN). We layer Ed25519 signatures on top: each
+ *   beacon carries `sig` + `pub`, peers verify on receive, unsigned/unknown
+ *   beacons are dropped when the local node has a `trustedPublicKeys`
+ *   allowlist configured.
+ *
  * All discoveries share the `Discovery` interface so they can be swapped at
  * runtime without touching the routing / transport layers.
  */
 
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
 import { logger } from '../utils/logger.js';
 import type {
   DiscoveryMethod,
   FederationConfig,
+  FederationDiscoverySigningConfig,
   NodeInfo,
 } from './types.js';
 
@@ -31,6 +41,151 @@ const DEFAULT_MDNS_SERVICE_TYPE = '_aistack._tcp.local';
  * Listener invoked when the set of known peers changes.
  */
 export type PeerListener = (peers: NodeInfo[]) => void;
+
+/**
+ * Materialized signer state. `signer` is null when no private key is
+ * configured (we still verify incoming beacons against `trustedPublicKeys`).
+ */
+export interface BeaconSigner {
+  /** PEM-encoded Ed25519 public key (also embedded in outgoing beacons). */
+  publicKeyPem: string | null;
+  /** Private key wrapper used to sign outgoing beacons. */
+  sign: ((payload: string) => string) | null;
+  /** Allowlist of peer public keys (PEM, normalized). When empty, verification is best-effort. */
+  trustedPublicKeys: Set<string>;
+  /** True if at least one peer key is pinned (verification becomes mandatory). */
+  enforceTrust: boolean;
+}
+
+/**
+ * Build the BeaconSigner from FederationDiscoverySigningConfig.
+ * Throws on misconfiguration (e.g. unreadable key file).
+ */
+export function buildBeaconSigner(
+  cfg: FederationDiscoverySigningConfig | undefined
+): BeaconSigner {
+  const signer: BeaconSigner = {
+    publicKeyPem: null,
+    sign: null,
+    trustedPublicKeys: new Set(),
+    enforceTrust: false,
+  };
+
+  if (cfg?.publicKeyPath) {
+    try {
+      signer.publicKeyPem = normalizePem(fs.readFileSync(cfg.publicKeyPath, 'utf-8'));
+    } catch (err) {
+      throw new Error(
+        `Federation discovery publicKeyPath could not be read at "${cfg.publicKeyPath}": ` +
+          (err instanceof Error ? err.message : String(err))
+      );
+    }
+  }
+
+  if (cfg?.privateKeyPath) {
+    let pem: string;
+    try {
+      pem = fs.readFileSync(cfg.privateKeyPath, 'utf-8');
+    } catch (err) {
+      throw new Error(
+        `Federation discovery privateKeyPath could not be read at "${cfg.privateKeyPath}": ` +
+          (err instanceof Error ? err.message : String(err))
+      );
+    }
+    const keyObj = crypto.createPrivateKey({ key: pem, format: 'pem' });
+    if (keyObj.asymmetricKeyType !== 'ed25519') {
+      throw new Error(
+        `Federation discovery privateKey must be Ed25519 (got ${keyObj.asymmetricKeyType}).`
+      );
+    }
+    signer.sign = (payload: string): string => {
+      const sigBuf = crypto.sign(null, Buffer.from(payload, 'utf-8'), keyObj);
+      return sigBuf.toString('base64');
+    };
+  }
+
+  if (Array.isArray(cfg?.trustedPublicKeys)) {
+    for (const pem of cfg!.trustedPublicKeys!) {
+      signer.trustedPublicKeys.add(normalizePem(pem));
+    }
+    signer.enforceTrust = signer.trustedPublicKeys.size > 0;
+  }
+
+  if (!signer.sign && !signer.enforceTrust) {
+    log.warn(
+      'Federation discovery beacons are UNSIGNED. Configure ' +
+        'federation.discoverySigning to enable Ed25519 beacon signing.'
+    );
+  }
+
+  return signer;
+}
+
+/**
+ * Verify a beacon signature using the embedded `pub` key. Also enforces
+ * that the embedded key is in the local trust allowlist when one is set.
+ *
+ * Returns `true` when the beacon is acceptable, `false` otherwise.
+ */
+export function verifyBeacon(
+  signer: BeaconSigner,
+  payload: string,
+  signatureB64: string | undefined,
+  publicKeyPem: string | undefined
+): { ok: boolean; reason: string } {
+  if (!signatureB64 || !publicKeyPem) {
+    if (signer.enforceTrust) {
+      return { ok: false, reason: 'beacon is unsigned' };
+    }
+    // Best-effort mode: accept unsigned beacons but tag them.
+    return { ok: true, reason: 'unsigned (best-effort mode)' };
+  }
+  const pem = normalizePem(publicKeyPem);
+  if (signer.enforceTrust && !signer.trustedPublicKeys.has(pem)) {
+    return { ok: false, reason: 'beacon signer not in trustedPublicKeys' };
+  }
+  try {
+    const keyObj = crypto.createPublicKey({ key: pem, format: 'pem' });
+    if (keyObj.asymmetricKeyType !== 'ed25519') {
+      return { ok: false, reason: 'beacon public key is not Ed25519' };
+    }
+    const ok = crypto.verify(
+      null,
+      Buffer.from(payload, 'utf-8'),
+      keyObj,
+      Buffer.from(signatureB64, 'base64')
+    );
+    return ok ? { ok: true, reason: 'verified' } : { ok: false, reason: 'invalid signature' };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `beacon verify error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * Canonical JSON payload representing the signed portion of a beacon. We
+ * intentionally include nodeId, address, scheme, capabilities + a sequence
+ * number ("seq") so an attacker cannot replay an old capability list while
+ * the node changes its real capabilities.
+ */
+export function canonicalBeaconPayload(node: NodeInfo, seq: number): string {
+  // Stable key order; whitespace-free; capabilities reduced to names.
+  return JSON.stringify({
+    nodeId: node.nodeId,
+    name: node.name,
+    address: node.address,
+    scheme: node.scheme,
+    capabilities: (node.capabilities || []).map((c) => c.name).sort(),
+    version: node.version ?? '',
+    seq,
+  });
+}
+
+function normalizePem(pem: string): string {
+  return pem.replace(/\r\n/g, '\n').trim();
+}
 
 /**
  * Common shape for all discovery implementations.
@@ -56,6 +211,11 @@ abstract class BaseDiscovery implements Discovery {
   protected knownPeers = new Map<string, NodeInfo>();
   private listeners = new Set<PeerListener>();
   protected selfId: string | null = null;
+  protected signer: BeaconSigner;
+
+  constructor(signer: BeaconSigner) {
+    this.signer = signer;
+  }
 
   abstract start(self: NodeInfo, advertise: boolean): Promise<void>;
   abstract stop(): Promise<void>;
@@ -102,13 +262,16 @@ abstract class BaseDiscovery implements Discovery {
  *
  * Useful for tests, air-gapped deployments, and as a bootstrap for the other
  * strategies (the static peers are merged in by the FederationManager).
+ *
+ * Static peers are configured locally and are NOT subject to beacon
+ * verification (the operator already trusted them by hard-coding them).
  */
 export class StaticDiscovery extends BaseDiscovery {
   readonly method: DiscoveryMethod = 'static';
   private readonly staticPeers: NodeInfo[];
 
-  constructor(staticPeers: NodeInfo[]) {
-    super();
+  constructor(staticPeers: NodeInfo[], signer: BeaconSigner = noopSigner()) {
+    super(signer);
     this.staticPeers = staticPeers;
   }
 
@@ -131,6 +294,10 @@ export class StaticDiscovery extends BaseDiscovery {
  * The `bonjour-service` package is loaded dynamically so that aistack works
  * without it. If the package is missing, discovery degrades to a no-op and
  * a warning is logged once.
+ *
+ * Each advertised TXT record carries `sig` (base64 Ed25519 signature) and
+ * `pub` (base64-or-PEM Ed25519 public key). Incoming services without a
+ * valid signature are dropped when the local node enforces signing.
  */
 export class MdnsDiscovery extends BaseDiscovery {
   readonly method: DiscoveryMethod = 'mdns';
@@ -140,8 +307,8 @@ export class MdnsDiscovery extends BaseDiscovery {
   private browser: unknown = null;
   private static warnedMissing = false;
 
-  constructor(serviceType: string = DEFAULT_MDNS_SERVICE_TYPE) {
-    super();
+  constructor(serviceType: string = DEFAULT_MDNS_SERVICE_TYPE, signer: BeaconSigner = noopSigner()) {
+    super(signer);
     this.serviceType = serviceType;
   }
 
@@ -162,6 +329,12 @@ export class MdnsDiscovery extends BaseDiscovery {
     if (advertise) {
       // Parse host:port from self.address
       const url = parseAddress(self.address);
+      const seq = Date.now();
+      const payload = canonicalBeaconPayload(self, seq);
+      const sig = this.signer.sign ? this.signer.sign(payload) : '';
+      const pubB64 = this.signer.publicKeyPem
+        ? Buffer.from(this.signer.publicKeyPem, 'utf-8').toString('base64')
+        : '';
       this.service = instance.publish({
         name: self.name,
         type: this.serviceType.replace(/^_/, '').replace(/\._tcp\.local$/, ''),
@@ -171,9 +344,12 @@ export class MdnsDiscovery extends BaseDiscovery {
           scheme: self.scheme,
           capabilities: self.capabilities.map((c) => c.name).join(','),
           version: self.version ?? '',
+          seq: String(seq),
+          sig,
+          pub: pubB64,
         },
       });
-      log.info('mDNS advertise started', { name: self.name, port: url.port });
+      log.info('mDNS advertise started', { name: self.name, port: url.port, signed: !!sig });
     }
 
     this.browser = instance.find(
@@ -181,7 +357,23 @@ export class MdnsDiscovery extends BaseDiscovery {
       (svc) => {
         try {
           const peer = bonjourServiceToNodeInfo(svc);
-          if (peer) this.upsertPeer(peer);
+          if (!peer) return;
+          // Verify the beacon signature before accepting.
+          const txt = (svc.txt ?? {}) as Record<string, string>;
+          const seq = Number.parseInt(txt.seq ?? '0', 10);
+          const payload = canonicalBeaconPayload(peer, Number.isFinite(seq) ? seq : 0);
+          const pubPem = txt.pub
+            ? Buffer.from(txt.pub, 'base64').toString('utf-8')
+            : undefined;
+          const verdict = verifyBeacon(this.signer, payload, txt.sig, pubPem);
+          if (!verdict.ok) {
+            log.warn('Dropping mDNS beacon - signature check failed', {
+              peer: peer.nodeId,
+              reason: verdict.reason,
+            });
+            return;
+          }
+          this.upsertPeer(peer);
         } catch (err) {
           log.debug('mDNS service parse failed', {
             error: err instanceof Error ? err.message : String(err),
@@ -227,8 +419,12 @@ export class MdnsDiscovery extends BaseDiscovery {
  * RegistryDiscovery polls a central HTTP endpoint that returns a JSON array
  * of NodeInfo entries.
  *
- * The expected wire shape is `{ nodes: NodeInfo[] }`. POST /register on the
- * same base URL is used to advertise this node when `advertise` is true.
+ * Wire format (signed):
+ *   POST /register { node: NodeInfo, seq: number, sig: string, pub: string }
+ *   GET  /nodes    -> { nodes: [{ node, seq, sig, pub }] }
+ *
+ * Incoming entries are dropped if the signature does not verify (and the
+ * local node has a trustedPublicKeys allowlist).
  */
 export class RegistryDiscovery extends BaseDiscovery {
   readonly method: DiscoveryMethod = 'registry';
@@ -236,8 +432,8 @@ export class RegistryDiscovery extends BaseDiscovery {
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private readonly pollIntervalMs: number;
 
-  constructor(registryUrl: string, pollIntervalMs: number = 15000) {
-    super();
+  constructor(registryUrl: string, signer: BeaconSigner = noopSigner(), pollIntervalMs: number = 15000) {
+    super(signer);
     this.registryUrl = registryUrl.replace(/\/$/, '');
     this.pollIntervalMs = pollIntervalMs;
   }
@@ -270,10 +466,14 @@ export class RegistryDiscovery extends BaseDiscovery {
   }
 
   private async register(self: NodeInfo): Promise<void> {
+    const seq = Date.now();
+    const payload = canonicalBeaconPayload(self, seq);
+    const sig = this.signer.sign ? this.signer.sign(payload) : '';
+    const pub = this.signer.publicKeyPem ?? '';
     await fetch(`${this.registryUrl}/register`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(self),
+      body: JSON.stringify({ node: self, seq, sig, pub }),
     });
   }
 
@@ -284,14 +484,36 @@ export class RegistryDiscovery extends BaseDiscovery {
         log.debug('Registry refresh non-ok', { status: res.status });
         return;
       }
-      const body = (await res.json()) as { nodes?: NodeInfo[] };
+      const body = (await res.json()) as {
+        nodes?: Array<
+          | NodeInfo
+          | { node: NodeInfo; seq?: number; sig?: string; pub?: string }
+        >;
+      };
       const incoming = body.nodes ?? [];
-      const incomingIds = new Set(incoming.map((p) => p.nodeId));
-      // Add / update
-      for (const p of incoming) this.upsertPeer(p);
+      const validIds = new Set<string>();
+      for (const entry of incoming) {
+        // Accept both legacy (bare NodeInfo) and signed envelope shapes.
+        const isEnvelope = (entry as { node?: NodeInfo }).node !== undefined;
+        const node = isEnvelope ? (entry as { node: NodeInfo }).node : (entry as NodeInfo);
+        const sig = isEnvelope ? (entry as { sig?: string }).sig : undefined;
+        const pub = isEnvelope ? (entry as { pub?: string }).pub : undefined;
+        const seq = isEnvelope ? (entry as { seq?: number }).seq ?? 0 : 0;
+        const payload = canonicalBeaconPayload(node, seq);
+        const verdict = verifyBeacon(this.signer, payload, sig, pub);
+        if (!verdict.ok) {
+          log.warn('Dropping registry entry - signature check failed', {
+            peer: node.nodeId,
+            reason: verdict.reason,
+          });
+          continue;
+        }
+        validIds.add(node.nodeId);
+        this.upsertPeer(node);
+      }
       // Remove gone peers
       for (const id of Array.from(this.knownPeers.keys())) {
-        if (!incomingIds.has(id)) this.removePeer(id);
+        if (!validIds.has(id)) this.removePeer(id);
       }
     } catch (err) {
       log.debug('Registry refresh failed', {
@@ -307,21 +529,32 @@ export class RegistryDiscovery extends BaseDiscovery {
  */
 export function createDiscovery(
   config: FederationConfig,
-  staticPeers: NodeInfo[]
+  staticPeers: NodeInfo[],
+  signer: BeaconSigner = noopSigner()
 ): Discovery {
   switch (config.discoveryMethod) {
     case 'mdns':
-      return new MdnsDiscovery(config.mdnsServiceType);
+      return new MdnsDiscovery(config.mdnsServiceType, signer);
     case 'registry':
       if (!config.registryUrl) {
         log.warn('registry discovery selected but no registryUrl - falling back to static');
-        return new StaticDiscovery(staticPeers);
+        return new StaticDiscovery(staticPeers, signer);
       }
-      return new RegistryDiscovery(config.registryUrl);
+      return new RegistryDiscovery(config.registryUrl, signer);
     case 'static':
     default:
-      return new StaticDiscovery(staticPeers);
+      return new StaticDiscovery(staticPeers, signer);
   }
+}
+
+/** Signer that performs no signing and accepts unsigned beacons (legacy). */
+export function noopSigner(): BeaconSigner {
+  return {
+    publicKeyPem: null,
+    sign: null,
+    trustedPublicKeys: new Set(),
+    enforceTrust: false,
+  };
 }
 
 /* ---------- helpers ---------- */

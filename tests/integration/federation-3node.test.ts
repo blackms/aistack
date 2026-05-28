@@ -41,6 +41,10 @@ async function makeNode(
     bindAddress: '127.0.0.1',
     bindPort: 0,
     routingPolicy: 'least-loaded',
+    // Test fixture runs over plain HTTP loopback. Production deployments
+    // MUST configure tls.certPath + keyPath; opting into plaintext is the
+    // explicit dev-only path enforced by loadCredentials().
+    tls: { allowPlainText: true },
   });
   manager.setLocalCapabilities(capabilities);
   manager.setTaskHandler(async (task: TaskDelegation) => ({

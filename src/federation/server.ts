@@ -12,11 +12,21 @@
  * The server is intentionally minimal: no router framework, no JSON-Schema,
  * no middleware chain. Federation is a low-volume control-plane interface,
  * not a user-facing API. Lower complexity = smaller attack surface.
+ *
+ * Security posture:
+ *   - HTTPS w/ mTLS is the default. If cert/key are configured but missing
+ *     on disk, `loadCredentials` throws on startup (no silent downgrade).
+ *   - Plaintext HTTP is allowed ONLY when `tls.allowPlainText === true`.
+ *     That gate is also enforced here so the server cannot bind plain HTTP
+ *     by accident.
+ *   - Incoming bodies are capped at 1 MiB to bound denial-of-service.
+ *   - Peer cert CN/SAN pinning is enforced by `verifyPeerRequest`.
  */
 
 import * as http from 'node:http';
 import * as https from 'node:https';
 import type { AddressInfo } from 'node:net';
+import type { TLSSocket } from 'node:tls';
 import { logger } from '../utils/logger.js';
 import type {
   NodeInfo,
@@ -25,7 +35,9 @@ import type {
 } from './types.js';
 import {
   FederationCredentials,
+  MAX_BODY_BYTES,
   verifyPeerRequest,
+  type PeerCertificateLike,
 } from './transport.js';
 
 const log = logger.child('federation:server');
@@ -59,12 +71,23 @@ export class FederationServer {
   }
 
   /**
-   * Start the server. Uses HTTPS when a server cert+key are configured,
-   * otherwise falls back to HTTP (development only — a warning is logged).
+   * Start the server. Uses HTTPS when a server cert+key are configured.
+   *
+   * If TLS material is NOT configured AND `credentials.allowPlainText` is
+   * false, this method throws — we never silently bind a plain HTTP socket
+   * for federation traffic.
    */
   async start(): Promise<void> {
     const { credentials } = this.opts;
     const useHttps = !!(credentials.cert && credentials.key);
+
+    if (!useHttps && !credentials.allowPlainText) {
+      throw new Error(
+        'FederationServer refuses to start in plaintext HTTP mode. ' +
+          'Configure federation.tls.certPath + tls.keyPath, or explicitly set ' +
+          'federation.tls.allowPlainText = true for local development.'
+      );
+    }
 
     const handler = (req: http.IncomingMessage, res: http.ServerResponse): void => {
       this.handleRequest(req, res).catch((err) => {
@@ -92,7 +115,7 @@ export class FederationServer {
         handler
       );
     } else {
-      log.warn('Federation server starting in HTTP mode (no TLS material). Use only for dev/test.');
+      log.warn('Federation server starting in HTTP mode (allowPlainText=true). Use only for dev/test.');
       this.server = http.createServer(handler);
     }
 
@@ -133,11 +156,25 @@ export class FederationServer {
     req: http.IncomingMessage,
     res: http.ServerResponse
   ): Promise<void> {
-    // Authn / Authz
-    const tlsReq = req as http.IncomingMessage & {
-      socket: { getPeerCertificate?: () => { subject?: { CN?: string } } };
-    };
-    const peerCert = tlsReq.socket.getPeerCertificate ? tlsReq.socket.getPeerCertificate() : undefined;
+    // Extract peer certificate when this is a TLS connection. We probe the
+    // socket via `instanceof`-equivalent shape detection so the server still
+    // works in plain-HTTP dev mode (where there is no peer cert at all).
+    const sock = req.socket as Partial<TLSSocket>;
+    let peerCert: PeerCertificateLike | undefined;
+    if (typeof sock.getPeerCertificate === 'function') {
+      try {
+        const raw = sock.getPeerCertificate(true);
+        // getPeerCertificate returns {} when no cert is presented.
+        if (raw && (raw.subject || (raw as { subjectaltname?: string }).subjectaltname)) {
+          peerCert = raw as unknown as PeerCertificateLike;
+        }
+      } catch (err) {
+        log.debug('getPeerCertificate failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const auth = verifyPeerRequest(this.opts.credentials, peerCert, req.headers.authorization);
     if (!auth.ok) {
       res.statusCode = 401;
@@ -158,7 +195,14 @@ export class FederationServer {
     }
 
     if (method === 'POST' && url.startsWith('/v1/federation/task')) {
-      const body = await readJson<TaskDelegation>(req);
+      const parsed = await readJson<TaskDelegation>(req);
+      if (parsed.tooLarge) {
+        res.statusCode = 413;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ error: 'payload_too_large', limitBytes: MAX_BODY_BYTES }));
+        return;
+      }
+      const body = parsed.value;
       if (!body || typeof body.taskId !== 'string' || typeof body.agentType !== 'string') {
         res.statusCode = 400;
         res.setHeader('content-type', 'application/json');
@@ -190,22 +234,61 @@ export class FederationServer {
 
 /* ---------- helpers ---------- */
 
-async function readJson<T>(req: http.IncomingMessage): Promise<T | null> {
-  return new Promise<T | null>((resolve) => {
+interface ReadJsonResult<T> {
+  value: T | null;
+  tooLarge: boolean;
+}
+
+/**
+ * Read and parse a JSON body with a hard size cap.
+ *
+ * The cap bounds simple denial-of-service from peers (or attackers who
+ * compromise the perimeter and probe the federation port).
+ */
+export async function readJson<T>(
+  req: http.IncomingMessage,
+  maxBytes: number = MAX_BODY_BYTES
+): Promise<ReadJsonResult<T>> {
+  return new Promise<ReadJsonResult<T>>((resolve) => {
     const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
+    let total = 0;
+    let tooLarge = false;
+    let settled = false;
+
+    const finish = (result: ReadJsonResult<T>): void => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    req.on('data', (c: Buffer) => {
+      if (tooLarge) return;
+      total += c.length;
+      if (total > maxBytes) {
+        tooLarge = true;
+        // Stop draining; destroy with an error so upstream knows.
+        req.destroy(new Error('Federation request body exceeds cap'));
+        finish({ value: null, tooLarge: true });
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => {
+      if (tooLarge) {
+        finish({ value: null, tooLarge: true });
+        return;
+      }
       if (chunks.length === 0) {
-        resolve(null);
+        finish({ value: null, tooLarge: false });
         return;
       }
       try {
         const raw = Buffer.concat(chunks).toString('utf-8');
-        resolve(JSON.parse(raw) as T);
+        finish({ value: JSON.parse(raw) as T, tooLarge: false });
       } catch {
-        resolve(null);
+        finish({ value: null, tooLarge: false });
       }
     });
-    req.on('error', () => resolve(null));
+    req.on('error', () => finish({ value: null, tooLarge }));
   });
 }
