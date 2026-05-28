@@ -16,3 +16,4 @@ export { createWatchCommand } from './watch.js';
 export { createRunCommand } from './run.js';
 export { createAuditCommand } from './audit.js';
 export { createExportAgentsCommand } from './export-agents.js';
+export { createAgentPortableCommand } from './agent-portable.js';
