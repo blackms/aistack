@@ -34,8 +34,25 @@ RUN npm run build
 
 # Prune to core production deps. Optional integrations such as local WASM
 # embeddings and managed sandboxes are lazy-loaded by the app and can be
-# installed by operators who need them; omitting them keeps the base image small.
-RUN npm prune --omit=dev --omit=optional
+# installed in derived images by operators who need them; omitting them keeps
+# the base image small.
+RUN npm prune --omit=dev --omit=optional \
+    && rm -rf node_modules/@types \
+    && find node_modules -type d \( \
+        -name test -o \
+        -name tests -o \
+        -name docs -o \
+        -name example -o \
+        -name examples -o \
+        -name benchmark -o \
+        -name benchmarks -o \
+        -name .github \
+      \) -prune -exec rm -rf {} + \
+    && find node_modules -type f \( \
+        -name '*.map' -o \
+        -name '*.ts' -o \
+        -name '*.md' \
+      \) -delete
 
 # ---------- Stage 2: runtime ----------
 FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS runtime
