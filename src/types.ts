@@ -355,6 +355,7 @@ export interface AgentStackConfig {
   checkpointing?: CheckpointingConfig;
   sandbox?: SandboxConfig;
   integrations?: IntegrationsConfig;
+  guardrails?: GuardrailsConfig;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.
@@ -493,6 +494,32 @@ export interface SlackMcpIntegrationConfig {
   packageName?: string;
   /** Default false. Write tools (post_message, reply, reaction) are disabled unless true. */
   enableWrites?: boolean;
+}
+
+/**
+ * Guardrails configuration (see `src/guardrails/`).
+ *
+ * The framework is opt-in: `enabled: false` (default) is a no-op even
+ * if `builtin` is populated. `builtin` references guardrail names
+ * registered in the default registry — currently:
+ *   - `secrets`
+ *   - `pii`
+ *   - `prompt-injection`
+ *   (`zod-schema` is a factory and is composed programmatically.)
+ *
+ * `customPaths` lists module paths whose default export registers extra
+ * guardrails. Each module is expected to call `registerGuardrail(...)`
+ * on import. Resolution happens lazily in the call site that uses the
+ * framework.
+ */
+export interface GuardrailsConfig {
+  enabled: boolean;
+  builtin: string[];
+  customPaths?: string[];
+  /** Per-guardrail timeout (ms). Default 2000. */
+  timeoutMs?: number;
+  /** Abort remaining guardrails on first high-severity failure. Default true. */
+  killSwitch?: boolean;
 }
 
 export interface MemoryConfig {

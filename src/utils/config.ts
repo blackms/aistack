@@ -295,6 +295,14 @@ const IntegrationsConfigSchema = z.object({
   slack: SlackMcpIntegrationSchema.optional(),
 });
 
+const GuardrailsConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  builtin: z.array(z.string()).default([]),
+  customPaths: z.array(z.string()).optional(),
+  timeoutMs: z.number().min(50).max(60000).default(2000),
+  killSwitch: z.boolean().default(true),
+});
+
 const SmartDispatcherConfigSchema = z.object({
   enabled: z.boolean().default(true),
   cacheEnabled: z.boolean().default(true),
@@ -363,6 +371,7 @@ const ConfigSchema = z.object({
   checkpointing: CheckpointingConfigSchema.default({}),
   sandbox: SandboxConfigSchema.default({}),
   integrations: IntegrationsConfigSchema.optional(),
+  guardrails: GuardrailsConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
