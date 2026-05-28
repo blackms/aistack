@@ -722,3 +722,17 @@ export function resetMemoryManager(): void {
     instance = null;
   }
 }
+
+// AIG-640: Anthropic Memory Tool integration (additive — see ./tool-adapter.ts,
+// ./dreaming.ts, ./sync.ts).
+export { MemoryToolAdapter, normalizeMemoryPath } from './tool-adapter.js';
+export type {
+  MemoryToolCommand,
+  MemoryToolInput,
+  MemoryToolResult,
+  MemoryToolAdapterOptions,
+} from './tool-adapter.js';
+export { DreamingWorker } from './dreaming.js';
+export type { DreamingWorkerOptions, DreamingCycleResult } from './dreaming.js';
+export { BidirectionalSync } from './sync.js';
+export type { BidirectionalSyncOptions, SyncStats } from './sync.js';

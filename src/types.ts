@@ -358,6 +358,29 @@ export interface MemoryConfig {
     provider?: string;
     model?: string;
   };
+  // AIG-640: Anthropic Memory Tool + Dreaming + filesystem sync (all opt-in)
+  toolAdapter?: {
+    enabled: boolean;
+    namespace?: string;
+    root?: string;
+  };
+  dreaming?: {
+    enabled: boolean;
+    intervalMs?: number;
+    batchSize?: number;
+    minClusterSize?: number;
+    similarityThreshold?: number;
+    namespace?: string;
+    dreamNamespace?: string;
+  };
+  sync?: {
+    enabled: boolean;
+    watchPath?: string;
+    namespace?: string;
+    pollIntervalMs?: number;
+    exportEnabled?: boolean;
+    importEnabled?: boolean;
+  };
 }
 
 export interface ProvidersConfig {

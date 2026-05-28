@@ -15,10 +15,39 @@ const VectorSearchConfigSchema = z.object({
   model: z.string().optional(),
 });
 
+// AIG-640: opt-in sub-blocks for Anthropic Memory Tool integration.
+const MemoryToolAdapterConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  namespace: z.string().optional(),
+  root: z.string().optional(),
+});
+
+const DreamingConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  intervalMs: z.number().min(1000).optional(),
+  batchSize: z.number().min(1).max(1000).optional(),
+  minClusterSize: z.number().min(2).optional(),
+  similarityThreshold: z.number().min(0).max(1).optional(),
+  namespace: z.string().optional(),
+  dreamNamespace: z.string().optional(),
+});
+
+const MemorySyncConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  watchPath: z.string().optional(),
+  namespace: z.string().optional(),
+  pollIntervalMs: z.number().min(500).optional(),
+  exportEnabled: z.boolean().optional(),
+  importEnabled: z.boolean().optional(),
+});
+
 const MemoryConfigSchema = z.object({
   path: z.string().default('./data/aistack.db'),
   defaultNamespace: z.string().default('default'),
   vectorSearch: VectorSearchConfigSchema.default({}),
+  toolAdapter: MemoryToolAdapterConfigSchema.optional(),
+  dreaming: DreamingConfigSchema.optional(),
+  sync: MemorySyncConfigSchema.optional(),
 });
 
 const AnthropicConfigSchema = z.object({
