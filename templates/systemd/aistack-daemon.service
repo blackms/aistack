@@ -1,0 +1,36 @@
+[Unit]
+Description=aistack background headless agent runner (AIG-636)
+Documentation=https://github.com/blackms/aistack
+After=network.target
+
+[Service]
+Type=simple
+# Replace <user> and the working directory with values that fit your deployment.
+User=aistack
+Group=aistack
+WorkingDirectory=/opt/aistack
+
+# Path to the aistack CLI (installed via `npm i -g @blackms/aistack` or local node_modules)
+ExecStart=/usr/bin/env aistack daemon start --data-dir=/var/lib/aistack/daemon --port=8787
+
+# Optional: load HMAC secret from a sealed env file (chmod 600, root-owned)
+# EnvironmentFile=/etc/aistack/daemon.env
+
+# Graceful shutdown: SIGTERM triggers DaemonRuntime.drain() before exit
+KillSignal=SIGTERM
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+
+# Hardening (uncomment to enable; verify paths first)
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=true
+# PrivateTmp=true
+# ReadWritePaths=/var/lib/aistack /var/log/aistack
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
