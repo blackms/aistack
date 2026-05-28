@@ -16,6 +16,7 @@ import {
   documentationAgent,
   securityAuditorAgent,
 } from './definitions/index.js';
+import { graderAgent } from './definitions/grader.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('registry');
@@ -33,6 +34,9 @@ const CORE_AGENTS: Map<AgentType, AgentDefinition> = new Map([
   ['devops', devopsAgent],
   ['documentation', documentationAgent],
   ['security-auditor', securityAuditorAgent],
+  // 'grader' is registered as an extended core type via string cast to avoid
+  // widening the AgentType union; consumers use 'grader' as plain string.
+  ['grader' as AgentType, graderAgent],
 ]);
 
 // Custom agents from plugins

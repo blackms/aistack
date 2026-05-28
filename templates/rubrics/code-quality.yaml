@@ -1,0 +1,49 @@
+# Code quality rubric — general-purpose Outcomes-style scoring
+#
+# Use with: createReviewLoop(input, config, { rubric: <this yaml> })
+# Weighted-average pass threshold: 0.80
+# Each criterion has its own pass_threshold; ALL must pass + overall >= 0.80
+# for the rubric to PASS overall.
+version: 1
+name: code-quality
+description: General-purpose code quality rubric covering correctness, style, tests, and docs
+
+overall_threshold: 0.8
+max_iterations: 3
+
+rubric:
+  - criterion: correctness
+    description: Does the code actually do what the requirements specify, with no obvious bugs?
+    weight: 0.4
+    pass_threshold: 0.8
+    checks:
+      - All requirement bullet points are addressed
+      - Edge cases (empty input, nulls, boundary values) handled
+      - No off-by-one or boundary errors
+
+  - criterion: style
+    description: Code follows idiomatic conventions and is readable
+    weight: 0.15
+    pass_threshold: 0.6
+    checks:
+      - Consistent naming, indentation, formatting
+      - No dead code, no commented-out blocks
+      - Functions/methods are appropriately sized
+
+  - criterion: tests
+    description: Code is covered by meaningful tests
+    weight: 0.2
+    pass_threshold: 0.7
+    checks:
+      - Happy path covered
+      - At least one edge-case test
+      - Tests assert on behaviour, not implementation details
+
+  - criterion: documentation
+    description: Public API and non-obvious behaviour is documented
+    weight: 0.25
+    pass_threshold: 0.7
+    checks:
+      - Public functions have doc comments explaining intent
+      - Non-obvious algorithms have rationale comments
+      - README/usage examples kept in sync
