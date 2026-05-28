@@ -349,6 +349,7 @@ export interface AgentStackConfig {
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
   daemon?: DaemonConfig;
+  telemetry?: TelemetryConfig;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.
@@ -366,6 +367,21 @@ export interface DaemonConfig {
   maxConcurrent: number;
   pollIntervalMs: number;
   logRotationBytes: number;
+}
+
+/**
+ * Opt-in anonymous telemetry configuration (AIG-655).
+ *
+ * Privacy-first: disabled by default. When enabled, the client posts
+ * anonymized usage events (e.g. review_loop.completed, agent.spawned)
+ * to a configurable endpoint. See docs/TELEMETRY.md for full policy.
+ */
+export interface TelemetryConfig {
+  enabled: boolean;
+  endpoint?: string;
+  anonymizeSessionId?: boolean;
+  flushIntervalMs?: number;
+  batchSize?: number;
 }
 
 export interface MemoryConfig {
