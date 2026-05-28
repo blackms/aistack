@@ -1,0 +1,19 @@
+{
+  "task_id": "astropy__astropy-12907",
+  "runner": "aistack",
+  "status": "completed",
+  "passed": true,
+  "iterations": 2,
+  "patch": "diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py\n@@ -242,7 +242,7 @@ def _cstack(left, right):\n-    cright = _coord_matrix(right, 'right', noutp)\n+    cright = np.zeros((noutp, right.n_inputs)); cright[-right.n_outputs:, -right.n_inputs:] = _coord_matrix(right, 'right', right.n_outputs)\n",
+  "tokens_in": 14523,
+  "tokens_out": 1872,
+  "cost_usd": 0.0723,
+  "duration_ms": 41280,
+  "model_snapshot": "claude-sonnet-4-5-20250514",
+  "aistack_version": "1.6.1",
+  "swebench_harness_version": "2.1.4",
+  "dataset_revision": "main",
+  "git_sha": "eb1dfe2",
+  "started_at": "2026-06-15T10:14:02.000Z",
+  "finished_at": "2026-06-15T10:14:43.280Z"
+}

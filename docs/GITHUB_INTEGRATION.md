@@ -100,8 +100,8 @@ label at a time.
 
 ## E2E test fixture
 
-`tests/unit/github/webhook.test.ts` spins up a real `WebhookServer` on a
-random port and exercises:
+`tests/unit/github/webhook.test.ts` spins up a real `IntegrationRouter` on
+a random port and exercises:
 
 - HMAC verification (pass / fail).
 - `ping` health-check response.

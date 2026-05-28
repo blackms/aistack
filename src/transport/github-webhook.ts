@@ -1,17 +1,20 @@
 /**
  * GitHub webhook route handler.
  *
- * Mounts `POST /v1/github/webhook` on an existing `WebhookServer`. HMAC
+ * Mounts `POST /v1/github/webhook` on an `IntegrationRouter`. HMAC
  * verification is enforced when a secret is configured on the route. The
  * handler responds 200 to `ping` events and triggers the issue→PR workflow
  * when an issue is assigned to the configured bot user or a PR is opened
  * targeting an `aistack-claimed` issue.
+ *
+ * Runs on a separate listener from AIG-636's `WebhookServer` (which is
+ * pinned to POST /v1/tasks). See src/transport/integration-router.ts.
  */
 
 import { logger } from '../utils/logger.js';
 import { runIssueToPRWorkflow, ingestIssue } from '../github/index.js';
 import type { AgentStackConfig } from '../types.js';
-import type { WebhookServer, WebhookHandler } from './webhook.js';
+import type { IntegrationRouter, IntegrationHandler } from './integration-router.js';
 
 const log = logger.child('webhook:github');
 
@@ -31,19 +34,19 @@ export interface RegisteredWebhook {
 }
 
 /**
- * Register the GitHub webhook route on an existing `WebhookServer`. Returns
- * the registered path and a `lastInvocation()` accessor used by tests to wait
+ * Register the GitHub webhook route on an `IntegrationRouter`. Returns the
+ * registered path and a `lastInvocation()` accessor used by tests to wait
  * for asynchronously-dispatched workflows.
  */
 export function registerGitHubWebhook(
-  server: WebhookServer,
+  router: IntegrationRouter,
   config: AgentStackConfig,
   opts: GitHubWebhookOptions = {}
 ): RegisteredWebhook {
   const path = opts.path ?? GITHUB_WEBHOOK_PATH;
   let lastInvocation: Promise<unknown> | null = null;
 
-  const handler: WebhookHandler = async (ctx, res) => {
+  const handler: IntegrationHandler = async (ctx, res) => {
     const eventHeader = ctx.headers['x-github-event'];
     const event = Array.isArray(eventHeader) ? eventHeader[0] : eventHeader;
 
@@ -90,7 +93,7 @@ export function registerGitHubWebhook(
     res.end(JSON.stringify({ dispatched: true, issueUrl }));
   };
 
-  server.addRoute({
+  router.addRoute({
     method: 'POST',
     path,
     handler,

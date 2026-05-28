@@ -348,6 +348,24 @@ export interface AgentStackConfig {
   resourceExhaustion?: ResourceExhaustionConfig;
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
+  daemon?: DaemonConfig;
+}
+
+// AIG-636 — daemon (background headless runner) config. Optional sibling field.
+export interface DaemonConfig {
+  enabled: boolean;
+  dataDir?: string;
+  queueBackend: 'file' | 'redis';
+  redisUrl?: string;
+  webhook: {
+    enabled: boolean;
+    port: number;
+    host: string;
+    hmacSecret?: string;
+  };
+  maxConcurrent: number;
+  pollIntervalMs: number;
+  logRotationBytes: number;
 }
 
 export interface MemoryConfig {

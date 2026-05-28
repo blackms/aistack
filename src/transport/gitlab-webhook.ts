@@ -2,7 +2,7 @@
  * GitLab webhook route handler.
  *
  * GitLab signs payloads by echoing the configured secret token verbatim in
- * the `X-Gitlab-Token` header (no HMAC). We reuse `WebhookServer`'s
+ * the `X-Gitlab-Token` header (no HMAC). We reuse `IntegrationRouter`'s
  * `signatureFormat: 'gitlab'` mode which performs a constant-time comparison
  * between the header value and the secret.
  */
@@ -10,7 +10,7 @@
 import { logger } from '../utils/logger.js';
 import { runIssueToPRWorkflow, ingestIssue } from '../github/index.js';
 import type { AgentStackConfig } from '../types.js';
-import type { WebhookServer, WebhookHandler } from './webhook.js';
+import type { IntegrationRouter, IntegrationHandler } from './integration-router.js';
 
 const log = logger.child('webhook:gitlab');
 
@@ -27,14 +27,14 @@ export interface RegisteredGitLabWebhook {
 }
 
 export function registerGitLabWebhook(
-  server: WebhookServer,
+  router: IntegrationRouter,
   config: AgentStackConfig,
   opts: GitLabWebhookOptions = {}
 ): RegisteredGitLabWebhook {
   const path = opts.path ?? GITLAB_WEBHOOK_PATH;
   let lastInvocation: Promise<unknown> | null = null;
 
-  const handler: WebhookHandler = async (ctx, res) => {
+  const handler: IntegrationHandler = async (ctx, res) => {
     const eventHeader = ctx.headers['x-gitlab-event'];
     const event = Array.isArray(eventHeader) ? eventHeader[0] : eventHeader;
 
@@ -74,7 +74,7 @@ export function registerGitLabWebhook(
     res.end(JSON.stringify({ dispatched: true, issueUrl }));
   };
 
-  server.addRoute({
+  router.addRoute({
     method: 'POST',
     path,
     handler,

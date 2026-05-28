@@ -4,7 +4,10 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { WebhookServer, verifyHmacSignature } from '../../../src/transport/webhook.js';
+import {
+  IntegrationRouter,
+  verifyIntegrationSignature as verifyHmacSignature,
+} from '../../../src/transport/integration-router.js';
 import {
   shouldDispatch,
   registerGitHubWebhook,
@@ -112,8 +115,8 @@ describe('shouldDispatchGitLab', () => {
   });
 });
 
-describe('WebhookServer + GitHub route (integration)', () => {
-  const server = new WebhookServer({ port: 0 });
+describe('IntegrationRouter + GitHub route (integration)', () => {
+  const server = new IntegrationRouter({ port: 0 });
   let port = 0;
 
   beforeAll(async () => {
