@@ -113,8 +113,12 @@ export class A2ARouter {
       });
     });
 
-    log.info('A2ARouter listening', { host: this.host, port: this.port });
-    return { port: this.port, host: this.host };
+    const address = this.server.address();
+    const boundPort = typeof address === 'object' && address ? address.port : this.port;
+    const boundHost = typeof address === 'object' && address ? address.address : this.host;
+
+    log.info('A2ARouter listening', { host: boundHost, port: boundPort });
+    return { port: boundPort, host: boundHost };
   }
 
   async stop(): Promise<void> {
