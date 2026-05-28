@@ -5,6 +5,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MemoryManager, resetMemoryManager } from '../../src/memory/index.js';
 import type { AgentStackConfig } from '../../src/types.js';
+import {
+  workspaceNamespace,
+  type MultitenancyContext,
+} from '../../src/multitenancy/index.js';
 import { unlinkSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -129,6 +133,59 @@ describe('Memory Agent Scoping', () => {
 
       const entries = memory.list('test', 100, 0, { includeShared: true });
       expect(entries.some(e => e.key === 'shared-key')).toBe(true);
+    });
+  });
+
+  describe('tenant context scoping', () => {
+    const tenantContext: MultitenancyContext = {
+      tenantId: 'tenant-a',
+      tenantSlug: 'tenant-a',
+      workspaceId: 'workspace-a',
+      workspaceSlug: 'workspace-a',
+      role: 'member',
+    };
+
+    it('uses the tenant-prefixed session namespace consistently across shared operations', async () => {
+      const sessionId = randomUUID();
+      const agentId = randomUUID();
+      const tenantSessionNamespace = `${workspaceNamespace(tenantContext)}:session:${sessionId}`;
+
+      memory.setAgentContext({
+        agentId,
+        sessionId,
+        includeShared: true,
+        tenantContext,
+      });
+
+      const entry = await memory.storeShared('tenant-shared', 'tenant shared content');
+      expect(entry.agentId).toBeUndefined();
+      expect(entry.namespace).toBe(tenantSessionNamespace);
+
+      expect(memory.get('tenant-shared')?.id).toBe(entry.id);
+      expect(memory.list(undefined, 100, 0, { agentId, includeShared: true })
+        .map((e) => e.key)).toContain('tenant-shared');
+
+      const results = await memory.search('tenant shared');
+      expect(results.map((r) => r.entry.key)).toContain('tenant-shared');
+
+      expect(memory.delete('tenant-shared')).toBe(true);
+      expect(memory.get('tenant-shared')).toBeNull();
+    });
+
+    it('still blocks explicit cross-session namespaces before tenant prefixing', async () => {
+      const sessionId = randomUUID();
+      const otherSessionId = randomUUID();
+      memory.setAgentContext({
+        agentId: randomUUID(),
+        sessionId,
+        tenantContext,
+      });
+
+      await expect(
+        memory.store('bad-key', 'bad content', {
+          namespace: `session:${otherSessionId}`,
+        }),
+      ).rejects.toThrow(/Access denied/);
     });
   });
 
