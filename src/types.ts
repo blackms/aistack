@@ -370,6 +370,8 @@ export interface AgentStackConfig {
  */
 export interface ObservabilityConfig {
   tracing?: TracingConfig;
+  /** Alias accepted by config files for OpenTelemetry settings. */
+  otel?: OTelConfig;
 }
 
 export interface TracingConfig {
@@ -386,6 +388,11 @@ export interface TracingConfig {
   headers?: Record<string, string>;
   /** Root sampling ratio between 0 and 1. Default: 1. */
   samplingRatio?: number;
+}
+
+export interface OTelConfig extends TracingConfig {
+  /** Alias for `otlpEndpoint` in `observability.otel` config. */
+  endpoint?: string;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.

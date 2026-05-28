@@ -43,7 +43,8 @@ export type SpanAttributeInput =
 export type SpanAttributeRecord = Record<string, SpanAttributeInput>;
 
 export function isTracingEnabled(config?: AgentStackConfig): boolean {
-  return config?.observability?.tracing?.enabled === true;
+  return config?.observability?.tracing?.enabled === true ||
+    config?.observability?.otel?.enabled === true;
 }
 
 export function sanitizeSpanAttributes(attributes?: SpanAttributeRecord): Attributes {
@@ -58,14 +59,20 @@ export function sanitizeSpanAttributes(attributes?: SpanAttributeRecord): Attrib
 }
 
 function resolveTracingConfig(config: AgentStackConfig): TracingConfig {
+  const otel = config.observability?.otel;
+  const tracing = {
+    ...(otel ? { ...otel, otlpEndpoint: otel.otlpEndpoint ?? otel.endpoint } : {}),
+    ...(config.observability?.tracing ?? {}),
+  };
+
   return {
-    enabled: config.observability?.tracing?.enabled ?? false,
-    serviceName: config.observability?.tracing?.serviceName ?? 'aistack',
-    serviceVersion: config.observability?.tracing?.serviceVersion ?? config.version,
-    exporter: config.observability?.tracing?.exporter ?? 'otlp',
-    otlpEndpoint: config.observability?.tracing?.otlpEndpoint,
-    headers: config.observability?.tracing?.headers,
-    samplingRatio: config.observability?.tracing?.samplingRatio ?? 1,
+    enabled: tracing.enabled ?? false,
+    serviceName: tracing.serviceName ?? 'aistack',
+    serviceVersion: tracing.serviceVersion ?? config.version,
+    exporter: tracing.exporter ?? 'otlp',
+    otlpEndpoint: tracing.otlpEndpoint,
+    headers: tracing.headers,
+    samplingRatio: tracing.samplingRatio ?? 1,
   };
 }
 

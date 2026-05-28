@@ -9,6 +9,7 @@ import type { DriftDetectionService } from '../../tasks/drift-detection-service.
 import type { ConsensusService } from '../../tasks/consensus-service.js';
 import type { SmartDispatcher } from '../../tasks/smart-dispatcher.js';
 import type { TaskRiskLevel, ProposedSubtask, AgentStackConfig } from '../../types.js';
+import { traceAsync } from '../../observability/index.js';
 
 // Input schemas
 const CreateInputSchema = z.object({
@@ -182,16 +183,29 @@ export function createTaskTools(
             (consensusService ? consensusService.estimateRiskLevel(agentType, input.input) : undefined);
           const depth = consensusService?.calculateTaskDepth(input.parentTaskId);
 
-          const task = memory.createTask(
-            agentType,
-            input.input,
-            input.sessionId,
-            {
-              riskLevel,
-              parentTaskId: input.parentTaskId,
-              depth,
-            }
-          );
+          const task = await traceAsync(config, 'aistack.agent.handoff', {
+            'handoff.source': 'mcp.task_create',
+            'agent.type': agentType,
+            'session.id': input.sessionId,
+            'task.parent.id': input.parentTaskId,
+            'task.risk_level': riskLevel,
+            'task.depth': depth,
+            'task.dispatch.auto': !input.agentType,
+          }, async (span) => {
+            const created = memory.createTask(
+              agentType,
+              input.input,
+              input.sessionId,
+              {
+                riskLevel,
+                parentTaskId: input.parentTaskId,
+                depth,
+              }
+            );
+            span?.setAttribute('task.id', created.id);
+            span?.setAttribute('task.status', created.status);
+            return created;
+          });
 
           // Index the task for future drift detection
           if (driftService && input.input) {
@@ -250,20 +264,32 @@ export function createTaskTools(
       handler: async (params: Record<string, unknown>) => {
         const input = AssignInputSchema.parse(params);
 
-        const task = memory.getTask(input.taskId);
-        if (!task) {
+        return traceAsync(config, 'aistack.agent.handoff', {
+          'handoff.source': 'mcp.task_assign',
+          'task.id': input.taskId,
+          'agent.id': input.agentId,
+        }, async (span) => {
+          const task = memory.getTask(input.taskId);
+          if (!task) {
+            span?.setAttribute('handoff.success', false);
+            return {
+              success: false,
+              error: 'Task not found',
+            };
+          }
+
+          span?.setAttribute('agent.type', task.agentType);
+          if (task.sessionId) {
+            span?.setAttribute('session.id', task.sessionId);
+          }
+          const updated = memory.updateTaskStatus(input.taskId, 'running');
+          span?.setAttribute('handoff.success', updated);
+
           return {
-            success: false,
-            error: 'Task not found',
+            success: updated,
+            message: updated ? 'Task assigned and running' : 'Failed to update task',
           };
-        }
-
-        const updated = memory.updateTaskStatus(input.taskId, 'running');
-
-        return {
-          success: updated,
-          message: updated ? 'Task assigned and running' : 'Failed to update task',
-        };
+        });
       },
     },
 

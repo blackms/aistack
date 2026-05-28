@@ -237,9 +237,23 @@ const TracingConfigSchema = z.object({
   samplingRatio: z.number().min(0).max(1).default(1),
 });
 
+const OtelConfigSchema = TracingConfigSchema.extend({
+  endpoint: z.string().url().optional(),
+}).transform(({ endpoint, ...config }) => ({
+  ...config,
+  otlpEndpoint: config.otlpEndpoint ?? endpoint,
+}));
+
 const ObservabilityConfigSchema = z.object({
-  tracing: TracingConfigSchema.default({}),
-});
+  tracing: TracingConfigSchema.optional(),
+  otel: OtelConfigSchema.optional(),
+}).transform((config) => ({
+  tracing: {
+    ...TracingConfigSchema.parse({}),
+    ...(config.otel ?? {}),
+    ...(config.tracing ?? {}),
+  },
+}));
 
 /**
  * Audit Log Configuration Schema (AIG-635)

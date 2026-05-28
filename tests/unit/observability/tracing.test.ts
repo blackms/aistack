@@ -39,6 +39,10 @@ describe('OpenTelemetry tracing helpers', () => {
     expect(isTracingEnabled(createConfig(false))).toBe(false);
     expect(isTracingEnabled(createConfig(true))).toBe(true);
     expect(isTracingEnabled(undefined)).toBe(false);
+    expect(isTracingEnabled({
+      ...createConfig(false),
+      observability: { otel: { enabled: true, endpoint: 'http://localhost:4318/v1/traces' } },
+    })).toBe(true);
   });
 
   it('sanitizes supported span attributes and drops nullish values', () => {

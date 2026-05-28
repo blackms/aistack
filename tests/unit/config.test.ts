@@ -144,6 +144,25 @@ describe('Config File Operations', () => {
       expect(config.providers).toBeDefined();
     });
 
+    it('should normalize observability.otel config into tracing config', () => {
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          observability: {
+            otel: {
+              enabled: true,
+              endpoint: 'http://localhost:4318/v1/traces',
+            },
+          },
+        })
+      );
+
+      const config = loadConfig(configPath);
+
+      expect(config.observability?.tracing?.enabled).toBe(true);
+      expect(config.observability?.tracing?.otlpEndpoint).toBe('http://localhost:4318/v1/traces');
+    });
+
     it('should handle invalid JSON gracefully', () => {
       writeFileSync(configPath, 'not valid json {{{');
 
@@ -262,6 +281,20 @@ describe('Config Validation', () => {
       },
     });
     expect(invalid.valid).toBe(false);
+  });
+
+  it('should validate observability.otel endpoint alias', () => {
+    const result = validateConfig({
+      observability: {
+        otel: {
+          enabled: true,
+          endpoint: 'http://localhost:4318/v1/traces',
+          headers: { authorization: 'Bearer test' },
+        },
+      },
+    });
+
+    expect(result.valid).toBe(true);
   });
 });
 

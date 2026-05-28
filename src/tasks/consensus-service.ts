@@ -16,6 +16,7 @@ import type {
 } from '../types.js';
 import { logger } from '../utils/logger.js';
 import { audit } from '../audit/index.js';
+import { traceSync } from '../observability/index.js';
 
 const log = logger.child('consensus');
 
@@ -107,6 +108,26 @@ export class ConsensusService {
     depth: number,
     parentTaskId?: string
   ): ConsensusCheckResult {
+    return traceSync(this.appConfig, 'aistack.consensus.check', {
+      'consensus.enabled': this.config.enabled,
+      'consensus.risk_level': riskLevel,
+      'consensus.depth': depth,
+      'task.parent.id': parentTaskId,
+    }, (span) => {
+      const result = this.requiresConsensusInternal(riskLevel, depth, parentTaskId);
+      span?.setAttribute('consensus.required', result.requiresConsensus);
+      if (result.reason) {
+        span?.setAttribute('consensus.reason', result.reason);
+      }
+      return result;
+    });
+  }
+
+  private requiresConsensusInternal(
+    riskLevel: TaskRiskLevel,
+    depth: number,
+    parentTaskId?: string
+  ): ConsensusCheckResult {
     // Disabled - no consensus required
     if (!this.config.enabled) {
       return { requiresConsensus: false };
@@ -154,35 +175,46 @@ export class ConsensusService {
    * Create a consensus checkpoint
    */
   createCheckpoint(options: CreateCheckpointOptions): ConsensusCheckpoint {
-    const checkpointId = randomUUID();
+    return traceSync(this.appConfig, 'aistack.consensus.checkpoint', {
+      'task.id': options.taskId,
+      'task.parent.id': options.parentTaskId,
+      'consensus.risk_level': options.riskLevel,
+      'consensus.subtask_count': options.proposedSubtasks.length,
+      'consensus.reviewer_strategy': this.config.reviewerStrategy,
+      'consensus.timeout_ms': this.config.timeout,
+    }, (span) => {
+      const checkpointId = randomUUID();
 
-    // Warn if creating a checkpoint with no subtasks
-    if (options.proposedSubtasks.length === 0) {
-      log.warn('Creating consensus checkpoint with no proposed subtasks', {
+      // Warn if creating a checkpoint with no subtasks
+      if (options.proposedSubtasks.length === 0) {
+        log.warn('Creating consensus checkpoint with no proposed subtasks', {
+          checkpointId,
+          taskId: options.taskId,
+          riskLevel: options.riskLevel,
+        });
+      }
+
+      log.info('Creating consensus checkpoint', {
         checkpointId,
         taskId: options.taskId,
         riskLevel: options.riskLevel,
+        subtaskCount: options.proposedSubtasks.length,
       });
-    }
 
-    log.info('Creating consensus checkpoint', {
-      checkpointId,
-      taskId: options.taskId,
-      riskLevel: options.riskLevel,
-      subtaskCount: options.proposedSubtasks.length,
+      const checkpoint = this.store.createConsensusCheckpoint({
+        id: checkpointId,
+        taskId: options.taskId,
+        parentTaskId: options.parentTaskId,
+        proposedSubtasks: options.proposedSubtasks,
+        riskLevel: options.riskLevel,
+        reviewerStrategy: this.config.reviewerStrategy,
+        timeout: this.config.timeout,
+      });
+
+      span?.setAttribute('consensus.checkpoint.id', checkpoint.id);
+      span?.setAttribute('consensus.checkpoint.status', checkpoint.status);
+      return checkpoint;
     });
-
-    const checkpoint = this.store.createConsensusCheckpoint({
-      id: checkpointId,
-      taskId: options.taskId,
-      parentTaskId: options.parentTaskId,
-      proposedSubtasks: options.proposedSubtasks,
-      riskLevel: options.riskLevel,
-      reviewerStrategy: this.config.reviewerStrategy,
-      timeout: this.config.timeout,
-    });
-
-    return checkpoint;
   }
 
   /**
@@ -286,45 +318,62 @@ Respond with your decision in this JSON format:
     checkpoint?: ConsensusCheckpoint;
     error?: string;
   } {
-    const checkpoint = this.store.getConsensusCheckpoint(checkpointId);
+    return traceSync(this.appConfig, 'aistack.consensus.decision', {
+      'consensus.checkpoint.id': checkpointId,
+      'consensus.decision.approved': decision.approved,
+      'consensus.reviewer_type': decision.reviewerType,
+      'consensus.rejected_subtask_count': decision.rejectedSubtaskIds?.length ?? 0,
+    }, (span) => {
+      const checkpoint = this.store.getConsensusCheckpoint(checkpointId);
 
-    if (!checkpoint) {
-      return { success: false, error: 'Checkpoint not found' };
-    }
+      if (!checkpoint) {
+        span?.setAttribute('consensus.decision.success', false);
+        return { success: false, error: 'Checkpoint not found' };
+      }
 
-    if (checkpoint.status !== 'pending') {
-      return { success: false, error: `Checkpoint is already ${checkpoint.status}` };
-    }
+      span?.setAttribute('task.id', checkpoint.taskId);
+      span?.setAttribute('consensus.checkpoint.status', checkpoint.status);
 
-    // Check if checkpoint has expired
-    if (new Date() > checkpoint.expiresAt) {
-      this.store.updateConsensusCheckpointStatus(checkpointId, 'expired');
-      return { success: false, error: 'Checkpoint has expired' };
-    }
+      if (checkpoint.status !== 'pending') {
+        span?.setAttribute('consensus.decision.success', false);
+        return { success: false, error: `Checkpoint is already ${checkpoint.status}` };
+      }
 
-    const newStatus: ConsensusStatus = decision.approved ? 'approved' : 'rejected';
+      // Check if checkpoint has expired
+      if (new Date() > checkpoint.expiresAt) {
+        this.store.updateConsensusCheckpointStatus(checkpointId, 'expired');
+        span?.setAttribute('consensus.checkpoint.status', 'expired');
+        span?.setAttribute('consensus.decision.success', false);
+        return { success: false, error: 'Checkpoint has expired' };
+      }
 
-    log.info('Decision submitted', {
-      checkpointId,
-      approved: decision.approved,
-      reviewedBy: decision.reviewedBy,
-      reviewerType: decision.reviewerType,
-      rejectedSubtasks: decision.rejectedSubtaskIds?.length ?? 0,
+      const newStatus: ConsensusStatus = decision.approved ? 'approved' : 'rejected';
+
+      log.info('Decision submitted', {
+        checkpointId,
+        approved: decision.approved,
+        reviewedBy: decision.reviewedBy,
+        reviewerType: decision.reviewerType,
+        rejectedSubtasks: decision.rejectedSubtaskIds?.length ?? 0,
+      });
+
+      const success = this.store.updateConsensusCheckpointStatus(
+        checkpointId,
+        newStatus,
+        decision
+      );
+
+      if (!success) {
+        span?.setAttribute('consensus.decision.success', false);
+        return { success: false, error: 'Failed to update checkpoint status' };
+      }
+
+      const updatedCheckpoint = this.store.getConsensusCheckpoint(checkpointId);
+      span?.setAttribute('consensus.decision.success', true);
+      span?.setAttribute('consensus.checkpoint.status', updatedCheckpoint?.status ?? newStatus);
+      audit(this.appConfig, 'consensus.decision', { checkpointId, approved: decision.approved, reviewedBy: decision.reviewedBy, reviewerType: decision.reviewerType, rejectedSubtaskCount: decision.rejectedSubtaskIds?.length ?? 0, taskId: updatedCheckpoint?.taskId });
+      return { success: true, checkpoint: updatedCheckpoint ?? undefined };
     });
-
-    const success = this.store.updateConsensusCheckpointStatus(
-      checkpointId,
-      newStatus,
-      decision
-    );
-
-    if (!success) {
-      return { success: false, error: 'Failed to update checkpoint status' };
-    }
-
-    const updatedCheckpoint = this.store.getConsensusCheckpoint(checkpointId);
-    audit(this.appConfig, 'consensus.decision', { checkpointId, approved: decision.approved, reviewedBy: decision.reviewedBy, reviewerType: decision.reviewerType, rejectedSubtaskCount: decision.rejectedSubtaskIds?.length ?? 0, taskId: updatedCheckpoint?.taskId });
-    return { success: true, checkpoint: updatedCheckpoint ?? undefined };
   }
 
   /**
