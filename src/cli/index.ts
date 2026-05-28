@@ -20,6 +20,7 @@ import {
   createRunCommand,
   createAuditCommand,
   createExportAgentsCommand,
+  createAgentPortableCommand,
 } from './commands/index.js';
 
 // Read version from package.json would be ideal, but for now hardcode
@@ -59,6 +60,7 @@ async function main(): Promise<void> {
   program.addCommand(createRunCommand());
   program.addCommand(createAuditCommand());
   program.addCommand(createExportAgentsCommand());
+  program.addCommand(createAgentPortableCommand());
 
   // Parse arguments
   await program.parseAsync(process.argv);
