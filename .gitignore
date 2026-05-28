@@ -45,3 +45,8 @@ coverage/
 # Documentation working files
 *.backup
 DOCUMENTATION_SYNC_AUDIT.md
+
+# WASM embedding model cache (downloaded on demand)
+models/
+*.onnx
+*.onnx_data

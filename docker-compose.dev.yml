@@ -1,0 +1,30 @@
+# docker-compose.dev.yml
+# ---------------------------------------------------------------------------
+# Development overlay. Use with the default compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# - Builds the image locally from the Dockerfile (no GHCR pull)
+# - Mounts ./src for live edits (image must be rebuilt to pick up TS changes
+#   unless you run `npm run dev` in another shell against ./dist mount)
+# - Verbose logging, dev secrets
+# ---------------------------------------------------------------------------
+
+services:
+  aistack:
+    image: aistack:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+      LOG_FORMAT: pretty
+      JWT_SECRET: dev-jwt-secret-do-not-use-in-prod
+      REFRESH_SECRET: dev-refresh-secret-do-not-use-in-prod
+    volumes:
+      # Bind-mount compiled dist for fast iteration:
+      # run `npm run build:watch` (or `npm run dev`) on the host.
+      - ./dist:/app/dist:ro
+      - ./agentstack.config.json:/etc/aistack/agentstack.config.json:ro

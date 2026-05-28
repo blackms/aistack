@@ -22,6 +22,8 @@ import { SQLiteStore } from './sqlite-store.js';
 import { FTSSearch } from './fts-search.js';
 import { VectorSearch } from './vector-search.js';
 import { MemoryAccessControl, getAccessControl } from './access-control.js';
+import { audit } from '../audit/index.js';
+import { TierManager } from './tiers/tier-manager.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('memory');
@@ -39,6 +41,14 @@ export class MemoryManager {
   private config: AgentStackConfig;
   private agentContext: AgentContext | null = null;
   private accessControl: MemoryAccessControl;
+  /**
+   * Hierarchical-memory hook (AIG-651). Constructing the TierManager applies
+   * the tier-column schema patch idempotently and lets every read path call
+   * touch() so AutoPager has accurate hot/cold signal. We intentionally do
+   * NOT expose the pager from the manager — that wiring is opt-in via
+   * createTierStack() in src/memory/tiers/index.ts.
+   */
+  private tierManager: TierManager;
 
   constructor(config: AgentStackConfig) {
     this.config = config;
@@ -47,11 +57,28 @@ export class MemoryManager {
     this.fts = new FTSSearch(this.sqliteStore.db);
     this.vector = new VectorSearch(this.sqliteStore, config);
     this.accessControl = getAccessControl();
+    this.tierManager = new TierManager(this.sqliteStore);
 
     log.info('Memory manager initialized', {
       path: config.memory.path,
       vectorEnabled: this.vector.isEnabled(),
     });
+  }
+
+  /**
+   * Best-effort access bookkeeping. Wraps tierManager.touch in try/catch so
+   * a malformed schema (e.g. a partial migration) cannot break a read.
+   */
+  private touchEntry(id: string | undefined | null): void {
+    if (!id) return;
+    try {
+      this.tierManager.touch(id);
+    } catch (err) {
+      log.debug('touch() failed (best-effort)', {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // ==================== Agent Context ====================
@@ -116,6 +143,7 @@ export class MemoryManager {
     }
 
     log.debug('Stored memory entry', { key, namespace, agentId });
+    audit(this.config, 'memory.write', { entryId: entry.id, key, namespace, agentId, shared: false });
     return entry;
   }
 
@@ -154,6 +182,7 @@ export class MemoryManager {
     }
 
     log.debug('Stored shared memory entry', { key, namespace });
+    audit(this.config, 'memory.write', { entryId: entry.id, key, namespace, shared: true });
     return entry;
   }
 
@@ -178,7 +207,11 @@ export class MemoryManager {
       );
     }
 
-    return this.sqliteStore.get(key, effectiveNamespace);
+    const entry = this.sqliteStore.get(key, effectiveNamespace);
+    // Tier bookkeeping: record this read for the AutoPager promotion
+    // heuristic. No-op if the entry is missing.
+    this.touchEntry(entry?.id);
+    return entry;
   }
 
   /**
@@ -203,6 +236,9 @@ export class MemoryManager {
       }
     }
 
+    // Tier bookkeeping for the successful read path only — denied accesses
+    // must not look like a hot signal.
+    if (entry) this.touchEntry(entry.id);
     return entry;
   }
 
@@ -227,7 +263,11 @@ export class MemoryManager {
       );
     }
 
-    return this.sqliteStore.delete(key, effectiveNamespace);
+    const deleted = this.sqliteStore.delete(key, effectiveNamespace);
+    if (deleted) {
+      audit(this.config, 'memory.delete', { key, namespace: effectiveNamespace });
+    }
+    return deleted;
   }
 
   /**
@@ -451,6 +491,17 @@ export class MemoryManager {
       results = this.mergeResults(results, ftsResults, limit);
     }
 
+    // Tier bookkeeping: every search hit counts as a read for the AutoPager
+    // promotion heuristic. Deduplicate via Set so ranked merging doesn't
+    // double-count the same entry.
+    const touched = new Set<string>();
+    for (const r of results) {
+      if (r.entry?.id && !touched.has(r.entry.id)) {
+        touched.add(r.entry.id);
+        this.touchEntry(r.entry.id);
+      }
+    }
+
     log.debug('Search completed', {
       query: query.slice(0, 50),
       results: results.length,
@@ -526,7 +577,9 @@ export class MemoryManager {
       consensusCheckpointId?: string;
     }
   ): Task {
-    return this.sqliteStore.createTask(agentType, input, sessionId, options);
+    const task = this.sqliteStore.createTask(agentType, input, sessionId, options);
+    audit(this.config, 'task.create', { taskId: task.id, agentType, sessionId, riskLevel: options?.riskLevel, parentTaskId: options?.parentTaskId, depth: options?.depth });
+    return task;
   }
 
   getTask(id: string): Task | null {
@@ -534,7 +587,12 @@ export class MemoryManager {
   }
 
   updateTaskStatus(id: string, status: Task['status'], output?: string): boolean {
-    return this.sqliteStore.updateTaskStatus(id, status, output);
+    const updated = this.sqliteStore.updateTaskStatus(id, status, output);
+    if (updated && (status === 'completed' || status === 'failed' || status === 'running')) {
+      const eventType = status === 'completed' ? 'task.complete' : status === 'failed' ? 'task.fail' : 'task.assign';
+      audit(this.config, eventType, { taskId: id, status });
+    }
+    return updated;
   }
 
   listTasks(sessionId?: string, status?: Task['status']): Task[] {
@@ -697,6 +755,24 @@ export { VectorSearch } from './vector-search.js';
 export { MemoryAccessControl, getAccessControl, resetAccessControl } from './access-control.js';
 export type { MemoryAccessContext } from './access-control.js';
 
+// Hierarchical memory tiers (AIG-651) — see src/memory/tiers/ for details.
+export {
+  TierManager,
+  AutoPager,
+  TierBudgetExceededError,
+  estimateTokens,
+  createTierStack,
+  DEFAULT_PAGING_POLICY,
+} from './tiers/index.js';
+export type {
+  MemoryTier,
+  TierStats,
+  PagingPolicy,
+  PagingRunResult,
+  TierStack,
+  TierScope,
+} from './tiers/index.js';
+
 // Singleton instance
 let instance: MemoryManager | null = null;
 
@@ -722,3 +798,17 @@ export function resetMemoryManager(): void {
     instance = null;
   }
 }
+
+// AIG-640: Anthropic Memory Tool integration (additive — see ./tool-adapter.ts,
+// ./dreaming.ts, ./sync.ts).
+export { MemoryToolAdapter, normalizeMemoryPath } from './tool-adapter.js';
+export type {
+  MemoryToolCommand,
+  MemoryToolInput,
+  MemoryToolResult,
+  MemoryToolAdapterOptions,
+} from './tool-adapter.js';
+export { DreamingWorker } from './dreaming.js';
+export type { DreamingWorkerOptions, DreamingCycleResult } from './dreaming.js';
+export { BidirectionalSync } from './sync.js';
+export type { BidirectionalSyncOptions, SyncStats } from './sync.js';

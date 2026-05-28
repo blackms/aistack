@@ -1,0 +1,63 @@
+<idea-plugin>
+  <id>com.aistack.intellij</id>
+  <name>aistack</name>
+  <vendor email="support@aigensolutions.it" url="https://github.com/aigensolutions/aistack">Aigen Solutions</vendor>
+
+  <description><![CDATA[
+    Spawn and orchestrate Claude Code sub-agents from JetBrains IDEs.
+    <br/><br/>
+    Provides:
+    <ul>
+      <li><b>aistack tool window</b> — live list of agents grouped by status.</li>
+      <li><b>Spawn agent action</b> — keybind <kbd>Ctrl+Alt+Shift+A</kbd> on the editor selection.</li>
+      <li><b>REST client</b> to the aistack daemon (default <code>http://localhost:3001</code>).</li>
+    </ul>
+    Requires a locally running aistack daemon.
+  ]]></description>
+
+  <change-notes><![CDATA[
+    <ul>
+      <li><b>0.1.0</b> — initial release.</li>
+    </ul>
+  ]]></change-notes>
+
+  <!-- Platform compatibility — keep in sync with build.gradle.kts patchPluginXml -->
+  <idea-version since-build="241" until-build="251.99999" />
+
+  <depends>com.intellij.modules.platform</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <toolWindow
+        id="aistack"
+        anchor="right"
+        icon="AllIcons.Toolwindows.ToolWindowMessages"
+        factoryClass="com.aistack.toolwindow.AistackToolWindowFactory" />
+
+    <applicationConfigurable
+        parentId="tools"
+        instance="com.aistack.settings.AistackSettingsConfigurable"
+        id="com.aistack.settings"
+        displayName="aistack" />
+
+    <applicationService serviceImplementation="com.aistack.settings.AistackSettings" />
+  </extensions>
+
+  <actions>
+    <action id="com.aistack.actions.SpawnAgentAction"
+            class="com.aistack.actions.SpawnAgentAction"
+            text="aistack: Spawn Agent on Selection"
+            description="Spawn an aistack coder agent and execute it on the editor selection.">
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+      <keyboard-shortcut keymap="$default" first-keystroke="control alt shift A"/>
+      <keyboard-shortcut keymap="Mac OS X" first-keystroke="meta alt shift A"/>
+    </action>
+    <action id="com.aistack.actions.RunReviewLoopAction"
+            class="com.aistack.actions.RunReviewLoopAction"
+            text="aistack: Run Review Loop on Selection"
+            description="Send the current selection to the aistack review loop.">
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+      <keyboard-shortcut keymap="$default" first-keystroke="control alt R"/>
+      <keyboard-shortcut keymap="Mac OS X" first-keystroke="meta alt R"/>
+    </action>
+  </actions>
+</idea-plugin>

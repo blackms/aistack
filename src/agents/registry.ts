@@ -16,6 +16,7 @@ import {
   documentationAgent,
   securityAuditorAgent,
 } from './definitions/index.js';
+import { graderAgent } from './definitions/grader.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('registry');
@@ -33,10 +34,31 @@ const CORE_AGENTS: Map<AgentType, AgentDefinition> = new Map([
   ['devops', devopsAgent],
   ['documentation', documentationAgent],
   ['security-auditor', securityAuditorAgent],
+  // 'grader' is registered as an extended core type via string cast to avoid
+  // widening the AgentType union; consumers use 'grader' as plain string.
+  ['grader' as AgentType, graderAgent],
 ]);
 
 // Custom agents from plugins
 const customAgents: Map<string, AgentDefinition> = new Map();
+
+/**
+ * Allowed shape for agent type identifiers.
+ *
+ * Enforced on `registerAgent` to prevent malicious plugins from supplying
+ * types that break downstream consumers:
+ *   - path traversal in `exportAllAgents` (the type is interpolated into a
+ *     filename via `join(outputDir, ...)`, so values like `../../evil` would
+ *     escape the output directory)
+ *   - YAML injection in `exportAgentToMarkdown` (the type is interpolated
+ *     unquoted into the `name:` frontmatter field, so values containing `:`,
+ *     newlines, etc. could inject forbidden keys like `hooks`, `mcpServers`,
+ *     `permissionMode`)
+ *
+ * Matches the kebab-case convention already used by all core agents
+ * (`coder`, `security-auditor`, …).
+ */
+const AGENT_TYPE_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
 /**
  * Get an agent definition by type
@@ -90,17 +112,25 @@ export function listAgentDefinitions(): AgentDefinition[] {
  * Register a custom agent type from a plugin
  */
 export function registerAgent(definition: AgentDefinition): void {
-  if (CORE_AGENTS.has(definition.type as AgentType)) {
-    log.warn('Cannot override core agent type', { type: definition.type });
+  const { type } = definition;
+
+  if (typeof type !== 'string' || !AGENT_TYPE_PATTERN.test(type)) {
+    throw new Error(
+      `Invalid agent type "${String(type)}": must match /^[a-z0-9][a-z0-9-]*$/`,
+    );
+  }
+
+  if (CORE_AGENTS.has(type as AgentType)) {
+    log.warn('Cannot override core agent type', { type });
     return;
   }
 
-  if (customAgents.has(definition.type)) {
-    log.warn('Overwriting existing custom agent', { type: definition.type });
+  if (customAgents.has(type)) {
+    log.warn('Overwriting existing custom agent', { type });
   }
 
-  customAgents.set(definition.type, definition);
-  log.info('Registered custom agent', { type: definition.type });
+  customAgents.set(type, definition);
+  log.info('Registered custom agent', { type });
 }
 
 /**

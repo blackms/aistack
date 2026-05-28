@@ -22,12 +22,22 @@ import { Semaphore } from '../utils/semaphore.js';
 const log = logger.child('review-loop');
 
 // Concurrency control for review loops
-// Max 5 concurrent review loops (each loop spawns 2 agents = 10 agents max)
-const reviewLoopSemaphore = new Semaphore('review-loops', 5);
+// Max 5 concurrent review loops (each loop spawns 2 agents = 10 agents max).
+// Exported so the rubric grader can gate its per-criterion spawns through the
+// same pool — otherwise a rubric loop could fan out N graders unbounded.
+// The reverse dependency (review-loop → rubric grader) is dynamic-only, so
+// the static cycle introduced by grader importing this symbol is benign.
+export const reviewLoopSemaphore = new Semaphore('review-loops', 5);
 
 export interface ReviewLoopOptions {
   maxIterations?: number;
   sessionId?: string;
+  /**
+   * Opt-in: when set, the loop switches from adversarial APPROVE/REJECT
+   * to Outcomes-style rubric grading. Accepts a parsed RubricDoc, a YAML
+   * string, a JSON string, or a plain object — see workflows/rubric.
+   */
+  rubric?: unknown;
 }
 
 export interface ReviewLoopEvents {
@@ -375,13 +385,22 @@ Provide the corrected code that addresses all the identified issues.`;
 }
 
 /**
- * Create and start a review loop
+ * Create and start a review loop.
+ *
+ * Default behaviour is the adversarial APPROVE/REJECT loop. If
+ * `options.rubric` is supplied the loop routes to the Outcomes-style
+ * rubric grader instead; the result is normalised back into a
+ * ReviewLoopState so callers see a uniform shape.
  */
 export async function createReviewLoop(
   codeInput: string,
   config: AgentStackConfig,
   options: ReviewLoopOptions = {}
 ): Promise<ReviewLoopState> {
+  if (options.rubric != null) {
+    const { runRubricReviewLoop } = await import('../workflows/rubric/index.js');
+    return runRubricReviewLoop(codeInput, config, options as { rubric: unknown; maxIterations?: number; sessionId?: string });
+  }
   const coordinator = new ReviewLoopCoordinator(codeInput, config, options);
   const result = await coordinator.start();
   return result;

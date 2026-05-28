@@ -1,0 +1,32 @@
+apiVersion: v2
+name: aistack
+description: |
+  aistack - Clean agent orchestration for Claude Code.
+  Deploy aistack on Kubernetes for on-prem / air-gapped environments
+  (regulated industries: banking, healthcare, defense).
+type: application
+
+# Chart version follows semver and is independent of the app version
+# (bump on chart template changes, even if the app version is unchanged).
+version: 0.1.0
+
+# The application version shipped by default. Override via image.tag in values.yaml.
+appVersion: "1.6.1"
+
+home: https://github.com/blackms/aistack
+sources:
+  - https://github.com/blackms/aistack
+
+keywords:
+  - agent
+  - orchestration
+  - claude
+  - mcp
+  - ai
+  - llm
+
+maintainers:
+  - name: blackms
+    url: https://github.com/blackms
+
+kubeVersion: ">=1.24.0-0"

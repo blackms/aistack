@@ -153,6 +153,26 @@ export {
   runDocSync,
 } from './workflows/index.js';
 
+// Sandbox (AIG-634)
+export {
+  createSandbox,
+  DEFAULT_SANDBOX_CONFIG,
+  DockerSandbox,
+  E2BSandbox,
+  DaytonaSandbox,
+  NoopSandbox,
+  buildDockerArgs,
+  SandboxError,
+  SandboxPolicyError,
+  SandboxUnavailableError,
+  type SandboxAdapter,
+  type SandboxOptions,
+  type SandboxResult,
+  type SandboxLanguage,
+  type SandboxProvider,
+  type ResolvedSandboxConfig,
+} from './sandbox/index.js';
+
 // Web Server
 export {
   WebServer,
