@@ -6,6 +6,8 @@ import { Command } from 'commander';
 import { runDocSync, getWorkflowRunner, resetWorkflowRunner } from '../../workflows/index.js';
 import { registerDefaultTriggers, getWorkflowTriggers, clearWorkflowTriggers } from '../../hooks/index.js';
 import { logger } from '../../utils/logger.js';
+import { resumeLatestForSession, resumeInterrupt } from '../../coordination/interrupt.js';
+import { createWorkflowInspectCommand } from './workflow-inspect.js';
 
 const log = logger.child('workflow');
 
@@ -131,5 +133,38 @@ export function createWorkflowCommand(): Command {
       console.log('Workflow runner reset.');
     });
 
+  // Inspect subcommand (AIG-644 HITL)
+  command.addCommand(createWorkflowInspectCommand());
+
+  // Resume subcommand (AIG-644 HITL): resume a session paused on interrupt().
+  // Accepts --input <json> for the value to feed back, and repeatable
+  // --edit-state <path=value> for ad-hoc state mutations before resume.
+  command
+    .command('resume <session-id>')
+    .description('Resume a workflow paused on an HITL interrupt')
+    .option('--input <json>', 'JSON value to feed back to the interrupt() Promise')
+    .option('--interrupt-id <id>', 'Target a specific interrupt instead of the latest pending')
+    .option('--edit-state <pathEq>', 'State edit "path=value" (repeatable, dot notation)', collectEdits, [] as string[])
+    .action(async (sessionId: string, options: { input?: string; interruptId?: string; editState?: string[] }) => {
+      const input = options.input !== undefined ? JSON.parse(options.input) : undefined;
+      const stateEdits = (options.editState ?? []).map(parseEdit);
+      const payload = { input, stateEdits };
+      const record = options.interruptId
+        ? await resumeInterrupt(options.interruptId, payload)
+        : await resumeLatestForSession(sessionId, payload);
+      console.log(`Resumed interrupt ${record.id} on session ${sessionId}`);
+      log.info('Workflow resumed via CLI', { sessionId, interruptId: record.id });
+    });
+
   return command;
+}
+
+function collectEdits(value: string, prev: string[]): string[] {
+  return prev.concat([value]);
+}
+
+function parseEdit(raw: string): { path: string; value: string } {
+  const idx = raw.indexOf('=');
+  if (idx === -1) throw new Error(`--edit-state requires path=value, got: ${raw}`);
+  return { path: raw.slice(0, idx).trim(), value: raw.slice(idx + 1) };
 }
