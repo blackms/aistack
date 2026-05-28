@@ -356,6 +356,8 @@ export interface AgentStackConfig {
   sandbox?: SandboxConfig;
   integrations?: IntegrationsConfig;
   guardrails?: GuardrailsConfig;
+  /** Authentication config (extended for SSO via auth.sso sub-field). AIG-646. */
+  auth?: AuthConfig;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.
@@ -520,6 +522,25 @@ export interface GuardrailsConfig {
   timeoutMs?: number;
   /** Abort remaining guardrails on first high-severity failure. Default true. */
   killSwitch?: boolean;
+}
+
+/**
+ * Authentication config (AIG-646).
+ *
+ * The existing JWT+bcrypt+RBAC AuthService keeps its own state; this sibling
+ * field only carries the optional SSO sub-config so operators can configure
+ * SAML/OIDC/SCIM via aistack.config.json. The structural shape mirrors
+ * `SsoConfig` in src/auth/sso/types.ts but is duplicated here to avoid a
+ * circular import from the SSO module into the root types file.
+ */
+export interface AuthConfig {
+  sso?: {
+    saml?: Record<string, unknown>;
+    oidc?: Record<string, unknown>;
+    scim?: Record<string, unknown>;
+    defaultRole?: 'admin' | 'developer' | 'viewer';
+    strictIdentityBinding?: boolean;
+  };
 }
 
 export interface MemoryConfig {
