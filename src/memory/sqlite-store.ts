@@ -41,6 +41,9 @@ import type {
   ConsensusDecision,
 } from '../types.js';
 import { logger } from '../utils/logger.js';
+// AIG-649: pull the active tenant context to stamp audit log rows.
+// Safe to import statically — multitenancy/* does not depend on memory/*.
+import { getActiveTenantContext } from '../multitenancy/index.js';
 
 const log = logger.child('sqlite');
 
@@ -2225,7 +2228,15 @@ export class SQLiteStore {
     actorId?: string;
     metadata?: Record<string, unknown>;
   }): void {
-    const metadataJson = entry.metadata ? JSON.stringify(entry.metadata) : null;
+    // AIG-649 wire-point: stamp audit events with the active tenant scope so
+    // downstream review / compliance tooling can filter per tenant. Uses the
+    // module-scoped active context set by HTTP routes via
+    // `runWithTenantContext`; falls back to undefined in single-tenant mode.
+    const tctx = getActiveTenantContext();
+    const enrichedMetadata = tctx
+      ? { ...(entry.metadata ?? {}), tenantId: tctx.tenantId, workspaceId: tctx.workspaceId }
+      : entry.metadata;
+    const metadataJson = enrichedMetadata ? JSON.stringify(enrichedMetadata) : null;
 
     this.db
       .prepare(`
@@ -2247,7 +2258,11 @@ export class SQLiteStore {
         Date.now()
       );
 
-    log.debug('Created audit entry', { agentId: entry.agentId, action: entry.action });
+    log.debug('Created audit entry', {
+      agentId: entry.agentId,
+      action: entry.action,
+      tenantId: tctx?.tenantId,
+    });
   }
 
   /**

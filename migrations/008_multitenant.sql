@@ -47,6 +47,13 @@ CREATE INDEX IF NOT EXISTS idx_workspaces_tenant ON workspaces(tenant_id);
 -- Membership + RBAC. A user can belong to multiple tenants with different
 -- roles. Workspace-scoped admin is represented by storing the workspace_id;
 -- when workspace_id IS NULL the role applies to the whole tenant.
+-- NOTE on the PRIMARY KEY: SQLite (like ANSI SQL) treats NULL values as
+-- distinct, so a literal `PRIMARY KEY (tenant_id, user_id, workspace_id)`
+-- would allow an unbounded number of (tenant_id, user_id, NULL) rows for
+-- the same user — breaking `TenantService.resolveRole` which assumes at
+-- most one tenant-wide grant per (tenant, user). We keep the composite PK
+-- for compatibility with the legacy reference, and ALSO enforce uniqueness
+-- via an explicit COALESCE'd UNIQUE INDEX below.
 CREATE TABLE IF NOT EXISTS tenant_users (
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL,
@@ -59,3 +66,33 @@ CREATE TABLE IF NOT EXISTS tenant_users (
 CREATE INDEX IF NOT EXISTS idx_tenant_users_user ON tenant_users(user_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_users_tenant ON tenant_users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_users_workspace ON tenant_users(workspace_id);
+
+-- True uniqueness key: collapse NULL workspace_id to a sentinel so that two
+-- tenant-wide memberships for the same user cannot coexist.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_users_pk_coalesced
+  ON tenant_users (
+    tenant_id,
+    user_id,
+    COALESCE(workspace_id, '00000000-0000-0000-0000-000000000000')
+  );
+
+-- ==================== DOWN ====================
+
+-- Reverses the UP section. Run with:
+--   sed -n '/-- ==================== DOWN ====================/,$p' \
+--     migrations/008_multitenant.sql | grep -v "^--" | \
+--     sqlite3 data/aistack.db
+--
+-- Tables are dropped in reverse-dependency order so the FK references resolve.
+
+DROP INDEX IF EXISTS idx_tenant_users_pk_coalesced;
+DROP INDEX IF EXISTS idx_tenant_users_workspace;
+DROP INDEX IF EXISTS idx_tenant_users_tenant;
+DROP INDEX IF EXISTS idx_tenant_users_user;
+DROP TABLE IF EXISTS tenant_users;
+
+DROP INDEX IF EXISTS idx_workspaces_tenant;
+DROP TABLE IF EXISTS workspaces;
+
+DROP INDEX IF EXISTS idx_tenants_slug;
+DROP TABLE IF EXISTS tenants;

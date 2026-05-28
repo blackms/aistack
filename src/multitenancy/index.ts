@@ -127,6 +127,68 @@ export function withTenantContext(
   };
 }
 
+// ===== Active-context propagation =======================================
+//
+// Many subsystems (spawner, memory manager, dispatcher, audit log) need to
+// know which tenant/workspace they are operating under so they can scope
+// their data correctly. We expose two mechanisms:
+//
+//   1. `getActiveTenantContext()` — module-level AsyncLocalStorage-style
+//      accessor (here implemented as a simple module-scope ref because the
+//      codebase does not yet use AsyncLocalStorage). HTTP routes call
+//      `runWithTenantContext(ctx, fn)` to push a context for the duration
+//      of a request handler. Consumers call `getActiveTenantContext()` to
+//      read the current scope.
+//
+//   2. Direct injection — for paths that already accept an options bag (e.g.
+//      `spawnAgent`, `MemoryManager.setAgentContext`), the route forwards
+//      the resolved MultitenancyContext explicitly. This is the source of
+//      truth; (1) is a fallback for code paths that don't yet thread context.
+//
+// Both mechanisms are no-ops when multitenancy is disabled, so single-tenant
+// callers see zero behavior change.
+
+let activeContext: MultitenancyContext | undefined;
+
+/**
+ * Returns the currently active tenant context, or undefined if none was set.
+ * Subsystems that need to scope their data call this; they should treat
+ * `undefined` as "single-tenant / no isolation needed".
+ */
+export function getActiveTenantContext(): MultitenancyContext | undefined {
+  return activeContext;
+}
+
+/**
+ * Run `fn` with the given tenant context active. Restores the previous
+ * context on return, even if `fn` throws. Intended for HTTP request scopes.
+ *
+ * NOTE: this uses a synchronous module-scope ref rather than
+ * AsyncLocalStorage, so it is NOT safe for concurrent async handlers in the
+ * same process — callers that hold onto the context across `await` boundaries
+ * should pass it explicitly rather than relying on this helper.
+ */
+export function runWithTenantContext<T>(
+  ctx: MultitenancyContext | undefined,
+  fn: () => T,
+): T {
+  const prev = activeContext;
+  activeContext = ctx;
+  try {
+    return fn();
+  } finally {
+    activeContext = prev;
+  }
+}
+
+/**
+ * Test-only reset — clears the active context. Production code should rely
+ * on the `runWithTenantContext` try/finally instead.
+ */
+export function _resetActiveTenantContext(): void {
+  activeContext = undefined;
+}
+
 // ===== Single-tenant -> multi-tenant migration tool =====================
 
 export interface MigrationOptions {

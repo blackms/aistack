@@ -23,6 +23,11 @@ import { FTSSearch } from './fts-search.js';
 import { VectorSearch } from './vector-search.js';
 import { MemoryAccessControl, getAccessControl } from './access-control.js';
 import { logger } from '../utils/logger.js';
+import {
+  getActiveTenantContext,
+  workspaceNamespace,
+  type MultitenancyContext,
+} from '../multitenancy/index.js';
 
 const log = logger.child('memory');
 
@@ -30,6 +35,39 @@ export interface AgentContext {
   agentId?: string;         // Optional - scoping within session
   sessionId: string;        // Required for session-based isolation
   includeShared?: boolean;
+  /**
+   * Multi-tenancy scoping (AIG-649). When set, memory namespaces are
+   * automatically prefixed with `tenant:<id>[:workspace:<id>]` so a tenant
+   * cannot read another tenant's memory even if they share a session id.
+   * When undefined, the manager falls back to `getActiveTenantContext()` —
+   * which itself returns undefined in single-tenant mode.
+   */
+  tenantContext?: MultitenancyContext;
+}
+
+/**
+ * Compute the effective tenant scope for a memory operation. Returns the
+ * explicit context on `agentContext` first, then the AsyncLocal-ish active
+ * context. Undefined means "no tenant scoping" (single-tenant mode).
+ */
+function effectiveTenantContext(
+  agentContext: AgentContext | null,
+): MultitenancyContext | undefined {
+  return agentContext?.tenantContext ?? getActiveTenantContext();
+}
+
+/**
+ * Prefix a memory namespace with the tenant/workspace scope when one is
+ * active, so cross-tenant key collisions are impossible. No-op for
+ * single-tenant deployments.
+ */
+function applyTenantPrefix(
+  namespace: string,
+  agentContext: AgentContext | null,
+): string {
+  const tctx = effectiveTenantContext(agentContext);
+  if (!tctx) return namespace;
+  return `${workspaceNamespace(tctx)}:${namespace}`;
 }
 
 export class MemoryManager {
@@ -96,6 +134,9 @@ export class MemoryManager {
     } else if (!namespace) {
       namespace = this.config.memory.defaultNamespace;
     }
+
+    // AIG-649 wire-point: prefix the namespace with tenant/workspace scope.
+    namespace = applyTenantPrefix(namespace, this.agentContext);
 
     // Validate access if we have a context
     if (this.agentContext?.sessionId) {
@@ -168,6 +209,9 @@ export class MemoryManager {
     } else if (!effectiveNamespace) {
       effectiveNamespace = this.config.memory.defaultNamespace;
     }
+
+    // AIG-649 wire-point: tenant-scope the lookup key.
+    effectiveNamespace = applyTenantPrefix(effectiveNamespace, this.agentContext);
 
     // Validate access if we have a context
     if (this.agentContext?.sessionId) {

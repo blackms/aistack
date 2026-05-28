@@ -185,6 +185,18 @@ export class TenantService {
       CREATE INDEX IF NOT EXISTS idx_tenant_users_user ON tenant_users(user_id);
       CREATE INDEX IF NOT EXISTS idx_tenant_users_tenant ON tenant_users(tenant_id);
       CREATE INDEX IF NOT EXISTS idx_tenant_users_workspace ON tenant_users(workspace_id);
+
+      -- SQLite treats NULLs as distinct in composite PKs, which means the
+      -- declared PRIMARY KEY (tenant_id, user_id, workspace_id) above would
+      -- allow many (tenant, user, NULL) rows for the same user. That breaks
+      -- resolveRole() and the "one tenant-wide role per user" invariant.
+      -- We compensate with a COALESCE'd UNIQUE INDEX (mirrors migration 008).
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_users_pk_coalesced
+        ON tenant_users (
+          tenant_id,
+          user_id,
+          COALESCE(workspace_id, '00000000-0000-0000-0000-000000000000')
+        );
     `);
   }
 
@@ -323,6 +335,10 @@ export class TenantService {
     workspaceId?: string,
   ): TenantMembership {
     const now = Date.now();
+    // INSERT OR REPLACE relies on either the declared PK or any UNIQUE index
+    // matching the new row. For workspace-scoped grants the PK matches; for
+    // tenant-wide grants (workspace_id IS NULL) we rely on the COALESCE'd
+    // UNIQUE INDEX created in ensureSchema() to detect the duplicate.
     this.db
       .prepare(
         `INSERT OR REPLACE INTO tenant_users

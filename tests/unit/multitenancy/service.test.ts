@@ -5,6 +5,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { TenantService } from '../../../src/multitenancy/service.js';
+import {
+  getActiveTenantContext,
+  runWithTenantContext,
+  workspaceNamespace,
+  _resetActiveTenantContext,
+} from '../../../src/multitenancy/index.js';
 
 describe('TenantService', () => {
   let db: Database.Database;
@@ -138,6 +144,48 @@ describe('TenantService', () => {
     });
   });
 
+  describe('tenant_users PK / uniqueness (AIG-649 review fix)', () => {
+    it('does not allow duplicate tenant-wide memberships for the same user', () => {
+      const t = service.createTenant({ name: 'A', slug: 'a' });
+
+      // First addMembership inserts. Second one with the same (tenant, user,
+      // NULL workspace) must REPLACE — not create a duplicate row. Previously
+      // SQLite's PK treats NULLs as distinct, so without the COALESCE'd
+      // UNIQUE INDEX a second insert would have left two rows behind and
+      // resolveRole would have returned an arbitrary one.
+      service.addMembership(t.id, 'u1', 'member');
+      service.addMembership(t.id, 'u1', 'tenant_admin');
+
+      const rows = db
+        .prepare(
+          'SELECT role, workspace_id FROM tenant_users WHERE tenant_id = ? AND user_id = ?',
+        )
+        .all(t.id, 'u1') as Array<{ role: string; workspace_id: string | null }>;
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].role).toBe('tenant_admin');
+      expect(rows[0].workspace_id).toBeNull();
+
+      // resolveRole stays deterministic with the dedup in place.
+      expect(service.resolveRole('u1', t.id)).toBe('tenant_admin');
+    });
+
+    it('still allows the same user to hold both a tenant-wide and a workspace-scoped grant', () => {
+      const t = service.createTenant({ name: 'A', slug: 'a' });
+      const w = service.createWorkspace({ tenantId: t.id, name: 'W', slug: 'w' });
+      service.addMembership(t.id, 'u1', 'member');
+      service.addMembership(t.id, 'u1', 'workspace_admin', w.id);
+
+      const rows = db
+        .prepare('SELECT role, workspace_id FROM tenant_users WHERE tenant_id = ? AND user_id = ?')
+        .all(t.id, 'u1') as Array<{ role: string; workspace_id: string | null }>;
+
+      expect(rows).toHaveLength(2);
+      // resolveRole for the workspace must pick the highest of the two.
+      expect(service.resolveRole('u1', t.id, w.id)).toBe('workspace_admin');
+    });
+  });
+
   describe('resolveRole', () => {
     it('picks the highest-privileged role for a user', () => {
       const t = service.createTenant({ name: 'A', slug: 'a' });
@@ -157,6 +205,62 @@ describe('TenantService', () => {
     it('assertAccess throws for unknown users', () => {
       const t = service.createTenant({ name: 'A', slug: 'a' });
       expect(() => service.assertAccess('nobody', t.id)).toThrow(/no access/);
+    });
+  });
+
+  describe('runWithTenantContext / getActiveTenantContext (AIG-649 wire-up)', () => {
+    beforeEach(() => {
+      _resetActiveTenantContext();
+    });
+
+    afterEach(() => {
+      _resetActiveTenantContext();
+    });
+
+    it('exposes the active context to consumers and restores on exit', () => {
+      const t = service.createTenant({ name: 'Acme', slug: 'acme' });
+      const w = service.createWorkspace({ tenantId: t.id, name: 'W', slug: 'w' });
+
+      expect(getActiveTenantContext()).toBeUndefined();
+
+      let observed: string | undefined;
+      runWithTenantContext(
+        {
+          tenantId: t.id,
+          tenantSlug: t.slug,
+          workspaceId: w.id,
+          workspaceSlug: w.slug,
+          role: 'tenant_admin',
+        },
+        () => {
+          const active = getActiveTenantContext();
+          expect(active?.tenantId).toBe(t.id);
+          // workspaceNamespace() is what the spawner / memory manager use
+          // to scope namespaces — this is the wire-up consumer surface.
+          observed = workspaceNamespace(active!);
+        },
+      );
+
+      expect(observed).toBe(`tenant:${t.id}:workspace:${w.id}`);
+      expect(getActiveTenantContext()).toBeUndefined();
+    });
+
+    it('restores the previous context even if the callback throws', () => {
+      const t = service.createTenant({ name: 'A', slug: 'a' });
+      expect(() =>
+        runWithTenantContext(
+          {
+            tenantId: t.id,
+            tenantSlug: t.slug,
+            role: 'member',
+          },
+          () => {
+            expect(getActiveTenantContext()?.tenantId).toBe(t.id);
+            throw new Error('boom');
+          },
+        ),
+      ).toThrow(/boom/);
+      expect(getActiveTenantContext()).toBeUndefined();
     });
   });
 });
