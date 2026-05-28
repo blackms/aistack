@@ -3,7 +3,7 @@
 # aistack - Multi-stage Dockerfile
 # ----------------------------------------------------------------------------
 # Stage 1 (builder): install full deps + compile TypeScript -> dist/
-# Stage 2 (runtime): copy compiled output + production deps, run as non-root.
+# Stage 2 (runtime): copy compiled output + core production deps, run as non-root.
 # Target image size: < 200MB (node:20-slim base ~ 75MB).
 # ============================================================================
 
@@ -34,8 +34,10 @@ COPY migrations ./migrations
 COPY templates ./templates
 RUN npm run build
 
-# Prune to production-only deps (re-resolves and drops dev packages)
-RUN npm prune --omit=dev
+# Prune to core production deps. Optional integrations such as local WASM
+# embeddings and managed sandboxes are lazy-loaded by the app and can be
+# installed by operators who need them; omitting them keeps the base image small.
+RUN npm prune --omit=dev --omit=optional
 
 # ---------- Stage 2: runtime ----------
 FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS runtime
