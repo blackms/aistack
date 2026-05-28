@@ -6,6 +6,9 @@ This directory contains SQL migration scripts for the AgentStack database.
 
 Migrations are named with a numeric prefix to ensure proper ordering:
 - `001_add_memory_enhancements.sql` - Adds tagging, relationships, and versioning
+- `002_add_agent_identity.sql` - Persistent agent identity + memory scoping
+- `003_add_semantic_drift.sql` - Task semantic drift detection tables
+- `005_audit_log_chain.sql` - Hash-chained immutable audit log (SOC2/ISO27001/HIPAA)
 
 ## Running Migrations
 

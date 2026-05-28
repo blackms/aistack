@@ -277,7 +277,8 @@ describe('Environment Variable Interpolation', () => {
     expect(config.providers.anthropic?.apiKey).toBe('my-secret-key');
   });
 
-  it('should handle missing environment variables', () => {
+  it('throws when a referenced env var is unset (fail-fast on misconfig)', () => {
+    delete process.env['NONEXISTENT_VAR'];
     writeFileSync(
       configPath,
       JSON.stringify({
@@ -289,9 +290,20 @@ describe('Environment Variable Interpolation', () => {
       })
     );
 
-    const config = loadConfig(configPath);
+    expect(() => loadConfig(configPath)).toThrowError(/NONEXISTENT_VAR/);
+  });
 
-    expect(config.providers.anthropic?.apiKey).toBe('');
+  it('honors the `$${VAR}` escape to emit a literal `${VAR}`', () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        version: '1.0.0',
+        memory: { path: '$${LITERAL_VAR}/db' },
+      })
+    );
+
+    const config = loadConfig(configPath);
+    expect(config.memory.path).toBe('${LITERAL_VAR}/db');
   });
 
   it('should interpolate arrays with env vars', () => {

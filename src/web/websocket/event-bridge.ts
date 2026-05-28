@@ -164,6 +164,10 @@ export type EventName =
 // Event bridge class for managing WebSocket subscriptions
 export class EventBridge {
   private listeners: Map<string, Set<(data: unknown) => void>> = new Map();
+  private emitterListeners: Array<{
+    event: EventName;
+    listener: (data: unknown) => void;
+  }> = [];
 
   constructor() {
     // Wire up all agent events to broadcast
@@ -194,9 +198,11 @@ export class EventBridge {
     ];
 
     for (const event of events) {
-      agentEvents.on(event, (data: unknown) => {
+      const listener = (data: unknown) => {
         this.broadcast(event, data);
-      });
+      };
+      agentEvents.on(event, listener);
+      this.emitterListeners.push({ event, listener });
     }
   }
 
@@ -290,6 +296,14 @@ export class EventBridge {
   clear(): void {
     this.listeners.clear();
   }
+
+  dispose(): void {
+    this.clear();
+    for (const { event, listener } of this.emitterListeners) {
+      agentEvents.off(event, listener);
+    }
+    this.emitterListeners = [];
+  }
 }
 
 // Singleton instance
@@ -304,7 +318,7 @@ export function getEventBridge(): EventBridge {
 
 export function resetEventBridge(): void {
   if (eventBridge) {
-    eventBridge.clear();
+    eventBridge.dispose();
     eventBridge = null;
   }
 }

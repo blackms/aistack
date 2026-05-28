@@ -13,6 +13,7 @@ import type {
 } from '../types.js';
 import { IDENTITY_STATUS_TRANSITIONS } from '../types.js';
 import { getMemoryManager } from '../memory/index.js';
+import { audit } from '../audit/index.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child('identity-service');
@@ -88,6 +89,7 @@ export class IdentityService {
     }
 
     log.info('Created identity', { agentId, type: options.agentType, displayName: options.displayName });
+    audit(this.config, 'identity.create', { agentId, agentType: options.agentType, displayName: options.displayName, autoActivate: options.autoActivate ?? false });
     return identity;
   }
 
@@ -154,6 +156,7 @@ export class IdentityService {
     });
 
     log.debug('Updated identity', { agentId, updates: Object.keys(updates) });
+    audit(this.config, 'identity.update', { agentId, updatedFields: Object.keys(updates), actorId });
     return store.getAgentIdentity(agentId);
   }
 
@@ -207,6 +210,7 @@ export class IdentityService {
     });
 
     log.info('Retired identity', { agentId, reason });
+    audit(this.config, 'identity.retire', { agentId, previousStatus, reason, actorId });
 
     const updated = store.getAgentIdentity(agentId);
     if (!updated) {
@@ -334,6 +338,7 @@ export class IdentityService {
     });
 
     log.info('Transitioned identity status', { agentId, from: previousStatus, to: newStatus });
+    audit(this.config, `identity.${action}` as const, { agentId, previousStatus, newStatus, reason: options.reason, actorId: options.actorId });
 
     const updated = store.getAgentIdentity(agentId);
     if (!updated) {

@@ -1,0 +1,232 @@
+# Default values for aistack.
+# This is a YAML-formatted file.
+
+# ---------------------------------------------------------------------------
+# Image
+# ---------------------------------------------------------------------------
+image:
+  repository: ghcr.io/blackms/aistack
+  tag: ""           # defaults to .Chart.AppVersion when empty
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+# - name: ghcr-pull-secret
+
+# ---------------------------------------------------------------------------
+# Workload
+# ---------------------------------------------------------------------------
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+# Command override. Defaults to running the web server.
+command:
+  - aistack
+args:
+  - web
+  - start
+  - --host
+  - "0.0.0.0"
+  - --port
+  - "3001"
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  # Root FS is read-only; writable paths come from emptyDir/PVC mounts
+  # (/data, /tmp). better-sqlite3 writes only to AISTACK_DATA_DIR (/data).
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 3001
+  targetPort: 3001
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Ingress (off by default; bring your own controller / cert manager).
+# When you enable it, TLS is ON by default — set `tls.enabled: false`
+# explicitly only if you are terminating TLS upstream (e.g. service mesh).
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  # cert-manager example: install cert-manager and a ClusterIssuer named
+  # `letsencrypt-prod`, then this annotation will auto-issue the cert into
+  # the secret referenced by `tls.secretName`.
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: aistack.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    enabled: true
+    # When `enabled: true` and no explicit `hosts` list is given here, the
+    # chart derives one TLS block per `ingress.hosts[].host` and stores the
+    # certificate in `<fullname>-tls`. Override by setting `hosts` below.
+    hosts: []
+    # - hosts:
+    #     - aistack.example.com
+    #   secretName: aistack-tls
+
+# ---------------------------------------------------------------------------
+# Health checks. HTTP probes hit the daemon's k8s endpoints from AIG-636:
+#   GET /api/v1/system/health/live   -> liveness  (process is up)
+#   GET /api/v1/system/health/ready  -> readiness (deps reachable)
+# Set `type: exec` to fall back to the legacy `node --version` check.
+# ---------------------------------------------------------------------------
+probes:
+  liveness:
+    enabled: true
+    type: http               # http | exec
+    path: /api/v1/system/health/live
+    initialDelaySeconds: 15
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    type: http
+    path: /api/v1/system/health/ready
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# Persistence (SQLite local DB). Disable when using Postgres backend.
+# ---------------------------------------------------------------------------
+persistence:
+  enabled: false
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 5Gi
+  mountPath: /data
+  # existingClaim: my-pvc        # use a pre-existing PVC instead of creating one
+
+# ---------------------------------------------------------------------------
+# Application config (rendered into a ConfigMap, mounted at /etc/aistack/)
+# ---------------------------------------------------------------------------
+config:
+  # Free-form JSON merged into agentstack.config.json. Override per environment.
+  contents:
+    version: "1.0.0"
+    memory:
+      path: "/data/agentstack.db"
+      defaultNamespace: "default"
+    agents:
+      maxConcurrent: 5
+      defaultTimeout: 300
+    web:
+      enabled: true
+      port: 3001
+      host: "0.0.0.0"
+
+# ---------------------------------------------------------------------------
+# Environment variables
+# ---------------------------------------------------------------------------
+# Non-sensitive env vars (rendered into the Deployment spec directly)
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  LOG_FORMAT: json
+
+# Sensitive env vars. Three strategies, in order of recommendation:
+#   1. external secret manager via existingSecret (External Secrets Operator,
+#      Vault Agent Injector, Sealed Secrets, etc.) -- see docs/DEPLOY.md
+#   2. K8s Secret created by this chart from `secrets` map (dev/PoC only)
+#   3. envFrom on a Secret you manage out of band
+secrets:
+  # If set, the chart will NOT create a Secret; it expects the listed Secret
+  # to already exist with all required keys (JWT_SECRET, REFRESH_SECRET, etc.)
+  existingSecret: ""
+
+  # Used only when existingSecret is empty. Values rendered into a K8s Secret.
+  # IMPORTANT: leave empty in committed values files. Pass via `helm install
+  # --set-string secrets.create.JWT_SECRET=...` or a sealed/external secret.
+  create:
+    JWT_SECRET: ""
+    REFRESH_SECRET: ""
+    ANTHROPIC_API_KEY: ""
+    OPENAI_API_KEY: ""
+
+# ---------------------------------------------------------------------------
+# ServiceAccount
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Autoscaling (off by default; SQLite mode = single replica)
+# ---------------------------------------------------------------------------
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# ---------------------------------------------------------------------------
+# PodDisruptionBudget
+# ---------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1    # mutually exclusive with minAvailable
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy — default-deny with explicit allowlist. Disable if your
+# cluster doesn't run a NetworkPolicy-aware CNI (calico, cilium, etc.).
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # Restrict ingress to the chart's Service port. By default we allow traffic
+  # from any pod in the same namespace; tighten via `ingress.from` below.
+  ingress:
+    from: []
+    # - namespaceSelector:
+    #     matchLabels:
+    #       kubernetes.io/metadata.name: ingress-nginx
+    # - podSelector:
+    #     matchLabels:
+    #       app.kubernetes.io/name: prometheus
+  # Egress: DNS + HTTPS to LLM providers + Postgres (if used). Set to []
+  # to drop egress entirely (only meaningful when DATABASE_URL stays inside
+  # the cluster and no external LLM calls are made).
+  egress:
+    allowDNS: true
+    allowHTTPS: true     # 443/tcp to 0.0.0.0/0 (LLM API calls)
+    extra: []

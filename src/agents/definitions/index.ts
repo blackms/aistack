@@ -13,3 +13,5 @@ export { analystAgent } from './analyst.js';
 export { devopsAgent } from './devops.js';
 export { documentationAgent } from './documentation.js';
 export { securityAuditorAgent } from './security-auditor.js';
+export { incidentResponderAgent } from './incident-responder.js';
+export { browserTesterAgent } from './browser-tester.js';

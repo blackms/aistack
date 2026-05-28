@@ -153,6 +153,53 @@ describe('Agent Registry', () => {
       const def = getAgentDefinition('overwrite');
       expect(def?.description).toBe('Updated');
     });
+
+    // Security: agent.type is interpolated into filesystem paths
+    // (exportAllAgents -> join(outputDir, `aistack-${type}.md`)) and into
+    // YAML frontmatter (exportAgentToMarkdown -> `name: aistack-${type}`).
+    // Both sinks must be protected at the registration boundary.
+    describe('type validation (security)', () => {
+      it('should reject path traversal in agent type', () => {
+        expect(() => registerAgent(createMockDefinition('../../evil'))).toThrow(
+          /Invalid agent type/,
+        );
+        expect(hasAgentType('../../evil')).toBe(false);
+      });
+
+      it('should reject YAML injection (colon) in agent type', () => {
+        expect(() => registerAgent(createMockDefinition('evil:hooks'))).toThrow(
+          /Invalid agent type/,
+        );
+        expect(hasAgentType('evil:hooks')).toBe(false);
+      });
+
+      it('should reject newline in agent type', () => {
+        expect(() =>
+          registerAgent(createMockDefinition('evil\nhooks: bad')),
+        ).toThrow(/Invalid agent type/);
+      });
+
+      it('should reject uppercase / whitespace / empty types', () => {
+        expect(() => registerAgent(createMockDefinition('EvilCase'))).toThrow(
+          /Invalid agent type/,
+        );
+        expect(() => registerAgent(createMockDefinition('with space'))).toThrow(
+          /Invalid agent type/,
+        );
+        expect(() => registerAgent(createMockDefinition(''))).toThrow(
+          /Invalid agent type/,
+        );
+        expect(() => registerAgent(createMockDefinition('-leading-dash'))).toThrow(
+          /Invalid agent type/,
+        );
+      });
+
+      it('should accept kebab-case and alphanumeric types', () => {
+        expect(() => registerAgent(createMockDefinition('my-agent'))).not.toThrow();
+        expect(() => registerAgent(createMockDefinition('agent42'))).not.toThrow();
+        expect(() => registerAgent(createMockDefinition('a'))).not.toThrow();
+      });
+    });
   });
 
   describe('unregisterAgent', () => {
@@ -197,9 +244,9 @@ describe('Agent Registry', () => {
     it('should count core agents', () => {
       const count = getAgentCount();
 
-      expect(count.core).toBe(11);
+      expect(count.core).toBe(12);
       expect(count.custom).toBe(0);
-      expect(count.total).toBe(11);
+      expect(count.total).toBe(12);
     });
 
     it('should count custom agents', () => {
@@ -208,9 +255,9 @@ describe('Agent Registry', () => {
 
       const count = getAgentCount();
 
-      expect(count.core).toBe(11);
+      expect(count.core).toBe(12);
       expect(count.custom).toBe(2);
-      expect(count.total).toBe(13);
+      expect(count.total).toBe(14);
     });
   });
 

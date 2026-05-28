@@ -15,6 +15,7 @@ import type {
   TaskRiskLevel,
 } from '../types.js';
 import { logger } from '../utils/logger.js';
+import { audit } from '../audit/index.js';
 
 const log = logger.child('consensus');
 
@@ -52,10 +53,12 @@ export interface CreateCheckpointOptions {
 export class ConsensusService {
   private store: SQLiteStore;
   private config: ConsensusConfig;
+  private appConfig: AgentStackConfig;
   private expirationInterval: NodeJS.Timeout | null = null;
 
   constructor(store: SQLiteStore, appConfig: AgentStackConfig) {
     this.store = store;
+    this.appConfig = appConfig;
     // Merge config carefully to preserve defaults when values are undefined
     const userConfig: Partial<ConsensusConfig> = appConfig.consensus ?? {};
     this.config = {
@@ -320,6 +323,7 @@ Respond with your decision in this JSON format:
     }
 
     const updatedCheckpoint = this.store.getConsensusCheckpoint(checkpointId);
+    audit(this.appConfig, 'consensus.decision', { checkpointId, approved: decision.approved, reviewedBy: decision.reviewedBy, reviewerType: decision.reviewerType, rejectedSubtaskCount: decision.rejectedSubtaskIds?.length ?? 0, taskId: updatedCheckpoint?.taskId });
     return { success: true, checkpoint: updatedCheckpoint ?? undefined };
   }
 
