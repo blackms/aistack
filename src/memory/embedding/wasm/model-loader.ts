@@ -8,9 +8,16 @@
  *
  * If the optional dependency is not installed, this loader fails fast with a
  * clear, actionable error so the caller can fall back to another provider.
+ *
+ * **Supply-chain integrity**: the `modelId` is user-overridable via config
+ * and CLI, so a misconfiguration or compromised Hugging Face Hub mirror could
+ * substitute a malicious ONNX. When `expectedSha256` is provided, every ONNX
+ * file written under the cache directory is hashed and compared after the
+ * download finishes; any mismatch deletes the bad bytes and throws.
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { logger } from '../../../utils/logger.js';
@@ -80,14 +87,87 @@ export interface FeatureExtractionPipeline {
   ): Promise<{ data: Float32Array; dims: number[] }>;
 }
 
+export interface PredownloadOptions {
+  /**
+   * Pin a SHA-256 over the concatenation (in deterministic on-disk order)
+   * of every ONNX file the loader writes under the cache directory for this
+   * model. Required for *any* non-default model id; recommended for the
+   * default to harden against a compromised Hub mirror.
+   *
+   * Compute once with `aistack memory hash-model <modelId>` (or the helper
+   * `hashModelOnDisk()` exported from this module) and pin in config.
+   */
+  expectedSha256?: string;
+  /**
+   * If `true`, allow downloading a model with no pinned hash. Defaults to
+   * `false` for non-default models — flipping this to `true` requires the
+   * operator to explicitly accept the supply-chain risk.
+   */
+  allowUnpinned?: boolean;
+}
+
+/**
+ * Compute a deterministic SHA-256 over every `.onnx` file written under the
+ * given model cache directory. Files are hashed in lexicographic relative
+ * path order so the digest is stable across platforms.
+ *
+ * Exported so operators can pin a hash via `aistack memory hash-model`.
+ */
+export function hashModelOnDisk(modelDir: string): string {
+  if (!existsSync(modelDir)) {
+    throw new Error(`Model directory does not exist: ${modelDir}`);
+  }
+  const files = collectOnnxFiles(modelDir).sort();
+  if (files.length === 0) {
+    throw new Error(`No .onnx files found under ${modelDir}`);
+  }
+  const hash = createHash('sha256');
+  for (const f of files) {
+    // Hash the relative path so renames are detected too.
+    hash.update(f.slice(modelDir.length).replace(/\\/g, '/'));
+    hash.update('\0');
+    hash.update(readFileSync(f));
+  }
+  return hash.digest('hex');
+}
+
+function collectOnnxFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const st = statSync(full);
+    if (st.isDirectory()) {
+      out.push(...collectOnnxFiles(full));
+    } else if (entry.toLowerCase().endsWith('.onnx')) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+/**
+ * Best-effort: derive the on-disk directory `@xenova/transformers` uses for a
+ * given modelId inside `cacheDir`. transformers.js layouts may evolve; we fall
+ * back to the cacheDir root so the hash still covers all ONNX bytes written.
+ */
+function modelDirFor(cacheDir: string, modelId: string): string {
+  const candidate = join(cacheDir, modelId);
+  return existsSync(candidate) ? candidate : cacheDir;
+}
+
 /**
  * Predownload the model so the first runtime call does not pay the network
  * cost. Used by `aistack memory download-model`.
  *
  * Returns the absolute cache directory on success or throws an Error with
- * a hint on how to install the optional dependency.
+ * a hint on how to install the optional dependency. When `expectedSha256` is
+ * provided, the downloaded ONNX bytes are hashed and compared; on mismatch
+ * the cached files are removed and the function throws.
  */
-export async function predownloadModel(modelId: string = DEFAULT_MODEL_ID): Promise<string> {
+export async function predownloadModel(
+  modelId: string = DEFAULT_MODEL_ID,
+  options: PredownloadOptions = {},
+): Promise<string> {
   const lib = await loadTransformersLibrary();
   if (!lib) {
     throw new Error(
@@ -99,9 +179,43 @@ export async function predownloadModel(modelId: string = DEFAULT_MODEL_ID): Prom
   const cacheDir = getModelsCacheDir();
   lib.env.cacheDir = cacheDir;
   lib.env.allowRemoteModels = true;
+
+  const isDefault = modelId === DEFAULT_MODEL_ID;
+  if (!options.expectedSha256 && !options.allowUnpinned && !isDefault) {
+    throw new Error(
+      `Refusing to download non-default model '${modelId}' without an ` +
+        `'expectedSha256' pin. Compute the digest in a trusted environment ` +
+        `with \`aistack memory hash-model ${modelId}\` and add it to ` +
+        `memory.vectorSearch.expectedSha256, or set 'allowUnpinned: true' ` +
+        `to explicitly accept the supply-chain risk.`,
+    );
+  }
+
   log.info('Pre-downloading WASM embedding model', { modelId, cacheDir });
 
   // Instantiating the pipeline triggers the download + caching.
   await lib.pipeline('feature-extraction', modelId, { quantized: true });
+
+  if (options.expectedSha256) {
+    const modelDir = modelDirFor(cacheDir, modelId);
+    const actual = hashModelOnDisk(modelDir);
+    if (actual.toLowerCase() !== options.expectedSha256.toLowerCase()) {
+      // Remove the suspicious bytes so a retry cannot mask the problem.
+      for (const f of collectOnnxFiles(modelDir)) {
+        try {
+          unlinkSync(f);
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+      throw new Error(
+        `Model integrity check failed for '${modelId}': expected SHA-256 ` +
+          `${options.expectedSha256} but got ${actual}. Cached ONNX files ` +
+          `were removed. Verify the pin or your network path.`,
+      );
+    }
+    log.info('Model integrity verified', { modelId, sha256: actual });
+  }
+
   return cacheDir;
 }

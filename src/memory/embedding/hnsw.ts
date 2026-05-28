@@ -18,6 +18,13 @@ const log = logger.child('hnsw');
 
 export interface HnswSearchResult {
   id: string;
+  /**
+   * Score in `[0, 1]`. For the in-memory backend this is raw cosine
+   * similarity. For the `sqlite-vec` backend it is `1 / (1 + L2)`, which is
+   * monotone in distance but **not** directly comparable to a cosine
+   * similarity across backends. Compare scores *within* a single backend
+   * only; treat the absolute value as opaque otherwise.
+   */
   score: number;
 }
 
@@ -37,6 +44,7 @@ interface BetterSqliteLike {
   prepare: (sql: string) => {
     run: (...args: unknown[]) => unknown;
     all: (...args: unknown[]) => unknown[];
+    get: (...args: unknown[]) => unknown;
   };
   exec: (sql: string) => void;
 }
@@ -78,11 +86,18 @@ class InMemoryHnsw implements HnswBackend {
  * and `embedding` (the vector of `dimensions` floats).
  *
  * sqlite-vec uses integer `rowid`s, so we keep a separate id<->rowid map.
+ *
+ * **Persistence**: the id<->rowid map is mirrored into a companion table
+ * (`<table>_id_map`) so the index survives process restarts. Without this,
+ * after a restart the JS-only map would be empty, `nextRow` would reset to
+ * `1`, and new inserts would silently collide with persisted rowids in the
+ * `vec0` virtual table — corrupting prior data (see AIG-653 review).
  */
 class SqliteVecHnsw implements HnswBackend {
   readonly backend = 'sqlite-vec' as const;
   private readonly db: BetterSqliteLike;
   private readonly table: string;
+  private readonly mapTable: string;
   private readonly idToRow = new Map<string, number>();
   private readonly rowToId = new Map<number, string>();
   private nextRow = 1;
@@ -90,9 +105,42 @@ class SqliteVecHnsw implements HnswBackend {
   constructor(db: BetterSqliteLike, table: string, dimensions: number) {
     this.db = db;
     this.table = table;
+    this.mapTable = `${table}_id_map`;
     db.exec(
       `CREATE VIRTUAL TABLE IF NOT EXISTS ${table} USING vec0(embedding float[${dimensions}])`,
     );
+    db.exec(
+      `CREATE TABLE IF NOT EXISTS ${this.mapTable} (` +
+        `id TEXT PRIMARY KEY, ` +
+        `rowid INTEGER NOT NULL UNIQUE` +
+        `)`,
+    );
+    this.loadMap();
+  }
+
+  /**
+   * Hydrate the in-memory id<->rowid map from the persistent table and seed
+   * `nextRow` past the highest existing rowid so new inserts cannot collide.
+   */
+  private loadMap(): void {
+    const rows = this.db
+      .prepare(`SELECT id, rowid FROM ${this.mapTable}`)
+      .all() as Array<{ id: string; rowid: number }>;
+    for (const r of rows) {
+      this.idToRow.set(r.id, r.rowid);
+      this.rowToId.set(r.rowid, r.id);
+    }
+    const max = this.db
+      .prepare(`SELECT COALESCE(MAX(rowid), 0) AS maxRow FROM ${this.mapTable}`)
+      .get() as { maxRow: number } | undefined;
+    this.nextRow = (max?.maxRow ?? 0) + 1;
+    if (rows.length > 0) {
+      log.debug('Restored sqlite-vec id map', {
+        table: this.table,
+        size: rows.length,
+        nextRow: this.nextRow,
+      });
+    }
   }
 
   upsert(id: string, vector: Float32Array | number[]): void {
@@ -100,11 +148,18 @@ class SqliteVecHnsw implements HnswBackend {
     const existing = this.idToRow.get(id);
     if (existing !== undefined) {
       this.db.prepare(`DELETE FROM ${this.table} WHERE rowid = ?`).run(existing);
+      this.db
+        .prepare(`INSERT INTO ${this.table}(rowid, embedding) VALUES (?, ?)`)
+        .run(existing, buf.buffer);
+      return;
     }
     const row = this.nextRow++;
     this.db
       .prepare(`INSERT INTO ${this.table}(rowid, embedding) VALUES (?, ?)`)
       .run(row, buf.buffer);
+    this.db
+      .prepare(`INSERT INTO ${this.mapTable}(id, rowid) VALUES (?, ?)`)
+      .run(id, row);
     this.idToRow.set(id, row);
     this.rowToId.set(row, id);
   }
@@ -113,6 +168,7 @@ class SqliteVecHnsw implements HnswBackend {
     const row = this.idToRow.get(id);
     if (row === undefined) return;
     this.db.prepare(`DELETE FROM ${this.table} WHERE rowid = ?`).run(row);
+    this.db.prepare(`DELETE FROM ${this.mapTable} WHERE id = ?`).run(id);
     this.idToRow.delete(id);
     this.rowToId.delete(row);
   }
@@ -133,7 +189,8 @@ class SqliteVecHnsw implements HnswBackend {
       const id = this.rowToId.get(r.rowid);
       if (id === undefined) continue;
       // sqlite-vec returns L2 distance for float vectors; convert to a
-      // similarity score in [0, 1] so callers see a uniform metric.
+      // [0, 1] score that is monotone in distance. NOTE: this is NOT the
+      // same scale as the in-memory cosine score — see HnswSearchResult.
       const score = 1 / (1 + r.distance);
       out.push({ id, score });
     }
