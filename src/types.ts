@@ -353,6 +353,7 @@ export interface AgentStackConfig {
   telemetry?: TelemetryConfig;
   audit?: AuditConfig;
   checkpointing?: CheckpointingConfig;
+  sandbox?: SandboxConfig;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.
@@ -422,6 +423,24 @@ export interface CheckpointingConfig {
   enabled: boolean;
   granularity?: 'step' | 'agent';
   retentionPerSession?: number;
+}
+
+export interface SandboxConfig {
+  provider: 'none' | 'docker' | 'e2b' | 'daytona';
+  timeout: number;
+  memoryMb: number;
+  cpus: number;
+  pidsLimit: number;
+  network: boolean;
+  images?: {
+    python?: string;
+    javascript?: string;
+    typescript?: string;
+    bash?: string;
+  };
+  e2bApiKey?: string;
+  daytonaApiUrl?: string;
+  daytonaApiKey?: string;
 }
 
 export interface MemoryConfig {

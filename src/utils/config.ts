@@ -216,6 +216,40 @@ const AuditConfigSchema = z.object({
   redactFields: z.array(z.string()).default([]),
 });
 
+/**
+ * Sandbox Configuration Schema (AIG-634)
+ *
+ * Controls sandboxed code execution for the coder agent and any caller of
+ * `createSandbox()`. Disabled by default — opt-in by setting
+ * `sandbox.provider` to one of 'docker' | 'e2b' | 'daytona'.
+ *
+ * Security defaults are intentionally conservative:
+ *   - network: false (no egress from Docker)
+ *   - memory: 512MB, cpus: 1, pidsLimit: 100
+ *   - timeout: 30s wall clock
+ * See docs/SANDBOX.md "Security Model" for the full threat model.
+ */
+const SandboxConfigSchema = z.object({
+  provider: z.enum(['none', 'docker', 'e2b', 'daytona']).default('none'),
+  timeout: z.number().min(1000).max(600_000).default(30_000),
+  memoryMb: z.number().min(64).max(8192).default(512),
+  cpus: z.number().min(0.1).max(8).default(1),
+  pidsLimit: z.number().min(10).max(4096).default(100),
+  network: z.boolean().default(false),
+  images: z
+    .object({
+      python: z.string().optional(),
+      javascript: z.string().optional(),
+      typescript: z.string().optional(),
+      bash: z.string().optional(),
+    })
+    .partial()
+    .optional(),
+  e2bApiKey: z.string().optional(),
+  daytonaApiUrl: z.string().url().optional(),
+  daytonaApiKey: z.string().optional(),
+});
+
 const SmartDispatcherConfigSchema = z.object({
   enabled: z.boolean().default(true),
   cacheEnabled: z.boolean().default(true),
@@ -282,6 +316,7 @@ const ConfigSchema = z.object({
   telemetry: TelemetryConfigSchema.default({}),
   audit: AuditConfigSchema.default({}),
   checkpointing: CheckpointingConfigSchema.default({}),
+  sandbox: SandboxConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
