@@ -153,6 +153,21 @@ const ConsensusConfigSchema = z.object({
   ]),
 });
 
+/**
+ * Telemetry Configuration Schema (AIG-655)
+ *
+ * Opt-in anonymous usage telemetry. Disabled by default (privacy-first).
+ * When enabled, posts anonymized events (review_loop.completed, agent.spawned)
+ * to a configurable HTTPS endpoint. See docs/TELEMETRY.md.
+ */
+const TelemetryConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  endpoint: z.string().url().optional(),
+  anonymizeSessionId: z.boolean().default(true),
+  flushIntervalMs: z.number().min(1000).max(3600000).default(60000),
+  batchSize: z.number().min(1).max(1000).default(20),
+});
+
 const SmartDispatcherConfigSchema = z.object({
   enabled: z.boolean().default(true),
   cacheEnabled: z.boolean().default(true),
@@ -196,6 +211,7 @@ const ConfigSchema = z.object({
   consensus: ConsensusConfigSchema.default({}),
   smartDispatcher: SmartDispatcherConfigSchema.default({}),
   daemon: DaemonConfigSchema.default({}),
+  telemetry: TelemetryConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';

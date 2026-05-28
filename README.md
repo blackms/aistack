@@ -5,11 +5,16 @@
 ### Ultra-Modern Multi-Agent Orchestration for Claude Code
 
 [![npm version](https://img.shields.io/npm/v/@blackms/aistack?style=for-the-badge&color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@blackms/aistack)
+[![npm downloads](https://img.shields.io/npm/dw/@blackms/aistack?style=for-the-badge&color=CB3837&logo=npm&logoColor=white&label=downloads%2Fweek)](https://www.npmjs.com/package/@blackms/aistack)
+[![GitHub stars](https://img.shields.io/github/stars/blackms/aistack?style=for-the-badge&logo=github&logoColor=white)](https://github.com/blackms/aistack/stargazers)
+[![GitHub contributors](https://img.shields.io/github/contributors/blackms/aistack?style=for-the-badge&logo=github&logoColor=white)](https://github.com/blackms/aistack/graphs/contributors)
 [![CI](https://img.shields.io/github/actions/workflow/status/blackms/aistack/ci.yml?style=for-the-badge&logo=github&logoColor=white)](https://github.com/blackms/aistack/actions/workflows/ci.yml)
 [![codecov](https://img.shields.io/codecov/c/github/blackms/aistack?style=for-the-badge&logo=codecov&logoColor=white)](https://codecov.io/gh/blackms/aistack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/uQ6fDXDs7E)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+<!-- M0 followup AIG-655: live counters from stats.aistack.dev once endpoint deployed (review loops run, agents spawned, bugs caught). Will use https://img.shields.io/endpoint?url=https://stats.aistack.dev/loops.json once available. See docs/TELEMETRY.md. -->
+<!-- Note: "bugs caught" metric requires a test fixture / reproducible claim — tracked as separate followup. -->
 
 <br/>
 
