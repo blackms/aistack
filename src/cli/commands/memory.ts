@@ -168,6 +168,23 @@ export function createMemoryCommand(): Command {
       }
     });
 
+  // download-model subcommand (WASM-native embedding model)
+  command
+    .command('download-model')
+    .description('Pre-download the WASM embedding model for offline use')
+    .option('-m, --model <id>', 'Hugging Face model id', 'Xenova/all-MiniLM-L6-v2')
+    .action(async (options) => {
+      const { model } = options as { model: string };
+      try {
+        const { predownloadModel } = await import('../../memory/embedding/wasm/index.js');
+        const cacheDir = await predownloadModel(model);
+        console.log(`Model '${model}' cached at: ${cacheDir}`);
+      } catch (error) {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
+    });
+
   // stats subcommand
   command
     .command('stats')

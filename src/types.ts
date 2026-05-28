@@ -578,6 +578,7 @@ export interface MemoryConfig {
   defaultNamespace: string;
   vectorSearch: {
     enabled: boolean;
+    /** One of `'openai' | 'ollama' | 'wasm-local'` (or future adapter id). */
     provider?: string;
     model?: string;
   };
@@ -635,6 +636,38 @@ export interface MemoryTieringConfig {
   intervalMs?: number;
   /** Maximum rows scanned per AutoPager tick. */
   batchSize?: number;
+}
+
+/**
+ * Configuration for the WASM-native (in-process) embedding provider.
+ * Consumed by `src/memory/embedding/wasm` — kept here so external consumers
+ * can typecheck their config without importing internal modules.
+ *
+ * Note: the on-disk cache directory is controlled by the `AISTACK_MODELS_DIR`
+ * environment variable rather than this object, so there is no `cacheDir`
+ * field — the field used to exist but was never read by the loader and was
+ * removed in the AIG-653 review pass.
+ */
+export interface WasmEmbeddingConfig {
+  /** Hugging Face model id, e.g. `'Xenova/all-MiniLM-L6-v2'`. */
+  modelId?: string;
+  /** Embedding dimensions; defaults to 384 for MiniLM-L6-v2. */
+  dimensions?: number;
+  /** L2-normalize embeddings so cosine == dot product. Defaults to true. */
+  normalize?: boolean;
+  /**
+   * SHA-256 over the on-disk ONNX bytes. Required for any non-default
+   * `modelId`; recommended even for the default to harden the Hub path.
+   */
+  expectedSha256?: string;
+  /**
+   * Max inputs per pipeline forward pass. Defaults to 32.
+   */
+  batchChunkSize?: number;
+  /**
+   * Soft WASM heap cap (MiB). Defaults to 256.
+   */
+  wasmMemoryCapMib?: number;
 }
 
 export interface ProvidersConfig {

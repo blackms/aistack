@@ -144,9 +144,65 @@ export function createEmbeddingProvider(config: AgentStackConfig): EmbeddingProv
       return new OllamaEmbeddings(baseUrl, vectorConfig.model);
     }
 
+    case 'wasm-local': {
+      // Lazy synchronous wrapper around the async WASM provider so we keep
+      // the existing sync factory signature. Errors surface on first embed().
+      return new LazyWasmLocalEmbeddings(vectorConfig.model);
+    }
+
     default:
       log.warn('Unknown embedding provider', { provider });
       return null;
+  }
+}
+
+/**
+ * Synchronous facade over the async `wasm-local` provider. Defers the
+ * dynamic import + model load until the first `embed()` call so the rest of
+ * the CLI starts up at full speed.
+ */
+class LazyWasmLocalEmbeddings implements EmbeddingProvider {
+  readonly model: string;
+  // all-MiniLM-L6-v2 default; updated after the first load if the model differs.
+  dimensions: number = 384;
+  private inner: EmbeddingProvider | null = null;
+  private initPromise: Promise<EmbeddingProvider> | null = null;
+
+  constructor(modelId?: string) {
+    this.model = modelId ?? 'Xenova/all-MiniLM-L6-v2';
+  }
+
+  private async init(): Promise<EmbeddingProvider> {
+    if (this.inner) return this.inner;
+    if (!this.initPromise) {
+      this.initPromise = (async () => {
+        const { tryCreateWasmLocalProvider } = await import(
+          '../memory/embedding/providers/index.js'
+        );
+        const provider = await tryCreateWasmLocalProvider({ modelId: this.model });
+        if (!provider) {
+          throw new Error(
+            'wasm-local embedding provider unavailable: optional dependency ' +
+              '`@xenova/transformers` not installed. Install it and run ' +
+              '`aistack memory download-model` to enable offline embeddings.',
+          );
+        }
+        this.inner = provider;
+        this.dimensions = provider.dimensions;
+        return provider;
+      })();
+    }
+    return this.initPromise;
+  }
+
+  async embed(text: string): Promise<number[]> {
+    const provider = await this.init();
+    return provider.embed(text);
+  }
+
+  async embedBatch(texts: string[]): Promise<number[][]> {
+    const provider = await this.init();
+    return provider.embedBatch(texts);
   }
 }
 

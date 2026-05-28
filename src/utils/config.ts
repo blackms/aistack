@@ -9,9 +9,15 @@ import type { AgentStackConfig } from '../types.js';
 import { logger } from './logger.js';
 
 // Configuration schema using Zod
+// Known providers documented for users; remains an open string for
+// forward compatibility with future adapters.
+const VectorSearchProviderSchema = z
+  .enum(['openai', 'ollama', 'wasm-local'])
+  .or(z.string());
+
 const VectorSearchConfigSchema = z.object({
   enabled: z.boolean().default(false),
-  provider: z.string().optional(),
+  provider: VectorSearchProviderSchema.optional(),
   model: z.string().optional(),
 });
 
