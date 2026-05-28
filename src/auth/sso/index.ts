@@ -23,6 +23,10 @@ import { SamlProvider, type SamlFactory, defaultSamlFactory } from './saml.js';
 import { OidcProvider, type OidcClientFactory, defaultOidcFactory } from './oidc.js';
 import { ScimServer } from './scim.js';
 import { mapGroupsToRoles, validateGroupRoleMap } from './role-mapper.js';
+import {
+  SqliteOidcPendingStateStore,
+  type OidcPendingStateStore,
+} from './oidc-state-store.js';
 import type {
   SsoConfig,
   SsoIdentity,
@@ -36,6 +40,10 @@ export { SamlProvider, SamlSecurityError } from './saml.js';
 export { OidcProvider, OidcSecurityError } from './oidc.js';
 export { ScimServer } from './scim.js';
 export { mapGroupsToRoles, validateGroupRoleMap } from './role-mapper.js';
+export {
+  SqliteOidcPendingStateStore,
+  type OidcPendingStateStore,
+} from './oidc-state-store.js';
 
 const log = logger.child('sso');
 
@@ -53,6 +61,8 @@ export interface SsoModule {
   oidc?: OidcProvider;
   scim?: ScimServer;
   replayCache: ReplayCache;
+  /** Persistent pending-state store for OIDC /login → /callback. */
+  oidcPendingStore: OidcPendingStateStore;
   /** Stop background timers (sweep). */
   stop(): void;
 }
@@ -77,6 +87,7 @@ export function createSsoModule(deps: SsoModuleDeps, cfg: SsoConfig): SsoModule 
   }
 
   const replayCache = new ReplayCache(db);
+  const oidcPendingStore = new SqliteOidcPendingStateStore(db);
   const service = new SsoService(db, authService, cfg);
 
   const saml = cfg.saml
@@ -102,6 +113,7 @@ export function createSsoModule(deps: SsoModuleDeps, cfg: SsoConfig): SsoModule 
     oidc,
     scim,
     replayCache,
+    oidcPendingStore,
     stop: () => replayCache.stop(),
   };
 }

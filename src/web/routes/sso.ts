@@ -4,8 +4,17 @@
  * AIG-646. Co-located with the existing web routes (no new WebhookServer
  * needed) so SSO inherits CORS, logging, and the request body parser.
  *
- * State storage for OIDC: in-process Map keyed by an opaque transaction id
- * sent to the user via the `aistack_oidc_state` cookie. Short-lived (10min).
+ * State storage for OIDC: SQLite-backed `OidcPendingStateStore` keyed by an
+ * opaque transaction id sent to the user via the `aistack_oidc_state` cookie.
+ * Short-lived (10min). Persisting state in SQLite (instead of an in-process
+ * Map) makes the `/login` → `/callback` flow tolerant of multi-process
+ * deploys where the two requests may hit different workers.
+ *
+ * Refresh tokens for browser flows are returned as an HttpOnly + Secure +
+ * SameSite=Strict cookie (`aistack_refresh`) and stripped from the JSON body,
+ * so a malicious script that successfully exfiltrates the JSON response cannot
+ * steal the long-lived refresh token. The short-lived access token remains in
+ * the body for the SPA to consume.
  *
  * Mounted prefix is determined by the caller (typically `/api`). Routes:
  *   GET  /api/auth/sso/saml/login                 → 302 to IdP
@@ -20,14 +29,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../../utils/logger.js';
 import type { Router } from '../router.js';
-import { parseRequestBody } from '../utils/request.js';
 import { sendError } from '../router.js';
 import type { SsoModule } from '../../auth/sso/index.js';
-import type { OidcAuthState } from '../../auth/sso/oidc.js';
+import type { SsoAuthResult } from '../../auth/sso/types.js';
 
 const log = logger.child('web:sso');
 
 const OIDC_COOKIE = 'aistack_oidc_state';
+const REFRESH_COOKIE = 'aistack_refresh';
+/** 7d, matches refresh-token JWT lifetime in SsoService.issueTokensForUser. */
+const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
 
 interface SsoRouteDeps {
   ssoModule: SsoModule;
@@ -42,9 +53,9 @@ interface SsoRouteDeps {
 export function registerSsoRoutes(router: Router, deps: SsoRouteDeps): void {
   const { ssoModule } = deps;
 
-  // In-memory OIDC pending-state store. Keyed by random transaction id sent
-  // as a cookie to the user agent.
-  const oidcPending = new Map<string, OidcAuthState>();
+  // Persistent OIDC pending-state store (multi-process safe). Keyed by a
+  // random transaction id sent as a cookie to the user agent.
+  const oidcPending = ssoModule.oidcPendingStore;
 
   // ---- SAML ---------------------------------------------------------------
   if (ssoModule.saml) {
@@ -59,19 +70,20 @@ export function registerSsoRoutes(router: Router, deps: SsoRouteDeps): void {
       }
     });
 
-    router.post('/api/auth/sso/saml/acs', async (req, res) => {
+    router.post('/api/auth/sso/saml/acs', async (req, res, params) => {
       try {
-        const body = await parseRequestBody(req);
-        const samlResponse = String(body?.SAMLResponse ?? '');
-        const relayState = body?.RelayState ? String(body.RelayState) : undefined;
+        // The Router has already consumed and JSON-parsed the request body.
+        // Reading it a second time would hang (data + end already fired).
+        const body = (params.body ?? {}) as { SAMLResponse?: unknown; RelayState?: unknown };
+        const samlResponse = String(body.SAMLResponse ?? '');
+        const relayState = body.RelayState ? String(body.RelayState) : undefined;
         const profile = await ssoModule.saml!.handleACS(samlResponse, relayState);
         const result = await ssoModule.service.upsertFromProfile(
           profile,
           'saml',
           ssoModule.saml!.providerName
         );
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
+        sendSsoAuthResult(res, result);
       } catch (err) {
         log.warn('SAML ACS rejected', errMeta(err));
         const status = (err as { statusCode?: number }).statusCode ?? 401;
@@ -107,8 +119,6 @@ export function registerSsoRoutes(router: Router, deps: SsoRouteDeps): void {
         const { url, state } = await ssoModule.oidc!.getAuthURL();
         const txId = randomUUID();
         oidcPending.set(txId, state);
-        // Auto-clean after 10min.
-        setTimeout(() => oidcPending.delete(txId), 10 * 60 * 1000).unref?.();
         res.writeHead(302, {
           Location: url,
           'Set-Cookie': `${OIDC_COOKIE}=${txId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
@@ -128,8 +138,8 @@ export function registerSsoRoutes(router: Router, deps: SsoRouteDeps): void {
           sendError(res, 400, 'Missing OIDC state cookie');
           return;
         }
-        const state = oidcPending.get(txId);
-        oidcPending.delete(txId); // single-use
+        // Single-use, multi-process-safe (atomic read+delete in SQLite).
+        const state = oidcPending.takeAndDelete(txId);
         if (!state) {
           sendError(res, 400, 'Unknown or expired OIDC state');
           return;
@@ -144,12 +154,10 @@ export function registerSsoRoutes(router: Router, deps: SsoRouteDeps): void {
           'oidc',
           ssoModule.oidc!.providerName
         );
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          // Clear the OIDC cookie now that the flow is complete.
-          'Set-Cookie': `${OIDC_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
-        });
-        res.end(JSON.stringify(result));
+        sendSsoAuthResult(res, result, [
+          // Clear the OIDC transaction cookie now that the flow is complete.
+          `${OIDC_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+        ]);
       } catch (err) {
         log.warn('OIDC callback rejected', errMeta(err));
         const status = (err as { statusCode?: number }).statusCode ?? 401;
@@ -209,6 +217,46 @@ async function handleScim(
   } else {
     res.end(JSON.stringify(response.body));
   }
+}
+
+/**
+ * Write a successful SSO auth result to the browser:
+ *   - Refresh token → HttpOnly + Secure + SameSite=Strict cookie (not in body).
+ *     SameSite=Strict prevents the cookie from being attached to cross-site
+ *     navigations (the refresh endpoint is same-site only).
+ *   - Access token + user metadata → JSON body (short-lived; SPA stores it
+ *     in memory and uses it for Authorization: Bearer headers).
+ *
+ * Extra `Set-Cookie` headers (e.g. clearing the OIDC tx cookie) can be passed
+ * via `extraSetCookies`. We send them as an array so `writeHead` emits one
+ * `Set-Cookie` per entry rather than a comma-joined header.
+ */
+function sendSsoAuthResult(
+  res: ServerResponse,
+  result: SsoAuthResult,
+  extraSetCookies: string[] = []
+): void {
+  const refreshCookie =
+    `${REFRESH_COOKIE}=${result.tokens.refreshToken}; ` +
+    `HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${REFRESH_COOKIE_MAX_AGE}`;
+
+  const setCookieHeaders = [refreshCookie, ...extraSetCookies];
+
+  // Strip refresh token from the body — browsers receive it only via cookie.
+  const safeBody = {
+    user: result.user,
+    identity: result.identity,
+    tokens: {
+      accessToken: result.tokens.accessToken,
+      expiresIn: result.tokens.expiresIn,
+    },
+  };
+
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'Set-Cookie': setCookieHeaders,
+  });
+  res.end(JSON.stringify(safeBody));
 }
 
 function readCookie(header: string, name: string): string | undefined {
