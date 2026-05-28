@@ -88,6 +88,19 @@ export class SandboxPolicyError extends SandboxError {
 }
 
 /**
+ * Adapter was constructed with a misconfigured value (bad URL scheme, private
+ * host, malformed identifier, ...). This is a programmer/operator bug — it
+ * is NOT recoverable by retrying, and callers SHOULD surface it to the user
+ * at startup rather than at first request.
+ */
+export class SandboxConfigError extends SandboxError {
+  constructor(provider: SandboxProvider, reason: string) {
+    super(`Sandbox configuration error: ${reason}`, provider);
+    this.name = 'SandboxConfigError';
+  }
+}
+
+/**
  * Pluggable sandbox adapter contract. Implementations MUST NOT
  * execute untrusted code on the host process.
  */
