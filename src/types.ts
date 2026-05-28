@@ -348,6 +348,14 @@ export interface AgentStackConfig {
   resourceExhaustion?: ResourceExhaustionConfig;
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
+  multitenancy?: MultitenancyConfig;
+}
+
+// Multi-tenancy configuration (AIG-649)
+export interface MultitenancyConfig {
+  enabled: boolean;
+  defaultTenantSlug: string;
+  defaultWorkspaceSlug: string;
 }
 
 export interface MemoryConfig {

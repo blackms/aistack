@@ -153,6 +153,12 @@ const ConsensusConfigSchema = z.object({
   ]),
 });
 
+const MultitenancyConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  defaultTenantSlug: z.string().default('default'),
+  defaultWorkspaceSlug: z.string().default('default'),
+});
+
 const SmartDispatcherConfigSchema = z.object({
   enabled: z.boolean().default(true),
   cacheEnabled: z.boolean().default(true),
@@ -178,6 +184,7 @@ const ConfigSchema = z.object({
   resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
   consensus: ConsensusConfigSchema.default({}),
   smartDispatcher: SmartDispatcherConfigSchema.default({}),
+  multitenancy: MultitenancyConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
