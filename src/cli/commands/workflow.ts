@@ -7,6 +7,8 @@ import { runDocSync, getWorkflowRunner, resetWorkflowRunner } from '../../workfl
 import { registerDefaultTriggers, getWorkflowTriggers, clearWorkflowTriggers } from '../../hooks/index.js';
 import { logger } from '../../utils/logger.js';
 import { existsSync } from 'node:fs';
+import { loadConfig } from '../../utils/config.js';
+import { getCheckpointer } from '../../persistence/checkpointer.js';
 
 const log = logger.child('workflow');
 
@@ -152,6 +154,56 @@ export function createWorkflowCommand(): Command {
     .action(() => {
       resetWorkflowRunner();
       console.log('Workflow runner reset.');
+    });
+
+  // Resume subcommand — durable execution (AIG-633)
+  command
+    .command('resume <sessionId>')
+    .description('Resume a workflow from its latest checkpoint (durable execution)')
+    .option('--from-step <stepId>', 'Resume from a specific step instead of the latest checkpoint')
+    .option('--dry-run', 'Print the loaded checkpoint state without re-executing the workflow')
+    .action(async (sessionId: string, options) => {
+      const { fromStep, dryRun } = options as { fromStep?: string; dryRun?: boolean };
+
+      const config = loadConfig();
+      if (!config.checkpointing?.enabled) {
+        console.error('Checkpointing is disabled in aistack.config.json.');
+        console.error('Enable it with:  "checkpointing": { "enabled": true }');
+        process.exit(1);
+      }
+
+      const checkpointer = getCheckpointer(config);
+      const checkpoint = fromStep
+        ? checkpointer.loadByStep(sessionId, fromStep)
+        : checkpointer.loadLatest(sessionId);
+
+      if (!checkpoint) {
+        console.error(`No checkpoint found for session ${sessionId}${fromStep ? ` at step ${fromStep}` : ''}.`);
+        process.exit(1);
+      }
+
+      console.log(`Loaded checkpoint for session ${sessionId}`);
+      console.log(`  agent:      ${checkpoint.agentId}`);
+      console.log(`  step:       ${checkpoint.stepId}`);
+      console.log(`  created at: ${checkpoint.createdAt.toISOString()}`);
+      console.log(`  format:     ${checkpoint.format}`);
+
+      if (dryRun) {
+        console.log('\n--dry-run: loaded state (truncated to 2 KiB):');
+        const blob = JSON.stringify(checkpoint.state, null, 2);
+        console.log(blob.length > 2048 ? blob.slice(0, 2048) + '\n... [truncated]' : blob);
+        return;
+      }
+
+      // Resume hook: the workflow runtime is expected to consult the
+      // checkpoint state via `getCheckpointer().loadLatest(sessionId)` at
+      // startup. For now we surface the checkpoint and let downstream
+      // workflow executors pick it up — full reattachment to a specific
+      // workflow definition is workflow-specific and out of scope for
+      // this command.
+      console.log('\nCheckpoint is now available to the workflow runtime.');
+      console.log('Re-run the original workflow with the same session id to continue execution.');
+      log.info('Workflow resume requested', { sessionId, stepId: checkpoint.stepId });
     });
 
   return command;

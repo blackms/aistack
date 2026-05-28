@@ -352,6 +352,7 @@ export interface AgentStackConfig {
   daemon?: DaemonConfig;
   telemetry?: TelemetryConfig;
   audit?: AuditConfig;
+  checkpointing?: CheckpointingConfig;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.
@@ -400,6 +401,27 @@ export interface AuditConfig {
   retentionDays?: number;
   /** Top-level payload fields to redact before hashing/storage (PII / secrets). */
   redactFields?: string[];
+}
+
+/**
+ * Durable execution / checkpointing configuration.
+ *
+ * Controls whether agent state is serialized to `agent_checkpoints` after
+ * each step so that workflows can be resumed via
+ * `aistack workflow resume <session-id>` after a crash.
+ *
+ * @property enabled - Master switch. When false, all checkpoint writes are no-ops.
+ * @property granularity - 'step' writes after each agent step (fine-grained,
+ *   higher resume fidelity); 'agent' writes only at agent completion (cheaper).
+ *   Default: 'step'.
+ * @property retentionPerSession - Keep only the latest N checkpoints per session.
+ *   Older rows are pruned best-effort after each save. Default: 50.
+ *   Set to 0 to disable pruning.
+ */
+export interface CheckpointingConfig {
+  enabled: boolean;
+  granularity?: 'step' | 'agent';
+  retentionPerSession?: number;
 }
 
 export interface MemoryConfig {

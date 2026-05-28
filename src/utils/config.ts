@@ -244,6 +244,26 @@ const DaemonConfigSchema = z.object({
   logRotationBytes: z.number().min(1024).default(5 * 1024 * 1024),
 });
 
+/**
+ * Durable execution / checkpointing config.
+ *
+ * When `enabled` is true, agent state is serialized after every step to
+ * the `agent_checkpoints` table (see migrations/004_add_checkpoints.sql),
+ * making workflows resumable via `aistack workflow resume <session-id>`
+ * after a crash.
+ *
+ * @property enabled - Master switch. Default false (opt-in).
+ * @property granularity - 'step' (default): write after every step.
+ *   'agent': write only when an agent completes. Trade fidelity for write volume.
+ * @property retentionPerSession - Keep only the latest N checkpoints per session.
+ *   Default 50. Set to 0 to keep every checkpoint forever (unbounded growth).
+ */
+const CheckpointingConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  granularity: z.enum(['step', 'agent']).default('step'),
+  retentionPerSession: z.number().int().min(0).max(10000).default(50),
+});
+
 const ConfigSchema = z.object({
   version: z.string().default('1.0.0'),
   memory: MemoryConfigSchema.default({}),
@@ -261,6 +281,7 @@ const ConfigSchema = z.object({
   daemon: DaemonConfigSchema.default({}),
   telemetry: TelemetryConfigSchema.default({}),
   audit: AuditConfigSchema.default({}),
+  checkpointing: CheckpointingConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
