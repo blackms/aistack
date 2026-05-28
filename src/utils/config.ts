@@ -385,7 +385,7 @@ const A2AConfigSchema = z.object({
   port: z.number().min(1).max(65535).optional(),
   host: z.string().optional(),
   publicUrl: z.string().url().optional(),
-  bearerToken: z.string().optional(),
+  bearerToken: z.string().trim().min(1).optional(),
   exposedAgents: z.array(z.string()).optional(),
 });
 

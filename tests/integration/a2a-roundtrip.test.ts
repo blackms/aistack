@@ -40,6 +40,9 @@ async function freePort(): Promise<number> {
   const { createServer } = await import('node:http');
   return new Promise((resolve, reject) => {
     const s = createServer();
+    s.once('error', (err) => {
+      s.close(() => reject(err));
+    });
     s.listen(0, '127.0.0.1', () => {
       const addr = s.address();
       if (addr && typeof addr === 'object') {

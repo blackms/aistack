@@ -55,6 +55,29 @@ function post(
   });
 }
 
+function get(port: number, path: string): Promise<RawResponse> {
+  return new Promise((resolve, reject) => {
+    const opts: RequestOptions = {
+      host: '127.0.0.1',
+      port,
+      method: 'GET',
+      path,
+    };
+    const req = httpRequest(opts, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString('utf-8'),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 describe('A2ARouter body-size cap', () => {
   let router: A2ARouter | null = null;
 
@@ -104,6 +127,39 @@ describe('A2ARouter body-size cap', () => {
     expect(res.status).toBe(200);
     const parsed = JSON.parse(res.body) as { size: number };
     expect(parsed.size).toBe(512);
+
+    const atLimit = Buffer.alloc(1024, 0x62);
+    const resAtLimit = await post(port, '/echo', atLimit);
+    expect(resAtLimit.status).toBe(200);
+    const parsedAtLimit = JSON.parse(resAtLimit.body) as { size: number };
+    expect(parsedAtLimit.size).toBe(1024);
+  });
+
+  it('returns 400 for malformed query encoding', async () => {
+    router = new A2ARouter({ port: 0, host: '127.0.0.1' });
+    router.registerRoute('GET', '/echo', (req) => ({
+      status: 200,
+      body: { query: req.query },
+    }));
+    const { port } = await router.start();
+    const res = await get(port, '/echo?bad=%E0%A4%A');
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'bad_request' });
+  });
+
+  it('does not expose internal exception text in 500 responses', async () => {
+    router = new A2ARouter({ port: 0, host: '127.0.0.1' });
+    router.registerRoute('GET', '/boom', () => {
+      throw new Error('secret failure detail');
+    });
+    const { port } = await router.start();
+    const res = await get(port, '/boom');
+    expect(res.status).toBe(500);
+    expect(res.body).not.toContain('secret failure detail');
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'internal_error',
+      message: 'internal server error',
+    });
   });
 
   it('handler is never invoked on oversize body', async () => {

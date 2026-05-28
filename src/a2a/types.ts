@@ -16,6 +16,11 @@ import { z } from 'zod';
  */
 export const A2A_PROTOCOL_VERSION = '1.0';
 
+const HttpUrlSchema = z.string().url().refine((value) => {
+  const protocol = new URL(value).protocol;
+  return protocol === 'http:' || protocol === 'https:';
+}, 'URL must use http or https');
+
 /**
  * Agent skill — a discrete capability exposed via the A2A endpoint.
  * Loosely corresponds to a CrewAI "task" or an OpenAI "tool".
@@ -53,14 +58,14 @@ export type A2AAuth = z.infer<typeof A2AAuthSchema>;
  * Acceptance criterion 1: must be a valid A2A v1 agent card.
  */
 export const AgentCardSchema = z.object({
-  protocolVersion: z.string().default(A2A_PROTOCOL_VERSION),
+  protocolVersion: z.literal(A2A_PROTOCOL_VERSION),
   name: z.string().min(1),
   description: z.string(),
-  url: z.string().url(),
+  url: HttpUrlSchema,
   provider: z
     .object({
       organization: z.string(),
-      url: z.string().url().optional(),
+      url: HttpUrlSchema.optional(),
     })
     .optional(),
   version: z.string(),

@@ -14,6 +14,10 @@ import { responseText, textMessage } from '../../a2a/types.js';
 import { getConfig } from '../../utils/config.js';
 import { randomUUID } from 'node:crypto';
 
+const DEFAULT_A2A_PORT = 8787;
+const DEFAULT_A2A_TIMEOUT_MS = 30_000;
+const MAX_A2A_TIMEOUT_MS = 120_000;
+
 export function createA2aCommand(): Command {
   const command = new Command('a2a').description('Agent-to-Agent (A2A) protocol server + client');
 
@@ -21,7 +25,7 @@ export function createA2aCommand(): Command {
     .command('serve')
     .description('Expose aistack agents over A2A on a local HTTP server')
     .option('-p, --port <port>', 'Port to listen on (default 8787)')
-    .option('-h, --host <host>', 'Host to bind (default 127.0.0.1)')
+    .option('-H, --host <host>', 'Host to bind (default 127.0.0.1)')
     .option('-u, --url <url>', 'Public URL advertised in the agent card')
     .option('--no-auth', 'Disable bearer auth (NOT recommended outside loopback)')
     .action(async (options) => {
@@ -35,38 +39,40 @@ export function createA2aCommand(): Command {
       const config = getConfig();
       const a2aConfig = config.a2a ?? { enabled: true };
 
-      const port = Number(opts.port ?? a2aConfig.port ?? 8787);
-      const host = opts.host ?? '127.0.0.1';
-      const publicUrl = opts.url ?? `http://${host}:${port}`;
-
-      // Bearer token: CLI flag --no-auth disables, otherwise read env var.
-      const bearerToken =
-        opts.auth === false
-          ? undefined
-          : a2aConfig.bearerToken ?? process.env.AISTACK_A2A_TOKEN;
-
-      if (opts.auth !== false && !bearerToken) {
-        console.warn(
-          'Warning: no AISTACK_A2A_TOKEN env var set — bearer auth is disabled. ' +
-            'Bind to loopback only or pass --no-auth explicitly.',
-        );
-      }
-
-      const server = new A2ARouter({ port, host });
-      registerA2ARoutes(server, {
-        config,
-        a2a: {
-          url: publicUrl,
-          name: 'aistack',
-          version: '1.0.0',
-          exposedAgents: a2aConfig.exposedAgents,
-          bearerToken,
-        },
-      });
-
       try {
-        await server.start();
-        console.log(`A2A server listening on http://${host}:${port}`);
+        const port = parsePort(opts.port ?? a2aConfig.port ?? DEFAULT_A2A_PORT);
+        const host = opts.host ?? a2aConfig.host ?? '127.0.0.1';
+        const configuredPublicUrl = opts.url ?? a2aConfig.publicUrl;
+
+        // Bearer token: CLI flag --no-auth disables, otherwise read env var.
+        const bearerToken =
+          opts.auth === false
+            ? undefined
+            : a2aConfig.bearerToken ?? process.env.AISTACK_A2A_TOKEN;
+
+        if (opts.auth !== false && !bearerToken) {
+          console.warn(
+            'Warning: no AISTACK_A2A_TOKEN env var set — bearer auth is disabled. ' +
+              'Bind to loopback only or pass --no-auth explicitly.',
+          );
+        }
+
+        const server = new A2ARouter({ port, host });
+        const bound = await server.start();
+        const listenUrl = buildHttpUrl(bound.host, bound.port);
+        const publicUrl = stripTrailingSlash(configuredPublicUrl ?? listenUrl);
+        registerA2ARoutes(server, {
+          config,
+          a2a: {
+            url: publicUrl,
+            name: 'aistack',
+            version: '1.0.0',
+            exposedAgents: a2aConfig.exposedAgents,
+            bearerToken,
+          },
+        });
+
+        console.log(`A2A server listening on ${listenUrl}`);
         console.log(`  agent card: ${publicUrl}/.well-known/a2a-agent-card.json`);
         console.log(`  endpoint:   ${publicUrl}/v1/a2a/message`);
 
@@ -99,10 +105,15 @@ export function createA2aCommand(): Command {
       const token = opts.token ?? process.env.AISTACK_A2A_CLIENT_TOKEN;
 
       try {
+        const timeoutMs = parsePositiveInt(
+          opts.timeout,
+          DEFAULT_A2A_TIMEOUT_MS,
+          MAX_A2A_TIMEOUT_MS,
+        );
         const message = textMessage(randomUUID(), msg, opts.skill);
         const response = await a2aCall(url, message, {
           bearerToken: token,
-          timeoutMs: Number(opts.timeout),
+          timeoutMs,
         });
         console.log(JSON.stringify(response, null, 2));
         if (response.status === 'failed') {
@@ -140,4 +151,30 @@ export function createA2aCommand(): Command {
     });
 
   return command;
+}
+
+function parsePort(raw: string | number): number {
+  const port = typeof raw === 'number' ? raw : Number.parseInt(raw, 10);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`Invalid A2A port: ${raw}`);
+  }
+  return port;
+}
+
+function parsePositiveInt(raw: string, fallback: number, max: number): number {
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value <= 0) return fallback;
+  return Math.min(value, max);
+}
+
+function stripTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
+function buildHttpUrl(host: string, port: number): string {
+  return `http://${hostForUrl(host)}:${port}`;
+}
+
+function hostForUrl(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
 }

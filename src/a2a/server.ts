@@ -132,7 +132,10 @@ export function registerA2ARoutes(
     );
   }
 
-  const card = generateAgentCard(a2a);
+  const card = generateAgentCard({
+    ...a2a,
+    authSchemes: a2a.authSchemes ?? (a2a.bearerToken ? ['bearer'] : ['none']),
+  });
 
   router.registerRoute('GET', AGENT_CARD_PATH, () => ({
     status: 200,
@@ -171,10 +174,11 @@ export async function handleMessage(
   // Bearer auth (skipped when no token configured — see warning above)
   if (a2a.bearerToken) {
     const authHeader = pickHeader(req.headers['authorization']);
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const bearerMatch = authHeader ? /^Bearer (\S+)$/.exec(authHeader) : null;
+    if (!bearerMatch) {
       return errorResponse(401, 'unauthorized', 'Missing or malformed Authorization header');
     }
-    const presented = authHeader.slice('Bearer '.length).trim();
+    const presented = bearerMatch[1]!;
     if (!timingSafeEqualString(presented, a2a.bearerToken)) {
       return errorResponse(403, 'forbidden', 'Invalid bearer token');
     }

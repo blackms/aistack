@@ -63,6 +63,13 @@ export class PayloadTooLargeError extends Error {
   }
 }
 
+class MalformedQueryError extends Error {
+  constructor() {
+    super('Malformed query encoding');
+    this.name = 'MalformedQueryError';
+  }
+}
+
 /**
  * Minimal HTTP server with method/path routing for A2A endpoints.
  * Renamed from the original WebhookServer stub to avoid colliding with the
@@ -135,12 +142,18 @@ export class A2ARouter {
     try {
       const url = req.url ?? '/';
       const [rawPath, rawQuery = ''] = url.split('?');
-      const query: Record<string, string> = {};
-      if (rawQuery) {
-        for (const pair of rawQuery.split('&')) {
-          const [k, v = ''] = pair.split('=');
-          if (k) query[decodeURIComponent(k)] = decodeURIComponent(v);
+      let query: Record<string, string>;
+      try {
+        query = parseQuery(rawQuery);
+      } catch (err) {
+        if (err instanceof MalformedQueryError) {
+          sendJson(res, 400, {
+            error: 'bad_request',
+            message: 'Malformed query encoding',
+          });
+          return;
         }
+        throw err;
       }
 
       let body: string;
@@ -183,13 +196,34 @@ export class A2ARouter {
     } catch (error) {
       log.error('Route handler failed', {
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
       });
       sendJson(res, 500, {
         error: 'internal_error',
-        message: error instanceof Error ? error.message : String(error),
+        message: 'internal server error',
       });
     }
   }
+}
+
+function parseQuery(rawQuery: string): Record<string, string> {
+  const query: Record<string, string> = {};
+  if (!rawQuery) return query;
+  for (const pair of rawQuery.split('&')) {
+    if (!pair) continue;
+    const idx = pair.indexOf('=');
+    const rawKey = idx === -1 ? pair : pair.slice(0, idx);
+    const rawValue = idx === -1 ? '' : pair.slice(idx + 1);
+    if (!rawKey) continue;
+    try {
+      const key = decodeURIComponent(rawKey.replace(/\+/g, ' '));
+      const value = decodeURIComponent(rawValue.replace(/\+/g, ' '));
+      query[key] = value;
+    } catch {
+      throw new MalformedQueryError();
+    }
+  }
+  return query;
 }
 
 function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {

@@ -46,6 +46,14 @@ describe('A2A agent card', () => {
     expect(card.authentication.schemes).toContain('bearer');
   });
 
+  it('can advertise no auth when bearer auth is disabled', () => {
+    const card = generateAgentCard({
+      url: 'http://localhost:8787',
+      authSchemes: ['none'],
+    });
+    expect(card.authentication.schemes).toEqual(['none']);
+  });
+
   it('restricts skills via exposedAgents allowlist', () => {
     const card = generateAgentCard({
       url: 'http://localhost:8787',

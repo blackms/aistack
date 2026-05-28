@@ -123,6 +123,7 @@ aistack a2a serve --port 8787 --no-auth
 ```ts
 import { A2ARouter } from '@blackms/aistack/transport/a2a-router';
 import { registerA2ARoutes } from '@blackms/aistack/a2a';
+import { runAgent } from '@blackms/aistack/agents';
 import { getConfig } from '@blackms/aistack';
 
 const config = getConfig();
@@ -134,6 +135,10 @@ registerA2ARoutes(server, {
     url: 'https://agents.example.com',
     bearerToken: process.env.AISTACK_A2A_TOKEN,
     exposedAgents: ['coder', 'reviewer'], // optional allowlist
+  },
+  executor: async (skillId, prompt) => {
+    const result = await runAgent(skillId, prompt, config);
+    return result.response;
   },
 });
 
@@ -208,7 +213,7 @@ with exponential backoff). 4xx errors are surfaced immediately as
 | Network exposure | `127.0.0.1` | Front with a reverse proxy + TLS |
 | Authentication | Bearer token from `AISTACK_A2A_TOKEN` | Rotate with secrets manager; advertise `mtls` in card if required |
 | Authorization | Allowlist via `exposedAgents` | Pin to least-privilege subset |
-| Replay protection | None at protocol layer | Issue short-lived JWTs upstream |
+| Replay protection | Process-local `messageId` deduplication with 5 minute TTL and LRU capacity | Use short-lived JWTs or upstream nonce tracking for multi-process, clustered, or persistent replay guarantees |
 | Audit | Standard logger output | Plug into existing aistack monitoring (`src/monitoring`) |
 
 **Never hardcode bearer tokens.** The CLI reads them from

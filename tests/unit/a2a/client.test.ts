@@ -160,4 +160,28 @@ describe('fetchAgentCard', () => {
     expect(fetched.name).toBe('crew-bot');
     expect(fetched.skills[0].id).toBe('plan');
   });
+
+  it('rejects cards from a different protocol version', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, {
+        protocolVersion: '2.0',
+        name: 'crew-bot',
+        description: 'crewai agent',
+        url: 'http://crew',
+        version: '1.0',
+        capabilities: {
+          streaming: false,
+          pushNotifications: false,
+          stateTransitionHistory: false,
+        },
+        authentication: { schemes: ['bearer'] },
+        skills: [],
+      }),
+    );
+    await expect(
+      fetchAgentCard('http://crew/', {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/schema validation/);
+  });
 });
