@@ -4,22 +4,20 @@
 # ----------------------------------------------------------------------------
 # Stage 1 (builder): install full deps + compile TypeScript -> dist/
 # Stage 2 (runtime): copy compiled output + core production deps, run as non-root.
-# Target image size: < 200MB (node:20-slim base ~ 75MB).
+# Target image size: < 200MB.
 # ============================================================================
 
 # ---------- Stage 1: builder ----------
-# node:20-slim multi-arch index digest (linux/amd64 + linux/arm64). Refresh
-# periodically: `docker buildx imagetools inspect node:20-slim`.
-FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS builder
+# node:20-alpine multi-arch index digest (linux/amd64 + linux/arm64). Refresh
+# periodically: `docker buildx imagetools inspect node:20-alpine`.
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
 
 # Build deps required by better-sqlite3 native module
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
         python3 \
         make \
         g++ \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+        ca-certificates
 
 WORKDIR /build
 
@@ -40,16 +38,15 @@ RUN npm run build
 RUN npm prune --omit=dev --omit=optional
 
 # ---------- Stage 2: runtime ----------
-FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS runtime
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS runtime
 
 # Runtime deps only (sqlite shared lib not required: better-sqlite3 is statically linked)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
         tini \
         ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system aistack \
-    && useradd --system --gid aistack --create-home --shell /bin/bash aistack
+        libstdc++ \
+    && addgroup -S aistack \
+    && adduser -S -D -h /home/aistack -G aistack aistack
 
 ENV NODE_ENV=production \
     AISTACK_DATA_DIR=/data \
