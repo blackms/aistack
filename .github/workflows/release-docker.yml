@@ -16,7 +16,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 env:
   REGISTRY: ghcr.io
@@ -65,6 +64,7 @@ jobs:
             org.opencontainers.image.licenses=MIT
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -77,6 +77,19 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Vulnerability scan: fail the release on HIGH/CRITICAL findings so we
+      # never publish a knowingly-vulnerable image. Scans the linux/amd64
+      # manifest by digest (the multi-arch index just pushed).
+      - name: Scan published image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
 
       - name: Image digest summary
         run: |

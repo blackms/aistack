@@ -1,6 +1,27 @@
 {{- if .Values.ingress.enabled -}}
 {{- $fullName := include "aistack.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
+{{- /*
+  TLS resolution:
+    - Legacy form: ingress.tls is a list -> pass through unchanged.
+    - New form: ingress.tls is a map with `enabled` (default true) and
+      optional explicit `hosts`. When no hosts are given we synthesize one
+      TLS block per ingress.hosts[] using `<fullname>-tls` as the Secret.
+*/ -}}
+{{- $tlsBlocks := list -}}
+{{- if kindIs "slice" .Values.ingress.tls -}}
+  {{- $tlsBlocks = .Values.ingress.tls -}}
+{{- else if and (kindIs "map" .Values.ingress.tls) .Values.ingress.tls.enabled -}}
+  {{- if .Values.ingress.tls.hosts -}}
+    {{- $tlsBlocks = .Values.ingress.tls.hosts -}}
+  {{- else -}}
+    {{- $hosts := list -}}
+    {{- range .Values.ingress.hosts -}}
+      {{- $hosts = append $hosts .host -}}
+    {{- end -}}
+    {{- $tlsBlocks = list (dict "hosts" $hosts "secretName" (printf "%s-tls" $fullName)) -}}
+  {{- end -}}
+{{- end -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -15,9 +36,9 @@ spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
-  {{- if .Values.ingress.tls }}
+  {{- if $tlsBlocks }}
   tls:
-    {{- range .Values.ingress.tls }}
+    {{- range $tlsBlocks }}
     - hosts:
         {{- range .hosts }}
         - {{ . | quote }}

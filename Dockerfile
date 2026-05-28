@@ -8,7 +8,9 @@
 # ============================================================================
 
 # ---------- Stage 1: builder ----------
-FROM node:20-slim AS builder
+# node:20-slim multi-arch index digest (linux/amd64 + linux/arm64). Refresh
+# periodically: `docker buildx imagetools inspect node:20-slim`.
+FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS builder
 
 # Build deps required by better-sqlite3 native module
 RUN apt-get update \
@@ -36,7 +38,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---------- Stage 2: runtime ----------
-FROM node:20-slim AS runtime
+FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS runtime
 
 # Runtime deps only (sqlite shared lib not required: better-sqlite3 is statically linked)
 RUN apt-get update \
@@ -73,9 +75,13 @@ VOLUME ["/data"]
 # Web server (when enabled) listens on 3001 by default
 EXPOSE 3001
 
-# Liveness: CLI must respond to --version (no DB/network deps)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD node /app/dist/cli/index.js --version || exit 1
+# Liveness: when running as the web daemon, hit /health/live; CLI-only
+# invocations (e.g. one-shot `aistack run`) ignore HEALTHCHECK anyway.
+# Falls back to `--version` if the HTTP port isn't open yet (start_period).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD node -e "require('http').get('http://127.0.0.1:3001/api/v1/system/health/live', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))" \
+    || node /app/dist/cli/index.js --version \
+    || exit 1
 
 # Use tini as PID 1 for proper signal forwarding (graceful shutdown)
 ENTRYPOINT ["/usr/bin/tini", "--", "node", "/app/dist/cli/index.js"]

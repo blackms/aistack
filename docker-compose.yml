@@ -30,9 +30,11 @@ services:
       NODE_ENV: production
       LOG_LEVEL: info
       LOG_FORMAT: json
-      # Secrets: prefer an .env file or external secret manager in production
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      REFRESH_SECRET: ${REFRESH_SECRET:-change-me-in-production}
+      # Secrets: REQUIRED. Provide via .env file, shell env, or external secret
+      # manager. The `:?` syntax fails `docker compose up` with a clear error
+      # if the variable is unset, so we never ship a known-default credential.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (>= 32 random chars). Example: openssl rand -hex 32}
+      REFRESH_SECRET: ${REFRESH_SECRET:?REFRESH_SECRET must be set (>= 32 random chars). Example: openssl rand -hex 32}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # Postgres (active under `postgres` profile)
@@ -43,11 +45,17 @@ services:
       - aistack-data:/data
       - ./agentstack.config.json:/etc/aistack/agentstack.config.json:ro
     healthcheck:
-      test: ["CMD", "node", "/app/dist/cli/index.js", "--version"]
+      # HTTP liveness against the web daemon (AIG-636). node:20-slim has no
+      # curl/wget, so use node's built-in http client.
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3001/api/v1/system/health/live', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,7 +65,9 @@ services:
         required: false
 
   postgres:
-    image: postgres:16-alpine
+    # postgres:16-alpine multi-arch index digest. Refresh periodically:
+    # `docker buildx imagetools inspect postgres:16-alpine`.
+    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
     container_name: aistack-postgres
     profiles: ["postgres"]
     restart: unless-stopped

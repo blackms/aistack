@@ -69,8 +69,14 @@ spec:
                 optional: true
           {{- if .Values.probes.liveness.enabled }}
           livenessProbe:
+            {{- if eq (.Values.probes.liveness.type | default "http") "exec" }}
             exec:
               command: ["node", "/app/dist/cli/index.js", "--version"]
+            {{- else }}
+            httpGet:
+              path: {{ .Values.probes.liveness.path | default "/api/v1/system/health/live" }}
+              port: http
+            {{- end }}
             initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
@@ -78,8 +84,14 @@ spec:
           {{- end }}
           {{- if .Values.probes.readiness.enabled }}
           readinessProbe:
+            {{- if eq (.Values.probes.readiness.type | default "http") "exec" }}
             exec:
               command: ["node", "/app/dist/cli/index.js", "--version"]
+            {{- else }}
+            httpGet:
+              path: {{ .Values.probes.readiness.path | default "/api/v1/system/health/ready" }}
+              port: http
+            {{- end }}
             initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
