@@ -71,6 +71,38 @@ Next time: The memory helps agents make better decisions automatically
 
 ---
 
+## Why aistack
+
+aistack occupies a specific niche: a **Claude Code-native, local-first multi-agent orchestrator** with adversarial validation and consensus checkpoints baked into the core loop. We are not trying to be a general-purpose agent framework (LangGraph, Mastra), nor a hosted product (Letta, LangSmith), nor a thin SDK wrapper (Claude Agent SDK). If your workflow lives inside Claude Code and you want multiple specialized agents reviewing each other's work with persistent memory, aistack is built for you.
+
+We try to stay honest about what is shipped today versus what is on the roadmap — gaps are explicitly marked.
+
+### Comparison vs other agent orchestrators
+
+| Feature | aistack | claude-flow | Claude Agent SDK | Mastra | LangGraph |
+|---|---|---|---|---|---|
+| Orchestration model | Multi-agent + message bus | Multi-agent (swarm) | Single agent (loop) | Graph + workflows | Graph (state machine) |
+| Memory persistence | SQLite + FTS5 + optional vectors | SQLite | None (BYO) | LibSQL / Postgres | Checkpointer (Postgres / SQLite / Redis) |
+| Observability | Built-in metrics + web dashboard. OTel: ⚠️ M1 roadmap ([AIG-632](https://linear.app/aigensolutionsit/issue/AIG-632)) | Limited | Tracing via Anthropic API | OTel native + AI tracing | LangSmith (hosted) / OTel |
+| Sandboxed execution | ⚠️ M1 roadmap ([AIG-634](https://linear.app/aigensolutionsit/issue/AIG-634)) | Via hooks | Bash tool (host) | Via tools | Via tools |
+| OSS license | MIT | MIT | MIT | Elastic License 2.0 | MIT |
+| Distribution | NPM | NPM | NPM / PyPI | NPM | PyPI / NPM (JS port) |
+| Claude Code-native (MCP server built-in) | ✅ 46 MCP tools | ✅ | ✅ (it *is* the SDK) | ❌ (MCP client only) | ❌ |
+| Adversarial review built-in | ✅ dedicated agent + loop | ❌ | ❌ | ❌ | ❌ (DIY in graph) |
+| Consensus checkpoints | ✅ risk-gated, configurable | ❌ | ❌ | ❌ | ❌ (interrupt-based DIY) |
+| Background runner | ⚠️ M1 roadmap ([AIG-636](https://linear.app/aigensolutionsit/issue/AIG-636)) | ✅ | ❌ | ✅ workflows | ✅ |
+
+Feature claims for third-party projects reflect public documentation at time of writing; PRs welcome to correct inaccuracies.
+
+**What is uniquely aistack:**
+- **Adversarial review loop** as a first-class primitive — a dedicated agent attacks the coder's output up to N iterations until APPROVED.
+- **Consensus checkpoints** — high-risk task spawns can require human or different-model approval before proceeding, with full audit trail.
+- **46 MCP tools** wired directly into Claude Code, including memory, identity, drift detection, and consensus management.
+
+→ See [docs/COMPARISON.md](./docs/COMPARISON.md) for the extended analysis including CrewAI, AutoGen, and Letta.
+
+---
+
 ## Tech Stack
 
 <table>
