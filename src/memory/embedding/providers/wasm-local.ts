@@ -12,7 +12,7 @@ import type { EmbeddingProvider } from '../../../utils/embeddings.js';
 import { WasmEmbedder, type WasmEmbedderOptions } from '../wasm/embedder.js';
 import { DEFAULT_MODEL_DIMENSIONS, DEFAULT_MODEL_ID } from '../wasm/model-loader.js';
 
-export interface WasmLocalProviderOptions extends WasmEmbedderOptions {}
+export type WasmLocalProviderOptions = WasmEmbedderOptions;
 
 export class WasmLocalEmbeddings implements EmbeddingProvider {
   readonly model: string;

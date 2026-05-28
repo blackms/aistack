@@ -137,7 +137,7 @@ export class AutoPager {
     } finally {
       this.running = false;
       result.durationMs = Date.now() - start;
-      log.debug('AutoPager tick complete', result);
+      log.debug('AutoPager tick complete', { ...result });
     }
     return result;
   }

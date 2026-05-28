@@ -60,6 +60,11 @@ export { FederationServer, readJson } from './server.js';
 
 const log = logger.child('federation');
 
+type ResolvedFederationConfig = Required<
+  Pick<FederationConfig, 'discoveryMethod' | 'advertise' | 'peers' | 'routingPolicy' | 'maxInputLength'>
+> &
+  FederationConfig;
+
 /**
  * Federation default config shared with the Zod schema in utils/config.ts.
  */
@@ -84,8 +89,7 @@ export const FEDERATION_DEFAULTS: FederationConfig = {
  * `submitTask` promise.
  */
 export class FederationManager {
-  private readonly config: Required<Pick<FederationConfig, 'discoveryMethod' | 'advertise' | 'peers' | 'routingPolicy' | 'maxInputLength'>> &
-    FederationConfig;
+  private readonly config: ResolvedFederationConfig;
   private readonly credentials: FederationCredentials;
   private readonly client: FederationClient;
   private readonly router: TaskRouter;
@@ -98,7 +102,15 @@ export class FederationManager {
   private taskHandler: TaskHandler | null = null;
 
   constructor(config: FederationConfig) {
-    this.config = { ...FEDERATION_DEFAULTS, ...config };
+    const merged = { ...FEDERATION_DEFAULTS, ...config };
+    this.config = {
+      ...merged,
+      discoveryMethod: merged.discoveryMethod ?? FEDERATION_DEFAULTS.discoveryMethod,
+      advertise: merged.advertise ?? FEDERATION_DEFAULTS.advertise,
+      peers: merged.peers ?? FEDERATION_DEFAULTS.peers,
+      routingPolicy: merged.routingPolicy ?? FEDERATION_DEFAULTS.routingPolicy,
+      maxInputLength: merged.maxInputLength ?? 4096,
+    };
     // When federation is disabled the manager is a no-op; we MUST NOT enforce
     // the strict credential gates (otherwise `aistack federation status` on
     // a config without any TLS knobs would throw). The strict checks fire
@@ -296,4 +308,3 @@ function parseStaticPeers(peers: string[]): NodeInfo[] {
     };
   });
 }
-

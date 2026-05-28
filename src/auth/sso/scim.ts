@@ -135,10 +135,10 @@ export class ScimServer {
         return { status: 200, body: this.resourceTypes() };
       }
       if (segments[0] === 'Users') {
-        return this.handleUsers(method, segments[1], req);
+        return await this.handleUsers(method, segments[1], req);
       }
       if (segments[0] === 'Groups') {
-        return this.handleGroups(method, segments[1], req);
+        return await this.handleGroups(method, segments[1], req);
       }
       return { status: 404, body: scimError(404, 'Unknown SCIM endpoint') };
     } catch (err) {

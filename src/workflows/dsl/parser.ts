@@ -96,7 +96,8 @@ async function loadYaml(): Promise<YamlModule | null> {
 
   // Try `js-yaml` (load is the equivalent of parse)
   try {
-    const mod = (await import('js-yaml')) as { load?: (s: string) => unknown };
+    const jsYamlPackage = 'js-yaml';
+    const mod = (await import(jsYamlPackage)) as { load?: (s: string) => unknown };
     if (typeof mod.load === 'function') {
       cachedYaml = { parse: (s) => mod.load!(s) };
       return cachedYaml;

@@ -80,7 +80,7 @@ describe('piiGuardrail', () => {
     // Could pass or fail LUHN — just assert no credit-card match for an invalid one
     // (1234567890123456 fails LUHN).
     expect(luhnCheck('1234567890123456')).toBe(false);
-    expect(r.matches?.some((m) => m.kind === 'credit-card')).toBe(false);
+    expect(r.matches?.some((m) => m.kind === 'credit-card') ?? false).toBe(false);
   });
 
   it('LUHN-detects a valid test card number', async () => {

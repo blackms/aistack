@@ -114,12 +114,12 @@ describe('exportAllAgents', () => {
     await rm(outDir, { recursive: true, force: true });
   });
 
-  it('writes one markdown file per registered core agent (11 total)', async () => {
+  it('writes one markdown file per registered core agent (12 total)', async () => {
     const written = await exportAllAgents(outDir);
-    expect(written.length).toBe(11);
+    expect(written.length).toBe(12);
 
     const files = await readdir(outDir);
-    expect(files.length).toBe(11);
+    expect(files.length).toBe(12);
     for (const file of files) {
       expect(file.startsWith(AGENT_NAME_PREFIX)).toBe(true);
       expect(file.endsWith('.md')).toBe(true);
@@ -140,6 +140,7 @@ describe('exportAllAgents', () => {
       'devops',
       'documentation',
       'security-auditor',
+      'grader',
     ];
     for (const type of expectedTypes) {
       const content = await readFile(
@@ -154,8 +155,8 @@ describe('exportAllAgents', () => {
   it('creates the output directory if it does not exist', async () => {
     const nested = join(outDir, 'nested', 'agents');
     const written = await exportAllAgents(nested);
-    expect(written.length).toBe(11);
+    expect(written.length).toBe(12);
     const files = await readdir(nested);
-    expect(files.length).toBe(11);
+    expect(files.length).toBe(12);
   });
 });

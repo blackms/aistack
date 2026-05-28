@@ -24,8 +24,9 @@
 
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
-import * as http from 'node:http';
-import * as https from 'node:https';
+import http from 'node:http';
+import https from 'node:https';
+import type { Agent as HttpsAgent, RequestOptions as HttpsRequestOptions } from 'node:https';
 import { URL } from 'node:url';
 import { logger } from '../utils/logger.js';
 import type {
@@ -138,7 +139,7 @@ function readRequiredFile(path: string, label: string): Buffer {
 /**
  * Build an https.Agent that performs mTLS when credentials are available.
  */
-export function buildHttpsAgent(creds: FederationCredentials): https.Agent {
+export function buildHttpsAgent(creds: FederationCredentials): HttpsAgent {
   return new https.Agent({
     cert: creds.cert ?? undefined,
     key: creds.key ?? undefined,
@@ -220,7 +221,7 @@ export function verifyPeerRequest(
     return { ok: true, reason: 'bearer-token' };
   }
   // mTLS mode
-  if (creds.requireClientCert) {
+  if (haveMtls && creds.requireClientCert) {
     const names = extractPeerCertNames(peerCert);
     if (names.length === 0) {
       return { ok: false, reason: 'Missing or invalid client certificate' };
@@ -236,6 +237,12 @@ export function verifyPeerRequest(
       return { ok: true, reason: `mtls:${matched}` };
     }
     return { ok: true, reason: `mtls:${names[0]}` };
+  }
+  if (haveMtls) {
+    return { ok: true, reason: 'mtls:client-cert-not-required' };
+  }
+  if (!creds.allowPlainText) {
+    return { ok: false, reason: 'Missing federation authentication' };
   }
   // Permissive dev mode (allowPlainText forced, no auth) - allowed only because
   // loadCredentials() has already enforced the explicit opt-in gate.
@@ -283,7 +290,7 @@ export interface FederationResponse {
  * HTTP client used to talk to a remote federation peer.
  */
 export class FederationClient {
-  private readonly agent: https.Agent;
+  private readonly agent: HttpsAgent;
   private readonly maxInputLength: number;
   private readonly timeoutMs: number;
   private readonly bearer: string | null;
@@ -296,7 +303,7 @@ export class FederationClient {
   }
 
   /** Expose the underlying https.Agent (e.g. for advanced callers). */
-  getHttpsAgent(): https.Agent {
+  getHttpsAgent(): HttpsAgent {
     return this.agent;
   }
 
@@ -364,7 +371,7 @@ export class FederationClient {
       headers['content-length'] = String(bodyBuf.length);
     }
 
-    const reqOptions: https.RequestOptions = {
+    const reqOptions: HttpsRequestOptions = {
       method,
       protocol: parsed.protocol,
       hostname: parsed.hostname,
@@ -374,7 +381,7 @@ export class FederationClient {
       timeout: this.timeoutMs,
     };
     if (isHttps) {
-      (reqOptions as https.RequestOptions).agent = this.agent;
+      reqOptions.agent = this.agent;
     }
 
     const requester = isHttps ? https.request : http.request;

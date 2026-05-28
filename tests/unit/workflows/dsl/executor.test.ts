@@ -236,7 +236,7 @@ describe('executor — max_iterations off-by-one', () => {
         { id: 'a', agent: 'coder', input: 'x' },
         // Loops back to 'a' on every reject, with a high retry cap so the
         // global iteration limit is what actually stops the run.
-        { id: 'b', agent: 'adversarial', input: '$prev.output', on_reject: { goto: 'a', max_retries: 99 } },
+        { id: 'b', agent: 'adversarial', input: '$prev.output', on_reject: { goto: 'a', max_retries: 20 } },
       ],
     });
     const ctx = new WorkflowContext({ task: {}, runStep });

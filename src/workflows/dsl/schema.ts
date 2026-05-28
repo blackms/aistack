@@ -59,11 +59,27 @@ export const OnErrorClauseSchema = z.object({
  */
 export const IfExpressionSchema = z.string().min(1);
 
+export type OnRejectClause = z.infer<typeof OnRejectClauseSchema>;
+export type OnErrorClause = z.infer<typeof OnErrorClauseSchema>;
+
+export interface Step {
+  id?: string;
+  agent?: string;
+  name?: string;
+  input?: string | Record<string, unknown>;
+  if?: string;
+  on_reject?: OnRejectClause;
+  on_error?: OnErrorClause;
+  parallel?: Step[];
+  timeout_ms?: number;
+}
+
 /**
  * A single step. Either a `agent` invocation OR a `parallel` block.
  */
-export const StepSchema = z
-  .object({
+export const StepSchema: z.ZodType<Step, z.ZodTypeDef, unknown> = z.lazy(() =>
+  z
+    .object({
     id: z
       .string()
       .min(1)
@@ -92,11 +108,8 @@ export const StepSchema = z
   .refine(
     (step) => Boolean(step.agent) !== Boolean(step.parallel),
     { message: 'Step must define exactly one of: agent, parallel' }
-  );
-
-export type Step = z.infer<typeof StepSchema>;
-export type OnRejectClause = z.infer<typeof OnRejectClauseSchema>;
-export type OnErrorClause = z.infer<typeof OnErrorClauseSchema>;
+  )
+);
 
 /**
  * Top-level workflow document.

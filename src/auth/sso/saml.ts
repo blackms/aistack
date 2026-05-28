@@ -28,6 +28,8 @@ import type { SamlConfig, SsoProfile } from './types.js';
 
 const log = logger.child('sso:saml');
 
+export { SamlSecurityError } from './saml-validator.js';
+
 /**
  * Minimal interface for the @node-saml/node-saml SAML class we depend on.
  * Declared structurally so we can stub it in tests without importing the

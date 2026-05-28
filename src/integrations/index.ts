@@ -16,11 +16,11 @@
 
 import type { AgentStackConfig, IntegrationsConfig } from '../types.js';
 import { logger } from '../utils/logger.js';
-import { postgresAdapter, type PostgresIntegrationConfig } from './postgres.js';
-import { githubRemoteAdapter, type GithubRemoteIntegrationConfig } from './github-remote.js';
-import { sentryAdapter, type SentryIntegrationConfig } from './sentry.js';
-import { playwrightAdapter, type PlaywrightIntegrationConfig } from './playwright.js';
-import { slackMcpAdapter, type SlackMcpIntegrationConfig } from './slack-mcp.js';
+import { postgresAdapter } from './postgres.js';
+import { githubRemoteAdapter } from './github-remote.js';
+import { sentryAdapter } from './sentry.js';
+import { playwrightAdapter } from './playwright.js';
+import { slackMcpAdapter } from './slack-mcp.js';
 
 const log = logger.child('integrations');
 

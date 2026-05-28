@@ -14,7 +14,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
-import * as https from 'node:https';
+import https from 'node:https';
+import type { RequestOptions as HttpsRequestOptions } from 'node:https';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -229,9 +230,9 @@ describe('FederationClient outbound uses configured https.Agent', () => {
     const client = new FederationClient(creds, { timeoutMs: 250 });
     const agent = client.getHttpsAgent();
 
-    let seenOptions: https.RequestOptions | null = null;
+    let seenOptions: HttpsRequestOptions | null = null;
     const spy = vi.spyOn(https, 'request').mockImplementation(((
-      options: https.RequestOptions,
+      options: HttpsRequestOptions,
       cb?: (res: http.IncomingMessage) => void
     ) => {
       seenOptions = options;
@@ -264,7 +265,7 @@ describe('FederationClient outbound uses configured https.Agent', () => {
     // CRITICAL assertion: the configured Agent (mTLS material) is actually
     // used for the outbound HTTPS call. The previous implementation used
     // global `fetch`, which silently dropped the agent.
-    expect((seenOptions as https.RequestOptions).agent).toBe(agent);
+    expect((seenOptions as HttpsRequestOptions).agent).toBe(agent);
   });
 });
 

@@ -39,7 +39,7 @@ export interface PostgresIntegrationConfig extends ProviderConfig {
  * carries `default_transaction_read_only=on`.
  */
 export function enforceReadOnly(connectionString: string): string {
-  if (/default_transaction_read_only\s*=\s*on/i.test(connectionString)) {
+  if (hasReadOnlyOption(connectionString)) {
     return connectionString;
   }
 
@@ -58,6 +58,17 @@ export function enforceReadOnly(connectionString: string): string {
 
   // keyword=value form: just append.
   return `${connectionString.trimEnd()} options='${READ_ONLY_OPT}'`;
+}
+
+function hasReadOnlyOption(value: string): boolean {
+  const readOnlyPattern = /default_transaction_read_only\s*=\s*on/i;
+  if (readOnlyPattern.test(value)) return true;
+
+  try {
+    return readOnlyPattern.test(decodeURIComponent(value));
+  } catch {
+    return false;
+  }
 }
 
 export const postgresAdapter: BattlePackAdapter<PostgresIntegrationConfig> = {

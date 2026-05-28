@@ -8,7 +8,7 @@
 
 import { Command } from 'commander';
 import { writeFileSync, existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { getConfig } from '../../utils/config.js';
 import { buildMcpJson, listBattlePackAdapters } from '../../integrations/index.js';
 import { logger } from '../../utils/logger.js';

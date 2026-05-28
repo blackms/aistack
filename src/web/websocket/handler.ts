@@ -358,13 +358,13 @@ function handleClientMessage(clientId: string, message: string): void {
 function cleanupClient(clientId: string): void {
   const client = clients.get(clientId);
   if (client) {
+    clients.delete(clientId);
     client.unsubscribe();
     try {
       client.socket.destroy();
     } catch {
       // Ignore errors during cleanup
     }
-    clients.delete(clientId);
   }
 }
 

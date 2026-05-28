@@ -140,7 +140,7 @@ export class DreamingWorker {
     try {
       const result = await this.consolidate();
       this.cycles++;
-      log.info('Dreaming cycle completed', result);
+      log.info('Dreaming cycle completed', { ...result });
     } catch (err) {
       log.error('Dreaming cycle failed', { error: err instanceof Error ? err.message : err });
     } finally {

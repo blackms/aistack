@@ -206,7 +206,6 @@ const ConsensusConfigSchema = z.object({
   ]),
 });
 
-<<<<<<< HEAD
 /**
  * Telemetry Configuration Schema (AIG-655)
  *

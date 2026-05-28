@@ -46,8 +46,8 @@ RUN apt-get update \
         tini \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 1000 aistack \
-    && useradd --uid 1000 --gid aistack --create-home --shell /bin/bash aistack
+    && groupadd --system aistack \
+    && useradd --system --gid aistack --create-home --shell /bin/bash aistack
 
 ENV NODE_ENV=production \
     AISTACK_DATA_DIR=/data \

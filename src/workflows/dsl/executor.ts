@@ -333,7 +333,7 @@ async function executeStep(
       }
     }
 
-    const childPromises = step.parallel.map((sub, subIdx) =>
+    const childPromises = step.parallel.map((sub: Step, subIdx: number) =>
       executeStep(sub, index * 1000 + subIdx, ctx, groupController.signal).then((r) => {
         if (r.error) groupController.abort();
         return r;
