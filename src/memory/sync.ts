@@ -19,13 +19,14 @@
 
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   promises as fsp,
   readdirSync,
   statSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, platform } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import type { MemoryManager } from './index.js';
 import { logger } from '../utils/logger.js';
@@ -53,6 +54,27 @@ export interface SyncStats {
 
 const DEFAULT_NAMESPACE = 'agent-memory';
 const DEFAULT_POLL_MS = 5000;
+
+/**
+ * POSIX permission bits applied to the synced directory and files. On POSIX
+ * systems this guarantees the sync directory is unreadable by other users
+ * (the sync surface may contain agent memory, secrets, etc.). On Windows these
+ * modes are largely a no-op — file ACLs are not derived from POSIX bits — so we
+ * skip chmod calls there to avoid noise. Defense-in-depth, not a substitute
+ * for proper OS-level ACLs.
+ */
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
+const IS_WINDOWS = platform() === 'win32';
+
+function safeChmod(path: string, mode: number): void {
+  if (IS_WINDOWS) return;
+  try {
+    chmodSync(path, mode);
+  } catch (err) {
+    log.debug('chmod failed', { path, mode: mode.toString(8), error: err instanceof Error ? err.message : err });
+  }
+}
 
 function defaultWatchPath(): string {
   return join(homedir(), '.claude', 'agent-memory');
@@ -104,15 +126,28 @@ export class BidirectionalSync {
     };
   }
 
-  /** Idempotent setup: ensures the watch directory exists. */
+  /**
+   * Idempotent setup: ensures the watch directory exists with restrictive
+   * permissions (0o700 on POSIX). On first access we also re-apply the mode in
+   * case the directory was created before this hardening landed.
+   */
   ensureDir(): void {
     if (!existsSync(this.watchPath)) {
-      mkdirSync(this.watchPath, { recursive: true });
-      log.info('Created sync directory', { path: this.watchPath });
+      mkdirSync(this.watchPath, { recursive: true, mode: DIR_MODE });
+      // mkdir respects umask on POSIX — chmod after the fact to be sure.
+      safeChmod(this.watchPath, DIR_MODE);
+      log.info('Created sync directory', { path: this.watchPath, mode: DIR_MODE.toString(8) });
+    } else {
+      // Existing directory may predate the perm hardening — tighten it.
+      safeChmod(this.watchPath, DIR_MODE);
     }
   }
 
-  /** Start the periodic sync loop. */
+  /**
+   * Start the periodic sync loop and register process shutdown handlers so the
+   * interval is cleared on SIGTERM / SIGINT. Handlers are registered once per
+   * instance and de-registered by `stop()`.
+   */
   start(): void {
     if (this.timer) return;
     this.ensureDir();
@@ -123,6 +158,7 @@ export class BidirectionalSync {
     if (typeof this.timer.unref === 'function') {
       this.timer.unref();
     }
+    this.installShutdownHandlers();
   }
 
   stop(): void {
@@ -131,6 +167,35 @@ export class BidirectionalSync {
       this.timer = null;
       log.info('Bidirectional sync stopped');
     }
+    this.removeShutdownHandlers();
+  }
+
+  // ---- Shutdown wiring ----------------------------------------------------
+
+  private shutdownHandler: (() => void) | null = null;
+
+  private installShutdownHandlers(): void {
+    if (this.shutdownHandler) return;
+    const handler = (): void => {
+      try {
+        this.stop();
+      } catch {
+        /* ignore — best-effort cleanup */
+      }
+    };
+    this.shutdownHandler = handler;
+    process.once('SIGTERM', handler);
+    process.once('SIGINT', handler);
+    process.once('beforeExit', handler);
+  }
+
+  private removeShutdownHandlers(): void {
+    if (!this.shutdownHandler) return;
+    const handler = this.shutdownHandler;
+    this.shutdownHandler = null;
+    process.off('SIGTERM', handler);
+    process.off('SIGINT', handler);
+    process.off('beforeExit', handler);
   }
 
   /** One sync cycle. Returns counts for diagnostics + tests. */
@@ -159,6 +224,8 @@ export class BidirectionalSync {
       const key = pathToKey(rel);
       try {
         const content = await fsp.readFile(absPath, 'utf8');
+        // Tighten perms on imported files (best-effort, POSIX only).
+        safeChmod(absPath, FILE_MODE);
         const fileHash = hash(content);
         const existing = this.memory.get(key, this.namespace);
         if (existing && hash(existing.content) === fileHash) {
@@ -246,8 +313,12 @@ export class BidirectionalSync {
             continue;
           }
         }
-        mkdirSync(dirname(absPath), { recursive: true });
-        await fsp.writeFile(absPath, entry.content, 'utf8');
+        mkdirSync(dirname(absPath), { recursive: true, mode: DIR_MODE });
+        safeChmod(dirname(absPath), DIR_MODE);
+        await fsp.writeFile(absPath, entry.content, { encoding: 'utf8', mode: FILE_MODE });
+        // writeFile honors mode only on create — re-apply for the overwrite case
+        // and for any pre-existing file with looser perms.
+        safeChmod(absPath, FILE_MODE);
         this.lastHash.set(entry.key, fileHash);
         stats.exported++;
       } catch (err) {
@@ -263,10 +334,13 @@ export class BidirectionalSync {
   async exportEntry(key: string): Promise<boolean> {
     const entry = this.memory.get(key, this.namespace);
     if (!entry) return false;
+    this.ensureDir();
     const absPath = join(this.watchPath, keyToPath(key));
     try {
-      mkdirSync(dirname(absPath), { recursive: true });
-      await fsp.writeFile(absPath, entry.content, 'utf8');
+      mkdirSync(dirname(absPath), { recursive: true, mode: DIR_MODE });
+      safeChmod(dirname(absPath), DIR_MODE);
+      await fsp.writeFile(absPath, entry.content, { encoding: 'utf8', mode: FILE_MODE });
+      safeChmod(absPath, FILE_MODE);
       this.lastHash.set(key, hash(entry.content));
       return true;
     } catch (err) {

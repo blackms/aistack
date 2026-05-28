@@ -131,4 +131,63 @@ describe('DreamingWorker', () => {
     const dreams = manager.list('dreams', 10);
     expect(dreams[0].content).toBe('CUSTOM SUMMARY');
   });
+
+  it('skips already-consolidated entries on subsequent cycles', async () => {
+    await manager.store('a', 'shared deployment workflow notes alpha');
+    await manager.store('b', 'shared deployment workflow notes beta');
+    const summarize = vi.fn(() => 'SUMMARY');
+    const worker = new DreamingWorker(manager, {
+      minClusterSize: 2,
+      similarityThreshold: 0.4,
+      dreamNamespace: 'dreams',
+      summarize,
+    });
+    // First cycle: both entries are fresh, one dream is produced.
+    const first = await worker.consolidate();
+    expect(first.consolidated).toBe(1);
+    expect(summarize).toHaveBeenCalledTimes(1);
+
+    // Second cycle: nothing changed — no new clusters, summarizer untouched.
+    const second = await worker.consolidate();
+    expect(second.consolidated).toBe(0);
+    expect(second.clusters).toBe(0);
+    expect(summarize).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-consolidates a source entry whose content changed since last cycle', async () => {
+    await manager.store('a', 'shared deployment workflow notes alpha');
+    await manager.store('b', 'shared deployment workflow notes beta');
+    const summarize = vi.fn(() => 'SUMMARY');
+    const worker = new DreamingWorker(manager, {
+      minClusterSize: 2,
+      similarityThreshold: 0.4,
+      dreamNamespace: 'dreams',
+      summarize,
+    });
+    await worker.consolidate();
+    summarize.mockClear();
+
+    // Ensure updatedAt advances past the dream's consolidatedAt (which is set
+    // to Date.now() at write time — same millisecond as our re-store is the
+    // edge case we explicitly want to cover).
+    await new Promise((r) => setTimeout(r, 5));
+    await manager.store('a', 'shared deployment workflow notes alpha UPDATED');
+    await manager.store('b', 'shared deployment workflow notes beta UPDATED');
+
+    const next = await worker.consolidate();
+    expect(next.consolidated).toBe(1);
+    expect(summarize).toHaveBeenCalledTimes(1);
+  });
+
+  it('start() installs process shutdown handlers', () => {
+    const sigtermBefore = process.listenerCount('SIGTERM');
+    const sigintBefore = process.listenerCount('SIGINT');
+    const worker = new DreamingWorker(manager, { intervalMs: 10_000 });
+    worker.start();
+    expect(process.listenerCount('SIGTERM')).toBe(sigtermBefore + 1);
+    expect(process.listenerCount('SIGINT')).toBe(sigintBefore + 1);
+    worker.stop();
+    expect(process.listenerCount('SIGTERM')).toBe(sigtermBefore);
+    expect(process.listenerCount('SIGINT')).toBe(sigintBefore);
+  });
 });

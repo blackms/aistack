@@ -7,13 +7,15 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   promises as fsp,
   rmSync,
+  statSync,
   unlinkSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, platform } from 'node:os';
 import { join } from 'node:path';
 import {
   BidirectionalSync,
@@ -160,5 +162,59 @@ describe('BidirectionalSync', () => {
     sync.stop();
     sync.stop();
     // No assertions beyond not throwing — interval is unref'd so it never blocks.
+  });
+
+  // POSIX-only: file permission bits are largely a no-op on Windows.
+  const itPosix = platform() === 'win32' ? it.skip : it;
+
+  itPosix('ensureDir creates directory with 0o700 permissions', () => {
+    const sync = new BidirectionalSync(manager, { watchPath });
+    sync.ensureDir();
+    const mode = statSync(watchPath).mode & 0o777;
+    expect(mode).toBe(0o700);
+  });
+
+  itPosix('exported files have 0o600 permissions', async () => {
+    await manager.store('secret.md', 'sensitive', { namespace: 'agent-memory' });
+    const sync = new BidirectionalSync(manager, { watchPath, namespace: 'agent-memory' });
+    await sync.exportAll();
+    const filePath = join(watchPath, 'secret.md');
+    expect(existsSync(filePath)).toBe(true);
+    const mode = statSync(filePath).mode & 0o777;
+    expect(mode).toBe(0o600);
+  });
+
+  itPosix('exportEntry writes a file with 0o600 permissions', async () => {
+    await manager.store('one.md', 'x', { namespace: 'agent-memory' });
+    const sync = new BidirectionalSync(manager, { watchPath, namespace: 'agent-memory' });
+    await sync.exportEntry('one.md');
+    const mode = statSync(join(watchPath, 'one.md')).mode & 0o777;
+    expect(mode).toBe(0o600);
+  });
+
+  itPosix('ensureDir tightens permissions on a pre-existing loose directory', () => {
+    mkdirSync(watchPath, { recursive: true, mode: 0o755 });
+    // Force loose perms in case umask masked the mode above.
+    chmodSync(watchPath, 0o755);
+    const sync = new BidirectionalSync(manager, { watchPath });
+    sync.ensureDir();
+    const mode = statSync(watchPath).mode & 0o777;
+    expect(mode).toBe(0o700);
+  });
+
+  it('start() installs process shutdown handlers', () => {
+    const sigtermBefore = process.listenerCount('SIGTERM');
+    const sigintBefore = process.listenerCount('SIGINT');
+    const sync = new BidirectionalSync(manager, {
+      watchPath,
+      pollIntervalMs: 10_000,
+    });
+    sync.start();
+    expect(process.listenerCount('SIGTERM')).toBe(sigtermBefore + 1);
+    expect(process.listenerCount('SIGINT')).toBe(sigintBefore + 1);
+    sync.stop();
+    // Handlers de-registered on stop.
+    expect(process.listenerCount('SIGTERM')).toBe(sigtermBefore);
+    expect(process.listenerCount('SIGINT')).toBe(sigintBefore);
   });
 });

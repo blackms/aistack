@@ -74,7 +74,9 @@ export class DreamingWorker {
 
   /**
    * Schedule periodic consolidation. Safe to call multiple times — extra calls
-   * are no-ops while the worker is already running.
+   * are no-ops while the worker is already running. Also installs SIGTERM /
+   * SIGINT handlers so the interval is cleared on process shutdown — without
+   * this the worker would keep ticking past graceful-shutdown signals.
    */
   start(): void {
     if (this.timer) {
@@ -89,6 +91,7 @@ export class DreamingWorker {
     if (typeof this.timer.unref === 'function') {
       this.timer.unref();
     }
+    this.installShutdownHandlers();
   }
 
   stop(): void {
@@ -97,6 +100,35 @@ export class DreamingWorker {
       this.timer = null;
       log.info('Dreaming worker stopped');
     }
+    this.removeShutdownHandlers();
+  }
+
+  // ---- Shutdown wiring ----------------------------------------------------
+
+  private shutdownHandler: (() => void) | null = null;
+
+  private installShutdownHandlers(): void {
+    if (this.shutdownHandler) return;
+    const handler = (): void => {
+      try {
+        this.stop();
+      } catch {
+        /* ignore — best-effort cleanup */
+      }
+    };
+    this.shutdownHandler = handler;
+    process.once('SIGTERM', handler);
+    process.once('SIGINT', handler);
+    process.once('beforeExit', handler);
+  }
+
+  private removeShutdownHandlers(): void {
+    if (!this.shutdownHandler) return;
+    const handler = this.shutdownHandler;
+    this.shutdownHandler = null;
+    process.off('SIGTERM', handler);
+    process.off('SIGINT', handler);
+    process.off('beforeExit', handler);
   }
 
   private async tick(): Promise<void> {
@@ -129,7 +161,21 @@ export class DreamingWorker {
     // Pull the most recent N entries from the chosen namespace.
     const entries = this.memory.list(namespace, batchSize);
     // Skip entries that are themselves consolidated summaries.
-    const candidates = entries.filter((e) => !this.isDream(e));
+    const sourceEntries = entries.filter((e) => !this.isDream(e));
+
+    // Dedupe: skip entries that have already been consolidated and whose
+    // content hasn't changed since. Without this, the vector / Jaccard cluster
+    // step happily re-runs over the same neighborhood every tick and produces
+    // a fresh near-duplicate dream entry per cycle — both wasteful and noisy.
+    // We snapshot the (sourceId -> consolidatedAtMs) pairs recorded on prior
+    // dream entries and skip any candidate whose updatedAt <= the recorded
+    // consolidation timestamp.
+    const consolidatedAt = this.loadConsolidationIndex(dreamNamespace);
+    const candidates = sourceEntries.filter((entry) => {
+      const last = consolidatedAt.get(entry.id);
+      if (last === undefined) return true; // never consolidated
+      return entry.updatedAt.getTime() > last; // re-consolidate only if changed
+    });
 
     if (candidates.length < minCluster) {
       return { scanned: candidates.length, clusters: 0, consolidated: 0 };
@@ -143,6 +189,47 @@ export class DreamingWorker {
       if (ok) consolidated++;
     }
     return { scanned: candidates.length, clusters: clusters.length, consolidated };
+  }
+
+  /**
+   * Build a map of `sourceEntryId -> mostRecentConsolidationTimestampMs`
+   * by scanning existing dream entries' metadata. Returns an empty map if no
+   * dreams exist or if the namespace is empty.
+   *
+   * Each dream records `consolidatedFrom: string[]` (source IDs) plus a
+   * `consolidatedAt` ISO timestamp; we keep the most recent timestamp per
+   * source ID so an updated source can still be re-consolidated.
+   */
+  private loadConsolidationIndex(dreamNamespace: string): Map<string, number> {
+    const index = new Map<string, number>();
+    // Bound the scan to a large but finite limit so a runaway dream namespace
+    // can't make every tick O(N) over the entire history.
+    let dreams: MemoryEntry[] = [];
+    try {
+      dreams = this.memory.list(dreamNamespace, 1000);
+    } catch {
+      return index;
+    }
+    for (const dream of dreams) {
+      const meta = dream.metadata as Record<string, unknown> | undefined;
+      if (!meta) continue;
+      const sources = meta.consolidatedFrom;
+      const atRaw = meta.consolidatedAt;
+      if (!Array.isArray(sources)) continue;
+      const atMs =
+        typeof atRaw === 'string' ? Date.parse(atRaw) : Number.NaN;
+      // Fallback: use the dream's own createdAt when the timestamp is missing
+      // or malformed (older dream entries written before this field landed).
+      const ts = Number.isFinite(atMs) ? atMs : dream.createdAt.getTime();
+      for (const sourceId of sources) {
+        if (typeof sourceId !== 'string') continue;
+        const prev = index.get(sourceId);
+        if (prev === undefined || ts > prev) {
+          index.set(sourceId, ts);
+        }
+      }
+    }
+    return index;
   }
 
   private isDream(entry: MemoryEntry): boolean {
