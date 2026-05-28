@@ -1,0 +1,94 @@
+# docker-compose.yml
+# ---------------------------------------------------------------------------
+# Default on-prem stack for aistack.
+#
+# Profiles:
+#   (default) -> aistack only, SQLite local data
+#   postgres  -> + Postgres backend (for multi-instance deployments)
+#   otel      -> + OpenTelemetry collector (export traces/metrics/logs)
+#
+# Usage:
+#   docker compose up -d                       # aistack only
+#   docker compose --profile postgres up -d    # + Postgres
+#   docker compose --profile otel up -d        # + OTel collector
+#   docker compose --profile postgres --profile otel up -d
+# ---------------------------------------------------------------------------
+
+services:
+  aistack:
+    image: ghcr.io/blackms/aistack:latest
+    # Uncomment to build locally instead of pulling:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: aistack
+    restart: unless-stopped
+    command: ["web", "start", "--host", "0.0.0.0", "--port", "3001"]
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      # Secrets: prefer an .env file or external secret manager in production
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      REFRESH_SECRET: ${REFRESH_SECRET:-change-me-in-production}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Postgres (active under `postgres` profile)
+      DATABASE_URL: ${DATABASE_URL:-}
+      # OTel (active under `otel` profile)
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    volumes:
+      - aistack-data:/data
+      - ./agentstack.config.json:/etc/aistack/agentstack.config.json:ro
+    healthcheck:
+      test: ["CMD", "node", "/app/dist/cli/index.js", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      otel-collector:
+        condition: service_started
+        required: false
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: aistack-postgres
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aistack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aistack}
+      POSTGRES_DB: ${POSTGRES_DB:-aistack}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aistack}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    container_name: aistack-otel
+    profiles: ["otel"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+
+volumes:
+  aistack-data:
+    driver: local
+  postgres-data:
+    driver: local
