@@ -10,6 +10,8 @@ import { logger } from '../utils/logger.js';
 
 const log = logger.child('github:providers');
 
+const MAX_RATE_LIMIT_WAIT_MS = 30_000;
+
 export type ProviderName = 'github' | 'gitlab';
 
 export interface ParsedIssueUrl {
@@ -125,7 +127,7 @@ class GitHubProvider implements ProviderClient {
   constructor(creds: ProviderCredentials = {}) {
     this.token = creds.token ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
     const host = creds.host ?? 'api.github.com';
-    this.base = host.includes('api.github.com') ? `https://${host}` : `https://${host}/api/v3`;
+    this.base = host === 'api.github.com' ? `https://${host}` : `https://${host}/api/v3`;
   }
 
   private headers(): Record<string, string> {
@@ -139,13 +141,16 @@ class GitHubProvider implements ProviderClient {
   }
 
   async getIssue(owner: string, repo: string, number: number): Promise<IssueDetails> {
-    const res = await fetch(`${this.base}/repos/${owner}/${repo}/issues/${number}`, {
+    const res = await fetchWithRateLimitRetry('GitHub', 'getIssue', `${this.base}/repos/${owner}/${repo}/issues/${number}`, {
       headers: this.headers(),
     });
     if (!res.ok) {
-      throw new Error(`GitHub getIssue failed: ${res.status} ${res.statusText}`);
+      throw await providerError('GitHub', 'getIssue', res);
     }
     const raw = (await res.json()) as Record<string, unknown>;
+    if (raw.pull_request) {
+      throw new Error(`GitHub getIssue failed: ${owner}/${repo}#${number} is a pull request, not an issue`);
+    }
     return {
       provider: 'github',
       host: 'github.com',
@@ -170,13 +175,13 @@ class GitHubProvider implements ProviderClient {
   }
 
   async setLabels(owner: string, repo: string, number: number, labels: string[]): Promise<void> {
-    const res = await fetch(`${this.base}/repos/${owner}/${repo}/issues/${number}/labels`, {
+    const res = await fetchWithRateLimitRetry('GitHub', 'setLabels', `${this.base}/repos/${owner}/${repo}/issues/${number}/labels`, {
       method: 'PUT',
       headers: { ...this.headers(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ labels }),
     });
     if (!res.ok) {
-      throw new Error(`GitHub setLabels failed: ${res.status} ${res.statusText}`);
+      throw await providerError('GitHub', 'setLabels', res);
     }
   }
 
@@ -185,7 +190,7 @@ class GitHubProvider implements ProviderClient {
     repo: string,
     params: CreatePrParams
   ): Promise<CreatePrResult> {
-    const res = await fetch(`${this.base}/repos/${owner}/${repo}/pulls`, {
+    const res = await fetchWithRateLimitRetry('GitHub', 'createPullRequest', `${this.base}/repos/${owner}/${repo}/pulls`, {
       method: 'POST',
       headers: { ...this.headers(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -197,8 +202,7 @@ class GitHubProvider implements ProviderClient {
       }),
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`GitHub createPullRequest failed: ${res.status} ${res.statusText} ${text}`);
+      throw await providerError('GitHub', 'createPullRequest', res);
     }
     const raw = (await res.json()) as { number: number; html_url: string };
     return { number: raw.number, url: raw.html_url };
@@ -235,11 +239,11 @@ class GitLabProvider implements ProviderClient {
 
   async getIssue(owner: string, repo: string, number: number): Promise<IssueDetails> {
     const pid = this.projectId(owner, repo);
-    const res = await fetch(`${this.base}/projects/${pid}/issues/${number}`, {
+    const res = await fetchWithRateLimitRetry('GitLab', 'getIssue', `${this.base}/projects/${pid}/issues/${number}`, {
       headers: this.headers(),
     });
     if (!res.ok) {
-      throw new Error(`GitLab getIssue failed: ${res.status} ${res.statusText}`);
+      throw await providerError('GitLab', 'getIssue', res);
     }
     const raw = (await res.json()) as Record<string, unknown>;
     return {
@@ -263,13 +267,13 @@ class GitLabProvider implements ProviderClient {
 
   async setLabels(owner: string, repo: string, number: number, labels: string[]): Promise<void> {
     const pid = this.projectId(owner, repo);
-    const res = await fetch(`${this.base}/projects/${pid}/issues/${number}`, {
+    const res = await fetchWithRateLimitRetry('GitLab', 'setLabels', `${this.base}/projects/${pid}/issues/${number}`, {
       method: 'PUT',
       headers: { ...this.headers(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ labels: labels.join(',') }),
     });
     if (!res.ok) {
-      throw new Error(`GitLab setLabels failed: ${res.status} ${res.statusText}`);
+      throw await providerError('GitLab', 'setLabels', res);
     }
   }
 
@@ -279,21 +283,19 @@ class GitLabProvider implements ProviderClient {
     params: CreatePrParams
   ): Promise<CreatePrResult> {
     const pid = this.projectId(owner, repo);
-    const res = await fetch(`${this.base}/projects/${pid}/merge_requests`, {
+    const title = params.draft ? `Draft: ${params.title}` : params.title;
+    const res = await fetchWithRateLimitRetry('GitLab', 'createMergeRequest', `${this.base}/projects/${pid}/merge_requests`, {
       method: 'POST',
       headers: { ...this.headers(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        title: params.title,
+        title,
         description: params.body,
         source_branch: params.head,
         target_branch: params.base,
-        // GitLab uses a `WIP:`/`Draft:` title prefix for drafts
-        ...(params.draft ? { title: `Draft: ${params.title}` } : {}),
       }),
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`GitLab createMergeRequest failed: ${res.status} ${res.statusText} ${text}`);
+      throw await providerError('GitLab', 'createMergeRequest', res);
     }
     const raw = (await res.json()) as { iid: number; web_url: string };
     return { number: raw.iid, url: raw.web_url };
@@ -310,4 +312,60 @@ export function createProviderClient(
 ): ProviderClient {
   log.debug('Creating provider client', { provider });
   return provider === 'github' ? new GitHubProvider(creds) : new GitLabProvider(creds);
+}
+
+async function fetchWithRateLimitRetry(
+  provider: string,
+  operation: string,
+  input: string,
+  init: RequestInit
+): Promise<Response> {
+  const first = await fetch(input, init);
+  if (!isRateLimited(first)) return first;
+
+  const waitMs = retryDelayMs(first.headers);
+  log.warn('Provider rate limit hit; retrying once', {
+    provider,
+    operation,
+    status: first.status,
+    waitMs,
+  });
+  await delay(waitMs);
+  return fetch(input, init);
+}
+
+function isRateLimited(res: Response): boolean {
+  if (res.status === 429) return true;
+  return res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0';
+}
+
+function retryDelayMs(headers: Headers): number {
+  const retryAfter = Number(headers.get('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+    return Math.min(retryAfter * 1000, MAX_RATE_LIMIT_WAIT_MS);
+  }
+
+  const reset = Number(headers.get('x-ratelimit-reset'));
+  if (Number.isFinite(reset) && reset > 0) {
+    return Math.min(Math.max(reset * 1000 - Date.now(), 0), MAX_RATE_LIMIT_WAIT_MS);
+  }
+
+  return 1000;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function providerError(provider: string, operation: string, res: Response): Promise<Error> {
+  const text = await res.text().catch(() => '');
+  const reason =
+    res.status === 401
+      ? 'authentication failed'
+      : isRateLimited(res)
+        ? 'rate limited'
+        : res.statusText;
+  return new Error(
+    `${provider} ${operation} failed: ${res.status} ${reason}${text ? ` ${text}` : ''}`
+  );
 }

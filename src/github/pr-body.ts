@@ -21,7 +21,7 @@ export interface PrBodyInput {
 
 export function buildPrBody(input: PrBodyInput): string {
   const { issue, plan, reviews, auditUrl, branch } = input;
-  const issueRef = issue.provider === 'github' ? `#${issue.number}` : `!${issue.number}`;
+  const issueRef = `#${issue.number}`;
 
   const sections: string[] = [];
 

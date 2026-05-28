@@ -230,10 +230,26 @@ describe('buildPrBody', () => {
     expect(body).toContain('aistack/github-42-abc');
     expect(body).toContain('https://audit.example/42');
   });
+
+  it('uses issue refs for GitLab issues, not merge-request refs', () => {
+    const body = buildPrBody({
+      issue: fakeIssue({
+        provider: 'gitlab',
+        host: 'gitlab.com',
+        htmlUrl: 'https://gitlab.com/acme/app/-/issues/42',
+      }),
+      plan: 'Plan',
+      reviews: [],
+      branch: 'aistack/gitlab-42-abc',
+    });
+
+    expect(body).toContain('issue #42');
+    expect(body).not.toContain('issue !42');
+  });
 });
 
 describe('applyLifecycleLabel', () => {
-  it('replaces any existing aistack-* label with the requested phase', async () => {
+  it('replaces existing lifecycle labels with the requested phase', async () => {
     const captured: string[] = [];
     const client: ProviderClient = {
       provider: 'github',
@@ -261,5 +277,35 @@ describe('applyLifecycleLabel', () => {
     expect(next).toContain(DEFAULT_LABELS.inProgress);
     expect(next).not.toContain(DEFAULT_LABELS.claimed);
     expect(captured).toContain(DEFAULT_LABELS.inProgress);
+  });
+
+  it('preserves user labels that only share the aistack prefix', async () => {
+    const captured: string[] = [];
+    const client: ProviderClient = {
+      provider: 'github',
+      async getIssue() {
+        return fakeIssue();
+      },
+      async setLabels(_o, _r, _n, labels) {
+        captured.push(...labels);
+      },
+      async createPullRequest() {
+        return { number: 0, url: '' };
+      },
+    };
+
+    const next = await applyLifecycleLabel(
+      client,
+      'o',
+      'r',
+      1,
+      'inProgress',
+      ['bug', 'aistack-roadmap', 'aistack-claimed']
+    );
+
+    expect(next).toContain('aistack-roadmap');
+    expect(next).toContain(DEFAULT_LABELS.inProgress);
+    expect(next).not.toContain(DEFAULT_LABELS.claimed);
+    expect(captured).toContain('aistack-roadmap');
   });
 });

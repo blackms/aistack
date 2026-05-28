@@ -41,7 +41,7 @@ Environment variables consumed when the corresponding config value is unset:
 | `GH_TOKEN`               | Fallback for `GITHUB_TOKEN`.                    |
 | `GITLAB_TOKEN`           | PAT used for GitLab REST calls.                 |
 | `GITHUB_WEBHOOK_SECRET`  | HMAC secret for `X-Hub-Signature-256`.          |
-| `GITLAB_WEBHOOK_SECRET`  | Token compared against `X-Gitlab-Token`.        |
+| `GITLAB_WEBHOOK_SECRET`  | Legacy shared token compared against `X-Gitlab-Token`. |
 
 ## CLI usage
 
@@ -64,9 +64,8 @@ draft PR/MR when one was created.
 
 1. **Provision a bot account** and grant it write access to the target repo.
 2. **Generate a PAT** with the `repo` scope and put it in `GITHUB_TOKEN`.
-3. **Start the webhook listener** (uses the AIG-636 framework once merged;
-   in the meantime call `registerGitHubWebhook(server, config)` from your
-   own bootstrap module).
+3. **Start the webhook listener** with an `IntegrationRouter`, then call
+   `registerGitHubWebhook(server, config)` from your bootstrap module.
 4. **Register the webhook** on the repo:
    - Payload URL: `https://your-host/v1/github/webhook`
    - Content type: `application/json`
@@ -83,6 +82,11 @@ draft PR/MR when one was created.
 3. Triggers: **Issues events**
 4. Assign an issue to the bot user to dispatch the workflow.
 
+The GitLab adapter currently supports the legacy shared-secret token echo
+mode for `X-Gitlab-Token`. Terminate TLS at the edge and keep GitLab SSL
+verification enabled. Group-level HMAC-style GitLab webhook verification is
+not implemented in this adapter.
+
 ## Lifecycle labels
 
 The coordinator writes the following labels on the source issue:
@@ -94,9 +98,9 @@ The coordinator writes the following labels on the source issue:
 | Blocked / failed  | `aistack-blocked-needs-human`  |
 | Done              | `aistack-done`                 |
 
-Override any of these via `github.labels.*`. Existing `aistack-*` labels are
-replaced atomically on each transition so the issue only carries one phase
-label at a time.
+Override any of these via `github.labels.*`. Existing lifecycle labels from
+this table are replaced atomically on each transition so the issue only
+carries one phase label at a time; unrelated user labels are preserved.
 
 ## E2E test fixture
 

@@ -2,7 +2,7 @@
  * Webhook server + GitHub/GitLab route handler tests.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import {
   IntegrationRouter,
@@ -14,6 +14,11 @@ import {
   GITHUB_WEBHOOK_PATH,
 } from '../../../src/transport/github-webhook.js';
 import { shouldDispatchGitLab } from '../../../src/transport/gitlab-webhook.js';
+import {
+  beginIssueDispatch,
+  finishIssueDispatch,
+  __resetIssueDispatchDedupeForTests,
+} from '../../../src/github/dispatch-dedupe.js';
 import type { AgentStackConfig } from '../../../src/types.js';
 
 function baseConfig(): AgentStackConfig {
@@ -55,6 +60,19 @@ describe('verifyHmacSignature', () => {
 });
 
 describe('shouldDispatch (GitHub)', () => {
+  it('ignores events sent by the bot itself', () => {
+    const d = shouldDispatch(
+      'issues',
+      {
+        action: 'labeled',
+        sender: { login: 'aistack-bot' },
+        issue: { html_url: 'x', labels: [{ name: 'aistack-claimed' }] },
+      },
+      'aistack-bot'
+    );
+    expect(d.dispatch).toBe(false);
+  });
+
   it('dispatches on issues.assigned matching the bot login', () => {
     const d = shouldDispatch(
       'issues',
@@ -88,6 +106,20 @@ describe('shouldDispatch (GitHub)', () => {
 });
 
 describe('shouldDispatchGitLab', () => {
+  it('ignores events sent by the bot itself', () => {
+    const d = shouldDispatchGitLab(
+      'Issue Hook',
+      {
+        object_kind: 'issue',
+        user: { username: 'aistack-bot' },
+        object_attributes: { action: 'update', url: 'x' },
+        assignees: [{ username: 'aistack-bot' }],
+      },
+      'aistack-bot'
+    );
+    expect(d.dispatch).toBe(false);
+  });
+
   it('dispatches on an issue update assigned to the bot', () => {
     const d = shouldDispatchGitLab(
       'Issue Hook',
@@ -112,6 +144,38 @@ describe('shouldDispatchGitLab', () => {
       'aistack-bot'
     );
     expect(d.dispatch).toBe(false);
+  });
+});
+
+describe('issue dispatch dedupe', () => {
+  beforeEach(() => {
+    __resetIssueDispatchDedupeForTests();
+  });
+
+  it('suppresses duplicate issue dispatches while one is in flight', () => {
+    const url = 'https://github.com/octocat/hello/issues/42';
+    const first = beginIssueDispatch(url);
+    const second = beginIssueDispatch(url);
+    expect(first.started).toBe(true);
+    expect(second.started).toBe(false);
+    expect(second.reason).toBe('already in flight');
+  });
+
+  it('suppresses recently completed issue dispatches for the TTL window', () => {
+    const url = 'https://gitlab.com/group/project/-/issues/7';
+    const first = beginIssueDispatch(url, 1000);
+    finishIssueDispatch(first.key, true, 1000);
+    const second = beginIssueDispatch(url, 2000);
+    expect(second.started).toBe(false);
+    expect(second.reason).toBe('recently completed');
+  });
+
+  it('allows retry after a failed workflow', () => {
+    const url = 'https://github.com/octocat/hello/issues/42';
+    const first = beginIssueDispatch(url);
+    finishIssueDispatch(first.key, false);
+    const second = beginIssueDispatch(url);
+    expect(second.started).toBe(true);
   });
 });
 

@@ -21,9 +21,9 @@ export type LifecyclePhase = 'claimed' | 'inProgress' | 'blocked' | 'done';
 /**
  * Replace the lifecycle label on an issue with the one matching `phase`.
  *
- * Strategy: fetch existing labels, drop any `aistack-*` label, append the
- * single label for the requested phase, and PUT the set back. This is
- * idempotent and tolerates manual edits made by humans on the issue.
+ * Strategy: drop any known lifecycle label, append the single label for the
+ * requested phase, and PUT the set back. This is idempotent and tolerates
+ * manual edits made by humans on the issue.
  */
 export async function applyLifecycleLabel(
   client: ProviderClient,
@@ -41,10 +41,22 @@ export async function applyLifecycleLabel(
   const next = Array.from(new Set([...filtered, target]));
 
   log.info('Applying lifecycle label', { owner, repo, number, phase, label: target });
+  if (sameLabelSet(existingLabels, next)) {
+    return next;
+  }
   await client.setLabels(owner, repo, number, next);
   return next;
 }
 
 function isAistackLabel(label: string, set: Required<IssueLabelSet>): boolean {
-  return Object.values(set).includes(label) || label.toLowerCase().startsWith('aistack-');
+  const known = new Set(Object.values(set).map((value) => value.toLowerCase()));
+  return known.has(label.toLowerCase());
+}
+
+function sameLabelSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const normalized = (items: string[]) => items.map((value) => value.toLowerCase()).sort();
+  const left = normalized(a);
+  const right = normalized(b);
+  return left.every((value, idx) => value === right[idx]);
 }

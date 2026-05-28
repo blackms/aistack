@@ -111,7 +111,7 @@ export class IntegrationRouter {
   private server: Server | null = null;
 
   constructor(options: IntegrationRouterOptions = {}) {
-    this.host = options.host ?? '0.0.0.0';
+    this.host = options.host ?? '127.0.0.1';
     this.port = options.port ?? 9091;
     this.maxBodyBytes = options.maxBodyBytes ?? 1_048_576; // 1 MiB
   }

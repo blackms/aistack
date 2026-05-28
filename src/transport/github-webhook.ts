@@ -13,6 +13,11 @@
 
 import { logger } from '../utils/logger.js';
 import { runIssueToPRWorkflow, ingestIssue } from '../github/index.js';
+import {
+  beginIssueDispatch,
+  finishIssueDispatch,
+  type DispatchLease,
+} from '../github/dispatch-dedupe.js';
 import type { AgentStackConfig } from '../types.js';
 import type { IntegrationRouter, IntegrationHandler } from './integration-router.js';
 
@@ -83,10 +88,42 @@ export function registerGitHubWebhook(
       return;
     }
 
-    log.info('Dispatching workflow', { event, issueUrl });
-    lastInvocation = dispatchWorkflow(issueUrl, config).catch((err) => {
-      log.error('Workflow dispatch failed', { err: (err as Error).message });
-    });
+    let lease: DispatchLease;
+    try {
+      lease = beginIssueDispatch(issueUrl);
+    } catch (err) {
+      log.warn('Invalid issue URL in webhook payload', { err: (err as Error).message, issueUrl });
+      res.statusCode = 400;
+      res.end('invalid issue url');
+      return;
+    }
+
+    const deliveryHeader = ctx.headers['x-github-delivery'];
+    const deliveryId = Array.isArray(deliveryHeader) ? deliveryHeader[0] : deliveryHeader;
+    if (!lease.started) {
+      log.info('Duplicate workflow dispatch suppressed', {
+        event,
+        issueUrl,
+        key: lease.key,
+        reason: lease.reason,
+        deliveryId,
+      });
+      res.statusCode = 202;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ dispatched: false, reason: lease.reason, issueUrl }));
+      return;
+    }
+
+    log.info('Dispatching workflow', { event, issueUrl, key: lease.key, deliveryId });
+    lastInvocation = dispatchWorkflow(issueUrl, config)
+      .then((value) => {
+        finishIssueDispatch(lease.key, true);
+        return value;
+      })
+      .catch((err) => {
+        finishIssueDispatch(lease.key, false);
+        log.error('Workflow dispatch failed', { err: (err as Error).message });
+      });
 
     res.statusCode = 202;
     res.setHeader('Content-Type', 'application/json');
@@ -134,6 +171,10 @@ export function shouldDispatch(
   payload: GitHubPayload,
   botLogin?: string
 ): DispatchDecision {
+  if (botLogin && payload.sender?.login?.toLowerCase() === botLogin.toLowerCase()) {
+    return { dispatch: false, reason: `sender ${botLogin} is the bot` };
+  }
+
   if (event === 'issues' && payload.action === 'assigned') {
     if (botLogin) {
       const assignee = payload.assignee?.login?.toLowerCase();

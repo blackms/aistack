@@ -9,6 +9,11 @@
 
 import { logger } from '../utils/logger.js';
 import { runIssueToPRWorkflow, ingestIssue } from '../github/index.js';
+import {
+  beginIssueDispatch,
+  finishIssueDispatch,
+  type DispatchLease,
+} from '../github/dispatch-dedupe.js';
 import type { AgentStackConfig } from '../types.js';
 import type { IntegrationRouter, IntegrationHandler } from './integration-router.js';
 
@@ -64,10 +69,39 @@ export function registerGitLabWebhook(
       return;
     }
 
-    log.info('Dispatching GitLab workflow', { event, issueUrl });
-    lastInvocation = dispatchWorkflow(issueUrl, config).catch((err) => {
-      log.error('Workflow dispatch failed', { err: (err as Error).message });
-    });
+    let lease: DispatchLease;
+    try {
+      lease = beginIssueDispatch(issueUrl);
+    } catch (err) {
+      log.warn('Invalid GitLab issue URL in webhook payload', { err: (err as Error).message, issueUrl });
+      res.statusCode = 400;
+      res.end('invalid issue url');
+      return;
+    }
+
+    if (!lease.started) {
+      log.info('Duplicate GitLab workflow dispatch suppressed', {
+        event,
+        issueUrl,
+        key: lease.key,
+        reason: lease.reason,
+      });
+      res.statusCode = 202;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ dispatched: false, reason: lease.reason, issueUrl }));
+      return;
+    }
+
+    log.info('Dispatching GitLab workflow', { event, issueUrl, key: lease.key });
+    lastInvocation = dispatchWorkflow(issueUrl, config)
+      .then((value) => {
+        finishIssueDispatch(lease.key, true);
+        return value;
+      })
+      .catch((err) => {
+        finishIssueDispatch(lease.key, false);
+        log.error('Workflow dispatch failed', { err: (err as Error).message });
+      });
 
     res.statusCode = 202;
     res.setHeader('Content-Type', 'application/json');
@@ -112,6 +146,10 @@ export function shouldDispatchGitLab(
   payload: GitLabPayload,
   botUsername?: string
 ): DispatchDecision {
+  if (botUsername && payload.user?.username?.toLowerCase() === botUsername.toLowerCase()) {
+    return { dispatch: false, reason: `sender ${botUsername} is the bot` };
+  }
+
   const kind = payload.object_kind ?? event?.toLowerCase();
   if (kind === 'issue' && (payload.object_attributes?.action === 'update' || payload.object_attributes?.action === 'open')) {
     if (botUsername) {
