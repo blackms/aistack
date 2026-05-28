@@ -192,3 +192,154 @@ record.
 - The sync layer uses polling (`pollIntervalMs`) instead of `fs.watch` for
   cross-platform consistency. Set a small interval if you need near-real-time
   semantics, or call `tick()` from a write hook for push-style updates.
+# Memory Subsystem
+
+aistack stores all agent memory in a single SQLite database. This document
+covers the runtime layout and — in particular — the hierarchical tiering
+introduced in AIG-651.
+
+## Backends
+
+| Layer | Purpose | Code |
+| --- | --- | --- |
+| `SQLiteStore` | Durable row storage, sessions, tasks, projects | `src/memory/sqlite-store.ts` |
+| `FTSSearch`   | SQLite FTS5 full-text search                    | `src/memory/fts-search.ts`   |
+| `VectorSearch`| Optional embeddings + cosine ranking            | `src/memory/vector-search.ts`|
+| `MemoryManager` | Thin facade used by agents & CLI              | `src/memory/index.ts`        |
+
+The `MemoryManager` is the public entry point; all CLI commands and MCP tools
+go through it.
+
+## Hierarchical tiering (AIG-651)
+
+### Concept
+
+Inspired by MemGPT / Letta's OS-style memory hierarchy, every memory entry
+lives in exactly one of three tiers:
+
+| Tier      | Intent                                | Backed by                       |
+| --------- | ------------------------------------- | ------------------------------- |
+| `working` | Hot, in-context (~4k token budget)    | `memory` rows with `tier='working'` |
+| `recall`  | Warm, FTS5 + vector indexed (default) | `memory` rows with `tier='recall'`  |
+| `archival`| Cold, gzipped, optional LLM summary   | `memory` rows with `tier='archival'`, full payload in `archived_content` |
+
+New writes default to `recall` — existing behavior is unchanged for any code
+that hasn't opted in.
+
+### Auto-paging
+
+A background worker (`AutoPager` in `src/memory/tiers/auto-pager.ts`) runs
+every `intervalMs` (default 5 minutes) and applies three rules in order:
+
+1. **Promote hot recall -> working.** Recall entries with
+   `access_count >= promoteToWorkingMinAccessCount` accessed within
+   `recentAccessWindowMs` are promoted, respecting the working tier's cap.
+2. **Demote working LRU -> recall.** If working exceeds its `maxEntries`
+   cap, the LRU tail (oldest `last_accessed_at`) is demoted.
+3. **Demote aged / overflow recall -> archival.** Recall entries older than
+   `recallMaxAgeDays` OR beyond `recallMaxEntries` are demoted; their content
+   is gzipped into `archived_content` and replaced with a short preview /
+   summary in the `content` column so FTS can still surface them.
+
+Each tick is bounded by `batchSize` (default 500 rows scanned) so paging
+cost is predictable on 10k+ entry stores.
+
+### Explicit API
+
+```ts
+import { TierManager, AutoPager, createTierStack } from '@blackms/aistack/memory';
+
+const { tierManager, autoPager } = createTierStack(store, config);
+autoPager.start();
+
+// Manual control
+tierManager.touch(entry.id);                       // mark as accessed
+tierManager.promote(entry.id);                     // one step hotter
+tierManager.demote(entry.id, undefined, {          // archive with summary
+  summary: 'optional LLM summary'
+});
+tierManager.setTier(entry.id, 'archival');         // jump directly
+tierManager.restoreContent(entry.id);              // read archived payload
+tierManager.getStats();                            // { working, recall, archival, total }
+```
+
+`MemoryManager.store()` / `get()` / `search()` are NOT modified by this
+module. Tiering is purely additive — call `touch()` from read paths if you
+want the AutoPager to see access patterns.
+
+### CLI
+
+```bash
+aistack memory promote <key> [--namespace ns] [--to working|recall]
+aistack memory demote  <key> [--namespace ns] [--to recall|archival] [--summary "text"]
+aistack memory tier-stats
+```
+
+### Configuration
+
+`aistack.config.json`:
+
+```json
+{
+  "memory": {
+    "path": "./data/aistack.db",
+    "tiering": {
+      "enabled": true,
+      "workingMaxEntries": 50,
+      "recallMaxEntries": 5000,
+      "recallMaxAgeDays": 30,
+      "promoteToWorkingMinAccessCount": 3,
+      "recentAccessWindowMs": 86400000,
+      "archivalSummarize": false,
+      "intervalMs": 300000,
+      "batchSize": 500
+    }
+  }
+}
+```
+
+All fields are optional — omitted values fall back to
+`DEFAULT_PAGING_POLICY` (`src/memory/tiers/types.ts`).
+
+### Schema
+
+Migration `migrations/009_memory_tiers.sql` adds five columns to the existing
+`memory` table:
+
+| Column            | Type    | Default     | Meaning                                       |
+| ----------------- | ------- | ----------- | --------------------------------------------- |
+| `tier`            | TEXT    | `'recall'`  | Current tier.                                 |
+| `access_count`    | INTEGER | `0`         | Bumped by `TierManager.touch()`.              |
+| `last_accessed_at`| INTEGER | NULL        | Epoch ms of last `touch()`.                   |
+| `summary`         | TEXT    | NULL        | Optional summary stored at archival time.     |
+| `archived_content`| BLOB    | NULL        | gzip of original content (archival only).     |
+
+Plus three supporting indexes: `idx_memory_tier`, `idx_memory_last_accessed`,
+`idx_memory_tier_accessed`.
+
+The `TierManager` constructor also applies these ALTERs idempotently on the
+live SQLite connection so existing databases keep working without manual
+migration steps.
+
+## Concurrency with AIG-640 (Dreaming)
+
+The Dreaming worker (AIG-640) performs **semantic consolidation** —
+clustering similar entries and writing NEW summary rows. It does not touch
+the `tier` column.
+
+The TierManager / AutoPager (AIG-651) handle **access-frequency lifecycle** —
+moving rows between tiers based on recency and access counts. They do not
+delete or merge entries.
+
+The two workers therefore operate on orthogonal dimensions and can run in
+parallel. If a Dreaming-generated summary row needs to be kept hot, give it
+a high initial `access_count` via `TierManager.touch()` after creation.
+
+## Audit & isolation (AIG-635 interplay)
+
+Tier transitions go through plain SQL `UPDATE` statements on the `memory`
+table; they intentionally do NOT emit `audit.log('memory.write')` events so
+they don't pollute the audit hash chain with system-driven movements. If
+auditing tier changes becomes a requirement, instrument
+`TierManager.applyTransition` directly — do not add the hook on the
+`MemoryManager.store()` path.
