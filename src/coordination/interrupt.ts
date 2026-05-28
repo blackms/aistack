@@ -35,6 +35,7 @@ import {
   InterruptPending,
   InterruptTimeoutError,
   InterruptValidationError,
+  InterruptNoListenerError,
 } from './interrupt-types.js';
 import { getInterruptNotifier } from './interrupt-notifier.js';
 import { logger } from '../utils/logger.js';
@@ -111,6 +112,34 @@ export class InterruptStore extends EventEmitter {
   private records = new Map<string, InterruptRecord>();
   /** Tail of the per-record serialization chain. */
   private locks = new Map<string, Promise<unknown>>();
+  /**
+   * Per-record set of in-process awaiters. An entry exists iff there is at
+   * least one `interrupt()` promise currently subscribed to resolve/cancel
+   * events for that id. We use it to detect the orphaned-resume race:
+   * validation-failure inside onResolved unregisters the listener BEFORE
+   * `reopen()` finishes, so a follow-up operator resume would mark the
+   * record `resolved` with nobody waiting — leaving the workflow stuck.
+   * `resolveAtomic` consults this and refuses the resolve when empty.
+   */
+  private awaiters = new Map<string, number>();
+
+  /** Register an awaiter for `id` (called by `interrupt()`). */
+  registerAwaiter(id: string): void {
+    this.awaiters.set(id, (this.awaiters.get(id) ?? 0) + 1);
+  }
+
+  /** Drop a previously-registered awaiter for `id`. */
+  unregisterAwaiter(id: string): void {
+    const n = this.awaiters.get(id);
+    if (!n) return;
+    if (n <= 1) this.awaiters.delete(id);
+    else this.awaiters.set(id, n - 1);
+  }
+
+  /** True iff at least one `interrupt()` promise is currently waiting on `id`. */
+  hasAwaiter(id: string): boolean {
+    return (this.awaiters.get(id) ?? 0) > 0;
+  }
 
   /**
    * Run `fn` while holding the lock for `id`. Operations against the same
@@ -290,6 +319,7 @@ export class InterruptStore extends EventEmitter {
   clear(): void {
     this.records.clear();
     this.locks.clear();
+    this.awaiters.clear();
     this.removeAllListeners();
   }
 }
@@ -410,6 +440,11 @@ export async function interrupt<T = unknown>(opts: InterruptOptions): Promise<T>
     status: 'pending',
     notify: opts.notify ?? ['console'],
     createdAt: new Date().toISOString(),
+    // Tag this record with our PID so a future resumeInterrupt() running in
+    // the SAME process can detect the no-listener race; a resume from a
+    // different process will skip the check (its awaiter naturally lives
+    // elsewhere) — see InterruptNoListenerError.
+    originPid: process.pid,
   };
 
   await store.create(record);
@@ -424,9 +459,18 @@ export async function interrupt<T = unknown>(opts: InterruptOptions): Promise<T>
   });
 
   const pollMs = opts.pollIntervalMs ?? 250;
+  // Register an in-process awaiter so resumeInterrupt() can detect orphaned
+  // records and refuse to silently resolve them.
+  store.registerAwaiter(record.id);
   return new Promise<T>((resolve, reject) => {
     let timer: NodeJS.Timeout | null = null;
     let interval: NodeJS.Timeout | null = null;
+    let unregistered = false;
+    const unregisterOnce = (): void => {
+      if (unregistered) return;
+      unregistered = true;
+      store.unregisterAwaiter(record.id);
+    };
     const cleanup = (): void => {
       if (timer) clearTimeout(timer);
       if (interval) clearInterval(interval);
@@ -445,6 +489,12 @@ export async function interrupt<T = unknown>(opts: InterruptOptions): Promise<T>
         // lock (preventing races with a concurrent resume/cancel) AND so the
         // persistence write is rolled back on failure — leaving disk and
         // memory in agreement.
+        // CRITICAL: we hold onto the awaiter slot until reopen completes so
+        // a racing operator resume between this point and the reopen sees
+        // hasAwaiter() === true; we drop it only once the record is back to
+        // pending (or reopen fails) — by which time the workflow Promise has
+        // rejected and a follow-up resume would correctly be flagged as
+        // orphaned with no_listener.
         log.warn('Resume value rejected by schema; reopening interrupt', { id: r.id });
         store
           .reopen(r.id)
@@ -454,14 +504,19 @@ export async function interrupt<T = unknown>(opts: InterruptOptions): Promise<T>
               err: reopenErr,
             });
           })
-          .finally(() => reject(err));
+          .finally(() => {
+            unregisterOnce();
+            reject(err);
+          });
         return;
       }
+      unregisterOnce();
       resolve(validated as T);
     };
     const onCancelled = (r: InterruptRecord): void => {
       if (r.id !== record.id) return;
       cleanup();
+      unregisterOnce();
       reject(new InterruptPending(r));
     };
     store.on('resolved', onResolved);
@@ -483,6 +538,7 @@ export async function interrupt<T = unknown>(opts: InterruptOptions): Promise<T>
         // Detach listeners first so the cancel() we trigger below does not
         // race with onCancelled and surface InterruptPending instead.
         cleanup();
+        unregisterOnce();
         void store.cancel(record.id, 'timeout');
         reject(new InterruptTimeoutError(record.id));
       }, opts.timeoutMs);
@@ -509,6 +565,14 @@ export async function resumeInterrupt(
   if (!record) throw new Error(`Interrupt ${id} not found`);
   if (record.status !== 'pending') {
     throw new Error(`Interrupt ${id} is ${record.status}, cannot resume`);
+  }
+  // Orphan detection: when the record was registered in THIS process but
+  // no awaiter is currently subscribed, the original `interrupt()` Promise
+  // has already settled (typically after a validation-failure reopen race).
+  // Resolving now would silently drop the payload, so refuse and let the
+  // caller decide between cancel and re-issuing the workflow.
+  if (record.originPid === process.pid && !store.hasAwaiter(id)) {
+    throw new InterruptNoListenerError(id);
   }
   const resolved = await store.resolveAtomic(id, payload.input, (r) => {
     if (payload.stateEdits && payload.stateEdits.length > 0) {
@@ -540,6 +604,7 @@ export {
   InterruptPending,
   InterruptTimeoutError,
   InterruptValidationError,
+  InterruptNoListenerError,
 } from './interrupt-types.js';
 
 export type {

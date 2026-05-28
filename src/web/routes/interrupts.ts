@@ -18,7 +18,7 @@ import type { AgentStackConfig } from '../../types.js';
 import type { Router } from '../router.js';
 import { sendJson } from '../router.js';
 import { badRequest, notFound, unauthorized } from '../middleware/error.js';
-import { createAuthMiddleware } from '../middleware/auth.js';
+import { createAuthMiddleware, isAuthServiceInitialized } from '../middleware/auth.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   getInterruptStore,
@@ -31,10 +31,14 @@ import {
  * Guard every interrupts route. Fail-closed: must succeed against either the
  * shared-secret env token or the JWT-based AuthService. Throws ApiError(401)
  * when neither path validates, so the router's catch-all renders a clean
- * `{ error }` JSON body. We intentionally do NOT fall back to the
- * dev-mode "allow when AuthService missing" behaviour of the generic
- * middleware — interrupts can replay arbitrary workflow state and must
- * be gated even in local dev.
+ * `{ error }` JSON body.
+ *
+ * The generic auth middleware allows requests through when no AuthService is
+ * initialized in non-production environments ("dev-mode allow"). That
+ * fallback is unsafe for the interrupts surface, which can replay arbitrary
+ * workflow state, so we refuse to delegate to it: if neither the env token
+ * NOR a real AuthService is configured we reject with 401 immediately,
+ * regardless of NODE_ENV.
  */
 function requireInterruptsAuth(req: IncomingMessage, res: ServerResponse): void {
   const envToken = process.env.AISTACK_INTERRUPTS_TOKEN;
@@ -50,21 +54,32 @@ function requireInterruptsAuth(req: IncomingMessage, res: ServerResponse): void 
     return;
   }
 
-  // 2) JWT/AuthService path: delegate to the standard middleware. It writes
+  // 2) Pre-flight fail-closed check: if NEITHER credential source is
+  // available we MUST refuse — never let the generic middleware's
+  // dev-mode "allow when service missing" branch grant access here.
+  // This is the critical guard: without it, an unauthenticated request
+  // in a non-production env with no AuthService init'd would be served.
+  if (!envToken && !isAuthServiceInitialized()) {
+    throw unauthorized('interrupts api requires AISTACK_INTERRUPTS_TOKEN or initialized auth service');
+  }
+
+  // 3) JWT/AuthService path: delegate to the standard middleware. It writes
   // the 401 response itself when no/invalid bearer is supplied and rethrows
-  // so the route handler short-circuits.
+  // so the route handler short-circuits. Because step 2 already rejected the
+  // "no service initialized" case, we know the middleware here will exercise
+  // the real verify path and cannot silently allow the request.
   try {
     const ctx = createAuthMiddleware({ required: true })(req, res);
-    if (ctx.authenticated) return;
+    if (ctx.authenticated && ctx.userId) return;
   } catch (err) {
     // Middleware already sent a 401 in most paths. If we got here without a
-    // response (e.g. dev fallback "allow when service missing") we still
-    // reject — fail-closed for this sensitive surface.
+    // response we still reject — fail-closed for this sensitive surface.
     if (!res.headersSent) throw unauthorized('Authentication required');
     throw err;
   }
-  // Defensive: if middleware returned a non-authenticated context without
-  // throwing (dev fallback), reject explicitly.
+  // Defensive: if middleware returned a context without an authenticated
+  // user (should be impossible after step 2 but belt-and-suspenders for any
+  // future middleware change) reject explicitly.
   throw unauthorized('Authentication required');
 }
 

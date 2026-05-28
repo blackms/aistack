@@ -191,3 +191,101 @@ describe('interrupts REST auth gate', () => {
     expect(rec?.state).toEqual({ important: true });
   });
 });
+
+/**
+ * Integration-style coverage for the dev-mode bypass regression: when NO
+ * env token AND NO AuthService is initialized we must still 401, even in
+ * non-production NODE_ENV. The block above mocks the middleware to force
+ * the env-token branch, so it cannot exercise the bypass — this block uses
+ * the REAL middleware to prove `requireInterruptsAuth` rejects pre-flight.
+ */
+describe('interrupts REST auth gate — dev-mode bypass regression', () => {
+  let router: Router;
+  let restoreEnv: { token: string | undefined; nodeEnv: string | undefined };
+
+  beforeEach(async () => {
+    // Reset the module graph so the real middleware (not the mock above) is
+    // loaded. We re-import the route registrar so it binds to the real
+    // `createAuthMiddleware` / `isAuthServiceInitialized` symbols.
+    vi.resetModules();
+    vi.doUnmock('../../../../src/web/middleware/auth.js');
+    restoreEnv = {
+      token: process.env.AISTACK_INTERRUPTS_TOKEN,
+      nodeEnv: process.env.NODE_ENV,
+    };
+    delete process.env.AISTACK_INTERRUPTS_TOKEN;
+    // Critical: this is the regression — pre-fix, NODE_ENV !== 'production'
+    // + no env token + no auth service caused the middleware's dev-mode
+    // "allow" branch to grant access with zero credentials.
+    process.env.NODE_ENV = 'development';
+    resetInterruptStore();
+    const { Router: RealRouter } = await import('../../../../src/web/router.js');
+    const { registerInterruptRoutes: realRegister } = await import(
+      '../../../../src/web/routes/interrupts.js'
+    );
+    router = new RealRouter();
+    realRegister(router, STUB_CONFIG);
+  });
+
+  afterEach(() => {
+    if (restoreEnv.token === undefined) delete process.env.AISTACK_INTERRUPTS_TOKEN;
+    else process.env.AISTACK_INTERRUPTS_TOKEN = restoreEnv.token;
+    if (restoreEnv.nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = restoreEnv.nodeEnv;
+    resetInterruptStore();
+    // Restore the mock for any later describe blocks loaded in the same file.
+    vi.resetModules();
+  });
+
+  const PROTECTED: Array<{ method: string; path: string; body?: unknown }> = [
+    { method: 'GET', path: '/api/v1/interrupts' },
+    { method: 'POST', path: '/api/v1/interrupts/int_xyz/resume', body: { input: 'pwn' } },
+  ];
+
+  for (const route of PROTECTED) {
+    it(`${route.method} ${route.path} returns 401 with no token AND no AuthService in dev`, async () => {
+      const { res, status } = makeRes();
+      const req = makeReq(route.method, route.path, {}, route.body);
+      await router.handle(req, res);
+      expect(status()).toBe(401);
+    });
+
+    it(`${route.method} ${route.path} returns 401 even with a bearer when no AuthService is init`, async () => {
+      // A bearer that does not match any env token AND no AuthService should
+      // not be silently accepted by the dev-mode fallback.
+      const { res, status } = makeRes();
+      const req = makeReq(
+        route.method,
+        route.path,
+        { authorization: 'Bearer anything' },
+        route.body
+      );
+      await router.handle(req, res);
+      expect(status()).toBe(401);
+    });
+  }
+
+  it('does not mutate state on resume when auth bypass would have applied', async () => {
+    await getInterruptStore().create({
+      id: 'int_bypass_target',
+      sessionId: 's1',
+      prompt: 'p',
+      state: { secret: 'untouched' },
+      status: 'pending',
+      notify: ['console'],
+      createdAt: new Date().toISOString(),
+    });
+    const { res, status } = makeRes();
+    const req = makeReq(
+      'POST',
+      '/api/v1/interrupts/int_bypass_target/resume',
+      {},
+      { input: 'attacker', stateEdits: [{ path: 'secret', value: 'pwned' }] }
+    );
+    await router.handle(req, res);
+    expect(status()).toBe(401);
+    const rec = getInterruptStore().get('int_bypass_target');
+    expect(rec?.status).toBe('pending');
+    expect(rec?.state).toEqual({ secret: 'untouched' });
+  });
+});

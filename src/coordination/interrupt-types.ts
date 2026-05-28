@@ -78,6 +78,16 @@ export interface InterruptRecord {
   createdAt: string;
   /** Reason for cancellation, when status === 'cancelled'. */
   cancelReason?: string;
+  /**
+   * PID of the process that registered this interrupt via `interrupt()`.
+   * Used by `resumeInterrupt` to gate the "no-listener" detection: if a
+   * resume is dispatched from the SAME process that owns the awaiter and
+   * no awaiter is currently registered, the awaiter has died (e.g. after a
+   * validation-failure reopen race) and resolving would orphan the record.
+   * When the resume comes from a different process this field guards
+   * against false positives — the awaiter naturally lives elsewhere.
+   */
+  originPid?: number;
 }
 
 export interface ResumePayload {
@@ -121,5 +131,24 @@ export class InterruptPending extends Error {
   constructor(public readonly record: InterruptRecord) {
     super(`Workflow paused on interrupt ${record.id}: ${record.prompt}`);
     this.name = 'InterruptPending';
+  }
+}
+
+/**
+ * Raised by `resumeInterrupt` when the targeted record is pending but has
+ * no live in-process awaiter — which happens after a validation-failure
+ * reopen race orphans the original `interrupt()` Promise. Resolving in this
+ * state would silently lose the resume payload (the workflow has already
+ * rejected and moved on), so we refuse and let the operator decide whether
+ * to cancel the orphaned record.
+ */
+export class InterruptNoListenerError extends Error {
+  readonly code = 'no_listener' as const;
+  constructor(public readonly interruptId: string) {
+    super(
+      `Interrupt ${interruptId} has no active listener (workflow likely died ` +
+        `after a validation-failure reopen). Cancel the record instead of resuming.`
+    );
+    this.name = 'InterruptNoListenerError';
   }
 }
