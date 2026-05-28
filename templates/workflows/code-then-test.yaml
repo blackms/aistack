@@ -1,0 +1,43 @@
+# Code-then-test workflow — coder produces code, tester validates it.
+#
+# Uses on_reject to loop back to the coder when the tester reports a regression.
+# After 3 failed test runs, the workflow exits with a clear failure.
+#
+# Run:
+#   aistack workflow run templates/workflows/code-then-test.yaml \
+#     --input='{"input": "Implement a stack with constant-time getMin()"}'
+
+name: code-then-test
+description: Coder → tester loop with on_reject retry
+version: "1"
+max_iterations: 30
+
+steps:
+  - id: implement
+    agent: coder
+    name: Implement requested feature
+    input: |
+      Implement the following feature in TypeScript with full type signatures.
+      Include both the implementation and a brief usage example.
+
+      ## Requirements
+      $task.input
+
+  - id: test
+    agent: tester
+    name: Write & run tests
+    input: |
+      Write a comprehensive vitest test suite for the following implementation.
+      Run the tests mentally — for each test, predict the outcome. If any test
+      reveals a bug or missing edge case, end your response with **VERDICT: REJECT**.
+      Otherwise end with **VERDICT: APPROVE**.
+
+      ## Implementation
+      $steps.implement.output
+
+      ## Original requirements
+      $task.input
+    on_reject:
+      goto: implement
+      max_retries: 3
+      fail_after: true

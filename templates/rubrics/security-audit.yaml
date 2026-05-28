@@ -1,0 +1,58 @@
+# Security audit rubric — high-stakes change review
+#
+# Use for code that touches auth, data persistence, file I/O, network calls,
+# or anything user-facing. Higher overall threshold and security-weighted
+# criteria.
+version: 1
+name: security-audit
+description: Security-first rubric focused on input validation, auth, secrets, and OWASP Top 10
+
+overall_threshold: 0.85
+max_iterations: 4
+
+rubric:
+  - criterion: input-validation
+    description: All untrusted input is validated, sanitized, and bounded
+    weight: 0.25
+    pass_threshold: 0.85
+    checks:
+      - Length / size limits on all string inputs
+      - Type coercion is explicit, not implicit
+      - Reject-by-default, not allow-by-default
+
+  - criterion: authentication
+    description: Auth boundaries are enforced consistently, no bypass paths
+    weight: 0.2
+    pass_threshold: 0.9
+    checks:
+      - Every protected endpoint checks auth
+      - No "admin only" logic that can be skipped via tampered input
+      - Session/token lifecycle handled (expiry, revocation)
+
+  - criterion: secrets-handling
+    description: No hardcoded credentials, secrets, or sensitive data in logs
+    weight: 0.2
+    pass_threshold: 0.95
+    checks:
+      - No API keys, passwords, tokens in source
+      - Secrets read from env/config/secret manager
+      - Sensitive values never logged in plaintext
+
+  - criterion: owasp-top-10
+    description: Common vulnerability classes are mitigated
+    weight: 0.25
+    pass_threshold: 0.85
+    checks:
+      - Injection (SQL/command/template) — parameterised queries, escaping
+      - XSS — output encoding for HTML/JS contexts
+      - SSRF — URL allowlists for outbound requests
+      - Insecure deserialization avoided
+
+  - criterion: error-handling
+    description: Errors fail closed, do not leak sensitive details
+    weight: 0.1
+    pass_threshold: 0.8
+    checks:
+      - No stack traces returned to clients
+      - Resource cleanup in error paths (try/finally, using)
+      - Generic error messages, detailed ones only in server logs

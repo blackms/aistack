@@ -13,6 +13,7 @@ export { registerProjectRoutes } from './projects.js';
 export { registerSpecificationRoutes } from './specifications.js';
 export { registerFilesystemRoutes } from './filesystem.js';
 export { createAuthRoutes } from './auth.js';
+export { registerSsoRoutes } from './sso.js';
 export { registerIdentityRoutes } from './identities.js';
 export { registerConsensusRoutes } from './consensus.js';
 export { registerTenantRoutes } from './tenants.js';

@@ -1,0 +1,58 @@
+aistack {{ .Chart.AppVersion }} has been installed.
+
+Release : {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Image    : {{ include "aistack.image" . }}
+
+1. Check rollout status:
+
+   kubectl --namespace {{ .Release.Namespace }} rollout status \
+     deployment/{{ include "aistack.fullname" . }}
+
+2. Access the web UI:
+
+{{- if .Values.ingress.enabled }}
+   {{- range .Values.ingress.hosts }}
+   {{- range .paths }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host | default "aistack.local" }}{{ .path }}
+   {{- end }}
+   {{- end }}
+{{- else if eq .Values.service.type "LoadBalancer" }}
+   Wait for the service external IP:
+   kubectl --namespace {{ .Release.Namespace }} get svc -w {{ include "aistack.fullname" . }}
+{{- else }}
+   Port-forward locally:
+   kubectl --namespace {{ .Release.Namespace }} port-forward \
+     svc/{{ include "aistack.fullname" . }} 3001:{{ .Values.service.port }}
+   Then open: http://localhost:3001
+{{- end }}
+
+3. View logs:
+
+   kubectl --namespace {{ .Release.Namespace }} logs -f \
+     -l app.kubernetes.io/instance={{ .Release.Name }}
+
+{{- if and (not .Values.secrets.existingSecret) (not .Values.secrets.create.JWT_SECRET) }}
+
+WARNING: no JWT_SECRET configured. The chart created an empty secret;
+authenticated features will not work. Provide a secret via one of:
+
+  helm upgrade {{ .Release.Name }} aistack/aistack \
+    --set-string secrets.create.JWT_SECRET=$(openssl rand -hex 32) \
+    --set-string secrets.create.REFRESH_SECRET=$(openssl rand -hex 32)
+
+OR point to an externally managed secret:
+
+  helm upgrade {{ .Release.Name }} aistack/aistack \
+    --set secrets.existingSecret=my-aistack-secrets
+
+See docs/DEPLOY.md for External Secrets Operator / Sealed Secrets integration.
+{{- end }}
+
+{{- if not .Values.persistence.enabled }}
+
+NOTE: persistence is DISABLED. The SQLite database lives in an emptyDir and
+is lost when the pod restarts. For production, enable persistence:
+
+  helm upgrade {{ .Release.Name }} aistack/aistack --set persistence.enabled=true
+{{- end }}

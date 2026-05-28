@@ -27,11 +27,14 @@ import {
   registerIdentityRoutes,
   registerConsensusRoutes,
   registerTenantRoutes,
+  registerSsoRoutes,
 } from './routes/index.js';
 import type { WebConfig } from './types.js';
 import { AuthService } from '../auth/service.js';
 import { initAuth } from './middleware/auth.js';
 import { getMemoryManager } from '../memory/index.js';
+import { createSsoModule, type SsoModule } from '../auth/sso/index.js';
+import type { SsoConfig } from '../auth/sso/types.js';
 
 const log = logger.child('web:server');
 
@@ -52,6 +55,7 @@ export class WebServer {
   private webConfig: WebConfig;
   private corsMiddleware: ReturnType<typeof createCorsMiddleware>;
   private authService: AuthService;
+  private ssoModule: SsoModule | null = null;
 
   constructor(config: AgentStackConfig, webConfig: Partial<WebConfig> = {}) {
     this.config = config;
@@ -65,6 +69,25 @@ export class WebServer {
     this.authService = new AuthService(db);
     initAuth(this.authService);
     setAuthService(this.authService);
+
+    // Initialize SSO module if configured (AIG-646). Validates SAML/OIDC/SCIM
+    // configs up-front and registers routes only for providers that are
+    // present in `config.auth.sso`.
+    const ssoCfg = (config.auth?.sso ?? undefined) as unknown as SsoConfig | undefined;
+    if (ssoCfg && (ssoCfg.saml || ssoCfg.oidc || ssoCfg.scim)) {
+      try {
+        this.ssoModule = createSsoModule(
+          { db, authService: this.authService },
+          ssoCfg
+        );
+      } catch (err) {
+        log.error('SSO module initialisation failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        // Fail closed: do not start the web server with a broken SSO config.
+        throw err;
+      }
+    }
 
     this.setupRoutes();
   }
@@ -100,6 +123,16 @@ export class WebServer {
     registerFilesystemRoutes(this.router, this.config);
     registerConsensusRoutes(this.router, this.config);
     registerTenantRoutes(this.router, this.config);
+
+    // SSO routes (AIG-646) — registered only if any provider is configured.
+    if (this.ssoModule) {
+      registerSsoRoutes(this.router, { ssoModule: this.ssoModule });
+      log.info('SSO routes mounted', {
+        saml: !!this.ssoModule.saml,
+        oidc: !!this.ssoModule.oidc,
+        scim: !!this.ssoModule.scim,
+      });
+    }
 
     // Root endpoint
     this.router.get('/api/v1', (_req, res) => {
@@ -187,6 +220,15 @@ export class WebServer {
     return new Promise((resolve) => {
       // Close WebSocket connections
       closeAllConnections();
+
+      // Stop SSO background timers (replay-cache sweep) so vitest can exit.
+      if (this.ssoModule) {
+        try {
+          this.ssoModule.stop();
+        } catch {
+          // best-effort
+        }
+      }
 
       if (this.server) {
         this.server.close(() => {

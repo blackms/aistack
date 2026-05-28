@@ -125,15 +125,15 @@ describe('Tenant routes — auth + RBAC (AIG-649 review fix)', () => {
 
     // Register users + grant memberships.
     const platformAdmin = await authService.register(
-      { email: 'admin@x', username: 'admin', password: 'pw-admin' },
+      { email: 'platform-admin@x', username: 'platform-admin', password: 'pw-admin-123' },
       UserRole.ADMIN,
     );
     const memberA = await authService.register(
-      { email: 'a@x', username: 'a', password: 'pw-a' },
+      { email: 'a@x', username: 'a', password: 'pw-member-a' },
       UserRole.DEVELOPER,
     );
     const memberB = await authService.register(
-      { email: 'b@x', username: 'b', password: 'pw-b' },
+      { email: 'b@x', username: 'b', password: 'pw-member-b' },
       UserRole.DEVELOPER,
     );
 
@@ -142,9 +142,9 @@ describe('Tenant routes — auth + RBAC (AIG-649 review fix)', () => {
     // memberB is `tenant_admin` of tenantB.
     tenantService.addMembership(tenantB.id, memberB.id, 'tenant_admin');
 
-    adminToken = (await authService.login({ email: 'admin@x', password: 'pw-admin' })).tokens.accessToken;
-    memberAToken = (await authService.login({ email: 'a@x', password: 'pw-a' })).tokens.accessToken;
-    memberBToken = (await authService.login({ email: 'b@x', password: 'pw-b' })).tokens.accessToken;
+    adminToken = (await authService.login({ email: 'platform-admin@x', password: 'pw-admin-123' })).tokens.accessToken;
+    memberAToken = (await authService.login({ email: 'a@x', password: 'pw-member-a' })).tokens.accessToken;
+    memberBToken = (await authService.login({ email: 'b@x', password: 'pw-member-b' })).tokens.accessToken;
 
     anonReq = () => createMockRequest('GET', '/api/v1/tenants');
 
