@@ -2,8 +2,10 @@ package com.aistack.toolwindow
 
 import com.aistack.client.AistackClient
 import com.aistack.settings.AistackSettings
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.components.JBLabel
@@ -30,13 +32,16 @@ class AistackToolWindowFactory : ToolWindowFactory {
         val panel = AistackToolWindowPanel()
         val content = ContentFactory.getInstance().createContent(panel, "", false)
         toolWindow.contentManager.addContent(content)
+        // Tie the panel's executor lifetime to the tool window's disposable so
+        // the ScheduledThreadPoolExecutor is shut down on project close / plugin unload.
+        Disposer.register(toolWindow.disposable, panel)
         panel.start()
     }
 
     override fun shouldBeAvailable(project: Project): Boolean = true
 }
 
-private class AistackToolWindowPanel : JPanel(BorderLayout()) {
+private class AistackToolWindowPanel : JPanel(BorderLayout()), Disposable {
     private val listModel = DefaultListModel<String>()
     private val list = JList(listModel).apply {
         selectionMode = ListSelectionModel.SINGLE_SELECTION
@@ -48,6 +53,7 @@ private class AistackToolWindowPanel : JPanel(BorderLayout()) {
         removeOnCancelPolicy = true
     }
     private val agentIds = mutableListOf<String>()
+    @Volatile private var disposed: Boolean = false
 
     init {
         val top = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
@@ -63,7 +69,7 @@ private class AistackToolWindowPanel : JPanel(BorderLayout()) {
             val idx = list.selectedIndex
             if (idx in agentIds.indices) {
                 val id = agentIds[idx]
-                executor.submit {
+                submit {
                     try {
                         client().stopAgent(id)
                         reload()
@@ -77,7 +83,31 @@ private class AistackToolWindowPanel : JPanel(BorderLayout()) {
 
     fun start() {
         val interval = AistackSettings.instance().state.refreshIntervalMs
-        executor.scheduleAtFixedRate({ reload() }, 0L, interval, TimeUnit.MILLISECONDS)
+        if (disposed) return
+        try {
+            executor.scheduleAtFixedRate({ if (!disposed) reload() }, 0L, interval, TimeUnit.MILLISECONDS)
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Disposed mid-start — ignore.
+        }
+    }
+
+    override fun dispose() {
+        disposed = true
+        executor.shutdownNow()
+        try {
+            executor.awaitTermination(2, TimeUnit.SECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    private fun submit(task: () -> Unit) {
+        if (disposed) return
+        try {
+            executor.submit(task)
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Disposed — ignore.
+        }
     }
 
     private fun client(): AistackClient {
@@ -86,11 +116,12 @@ private class AistackToolWindowPanel : JPanel(BorderLayout()) {
     }
 
     private fun reload() {
-        executor.submit {
+        submit {
             try {
                 val agents = client().listAgents()
                 val sorted = agents.sortedWith(compareBy({ statusOrder(it.status) }, { it.type }))
                 ApplicationManager.getApplication().invokeLater {
+                    if (disposed) return@invokeLater
                     listModel.clear()
                     agentIds.clear()
                     for (a in sorted) {
@@ -102,6 +133,7 @@ private class AistackToolWindowPanel : JPanel(BorderLayout()) {
                 }
             } catch (ex: Exception) {
                 ApplicationManager.getApplication().invokeLater {
+                    if (disposed) return@invokeLater
                     status.text = "aistack — error: ${ex.message}"
                     listModel.clear()
                     agentIds.clear()

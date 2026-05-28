@@ -8,7 +8,7 @@ Spawn and orchestrate Claude Code sub-agents from any IntelliJ-platform IDE
 - **aistack tool window** (right-anchored) — list of agents grouped by status,
   with refresh + stop selected.
 - **Editor context-menu actions**
-  - `aistack: Spawn Agent on Selection` — `Ctrl+Alt+A` / `Cmd+Alt+A`
+  - `aistack: Spawn Agent on Selection` — `Ctrl+Alt+Shift+A` / `Cmd+Alt+Shift+A`
   - `aistack: Run Review Loop on Selection` — `Ctrl+Alt+R` / `Cmd+Alt+R`
 - **Settings panel** — `Settings → Tools → aistack` for daemon URL, optional
   token, refresh interval, request timeout, default agent type.
@@ -24,7 +24,7 @@ Spawn and orchestrate Claude Code sub-agents from any IntelliJ-platform IDE
 | Setting | Default | Notes |
 | --- | --- | --- |
 | Daemon URL | `http://localhost:3001` | |
-| API token | _(empty)_ | Prefer the `AISTACK_API_TOKEN` env var. |
+| API token | _(empty)_ | Stored in the platform `PasswordSafe` (OS keychain). `AISTACK_API_TOKEN` env var wins over the stored value. |
 | Refresh interval | `5000` ms | Tool window polling cadence. |
 | Request timeout | `15000` ms | OkHttp connect/read/write timeout. |
 | Default agent type | `coder` | Used by `Spawn Agent on Selection`. |
@@ -53,7 +53,7 @@ Recording instructions:
 
 1. `./gradlew runIde` to launch a sandboxed IDE.
 2. Boot the aistack daemon (`npm start` from the repo root).
-3. Open a sample project, select code, trigger `Ctrl+Alt+A`.
+3. Open a sample project, select code, trigger `Ctrl+Alt+Shift+A`.
 4. Capture each screenshot at 1600x1000 with the default Darcula theme.
 5. Save under `extensions/jetbrains/screenshots/` and reference them above.
 

@@ -10,7 +10,7 @@ running [aistack](https://github.com/aigensolutions/aistack) daemon over REST.
 - **Command palette** — `aistack: Spawn Agent`, `View Memory Browser`,
   `Run Review Loop on Selection`, `Stop Agent`, …
 - **Keybindings**
-  - `Ctrl+Alt+A` / `Cmd+Alt+A` — spawn coder agent on the current selection
+  - `Ctrl+Alt+Shift+A` / `Cmd+Alt+Shift+A` — spawn coder agent on the current selection
   - `Ctrl+Alt+R` / `Cmd+Alt+R` — run review loop on the current selection
 - **Status bar** — shows the most recent review loop's iteration / status.
 - **Memory webview** — browse stored memory entries with filter.
@@ -26,10 +26,19 @@ running [aistack](https://github.com/aigensolutions/aistack) daemon over REST.
 | Setting | Default | Description |
 | --- | --- | --- |
 | `aistack.daemonUrl` | `http://localhost:3001` | Base URL of the aistack daemon REST API. |
-| `aistack.apiToken` | `""` | Optional bearer token. **Prefer** the `AISTACK_API_TOKEN` env var. |
 | `aistack.refreshIntervalMs` | `5000` | Polling interval for sidebar / status bar. |
 | `aistack.defaultAgentType` | `coder` | Type used by `Spawn Coder Agent on Selection`. |
 | `aistack.requestTimeoutMs` | `15000` | HTTP request timeout. |
+
+### API token
+
+The bearer token is **never** persisted in `settings.json`. Instead:
+
+- The `AISTACK_API_TOKEN` environment variable wins when set.
+- Otherwise the token is stored via VS Code `SecretStorage` (OS keychain).
+- Set / clear via the commands `aistack: Set API Token` / `aistack: Clear API Token`.
+- Any legacy `aistack.apiToken` value found in `settings.json` is migrated into
+  `SecretStorage` on first activation and then cleared from settings.
 
 ## Development
 

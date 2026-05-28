@@ -74,13 +74,23 @@
         "title": "aistack: Stop Agent",
         "category": "aistack",
         "icon": "$(stop-circle)"
+      },
+      {
+        "command": "aistack.setApiToken",
+        "title": "aistack: Set API Token",
+        "category": "aistack"
+      },
+      {
+        "command": "aistack.clearApiToken",
+        "title": "aistack: Clear API Token",
+        "category": "aistack"
       }
     ],
     "keybindings": [
       {
         "command": "aistack.spawnCoderOnSelection",
-        "key": "ctrl+alt+a",
-        "mac": "cmd+alt+a",
+        "key": "ctrl+alt+shift+a",
+        "mac": "cmd+alt+shift+a",
         "when": "editorHasSelection"
       },
       {
@@ -149,12 +159,6 @@
           "type": "string",
           "default": "http://localhost:3001",
           "description": "Base URL of the aistack daemon REST API."
-        },
-        "aistack.apiToken": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Optional bearer token for the aistack daemon. Leave blank for local dev. Prefer storing in the `AISTACK_API_TOKEN` environment variable for security.",
-          "scope": "machine-overridable"
         },
         "aistack.refreshIntervalMs": {
           "type": "number",

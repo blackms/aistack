@@ -9,7 +9,7 @@
     Provides:
     <ul>
       <li><b>aistack tool window</b> — live list of agents grouped by status.</li>
-      <li><b>Spawn agent action</b> — keybind <kbd>Ctrl+Alt+A</kbd> on the editor selection.</li>
+      <li><b>Spawn agent action</b> — keybind <kbd>Ctrl+Alt+Shift+A</kbd> on the editor selection.</li>
       <li><b>REST client</b> to the aistack daemon (default <code>http://localhost:3001</code>).</li>
     </ul>
     Requires a locally running aistack daemon.
@@ -22,7 +22,7 @@
   ]]></change-notes>
 
   <!-- Platform compatibility — keep in sync with build.gradle.kts patchPluginXml -->
-  <idea-version since-build="241" until-build="251.*" />
+  <idea-version since-build="241" until-build="251.99999" />
 
   <depends>com.intellij.modules.platform</depends>
 
@@ -48,8 +48,8 @@
             text="aistack: Spawn Agent on Selection"
             description="Spawn an aistack coder agent and execute it on the editor selection.">
       <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-      <keyboard-shortcut keymap="$default" first-keystroke="control alt A"/>
-      <keyboard-shortcut keymap="Mac OS X" first-keystroke="meta alt A"/>
+      <keyboard-shortcut keymap="$default" first-keystroke="control alt shift A"/>
+      <keyboard-shortcut keymap="Mac OS X" first-keystroke="meta alt shift A"/>
     </action>
     <action id="com.aistack.actions.RunReviewLoopAction"
             class="com.aistack.actions.RunReviewLoopAction"

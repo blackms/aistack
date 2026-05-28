@@ -12,6 +12,7 @@
 
 plugins {
   id("org.jetbrains.kotlin.jvm") version "1.9.22"
+  kotlin("plugin.serialization") version "1.9.22"
   id("org.jetbrains.intellij") version "1.17.3"
 }
 
@@ -40,7 +41,7 @@ kotlin {
 tasks {
   patchPluginXml {
     sinceBuild.set("241")
-    untilBuild.set("251.*")
+    untilBuild.set("251.99999")
     changeNotes.set(
       """
         <ul>

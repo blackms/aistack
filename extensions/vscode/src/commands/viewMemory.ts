@@ -8,6 +8,7 @@
  */
 
 import * as vscode from 'vscode';
+import { randomBytes } from 'crypto';
 import type { AistackClient } from '../client/aistackClient';
 
 export function registerViewMemoryCommand(
@@ -132,8 +133,7 @@ window.addEventListener('message', e => {
 }
 
 function makeNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let s = '';
-  for (let i = 0; i < 32; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
-  return s;
+  // CSP nonce must be unguessable — use cryptographic randomness, not Math.random.
+  // 16 random bytes -> 22-char base64url string.
+  return randomBytes(16).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
