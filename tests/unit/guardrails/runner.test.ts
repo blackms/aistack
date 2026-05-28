@@ -2,11 +2,17 @@
  * Tests for the guardrails parallel runner.
  */
 
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { runGuardrails } from '../../../src/guardrails/runner.js';
 import {
   withGuardrails,
   GuardrailBlockedError,
+  initGuardrails,
+  loadCustomGuardrails,
+  defaultRegistry,
 } from '../../../src/guardrails/index.js';
 import type {
   Guardrail,
@@ -110,10 +116,61 @@ describe('runGuardrails — parallel execution', () => {
       context: { direction: 'input' },
       timeoutMs: 50,
       killSwitch: false,
+      // Disable aggregate budget so the per-guardrail timeout is the cause.
+      aggregateTimeoutMs: 0,
     });
     expect(out.pass).toBe(false);
     expect(out.failures[0].crashed).toBe(true);
     expect(out.failures[0].reason).toMatch(/timed out/);
+  });
+
+  it('enforces aggregate wall-clock budget across all guardrails', async () => {
+    // Two slow guardrails, each well under the per-guardrail timeout, but
+    // together they would burn ~500ms — the 80ms aggregate budget must drop
+    // them.
+    const a = makeGuardrail('a', { pass: true }, 500);
+    const b = makeGuardrail('b', { pass: true }, 500);
+    const start = Date.now();
+    const out = await runGuardrails('x', [a, b], {
+      context: { direction: 'input' },
+      killSwitch: false,
+      aggregateTimeoutMs: 80,
+    });
+    const elapsed = Date.now() - start;
+    expect(out.budgetExceeded).toBe(true);
+    expect(out.pass).toBe(false);
+    // Both should be reported as dropped (crashed) failures.
+    expect(out.failures).toHaveLength(2);
+    for (const f of out.failures) {
+      expect(f.crashed).toBe(true);
+      expect(f.reason).toMatch(/aggregate budget/);
+    }
+    // We MUST have returned shortly after the budget elapsed, not waited
+    // for the underlying 500ms guardrails.
+    expect(elapsed).toBeLessThan(250);
+  });
+
+  it('does NOT trigger budgetExceeded when all guardrails finish in time', async () => {
+    const out = await runGuardrails('x', [
+      makeGuardrail('fast', { pass: true }, 5),
+    ], {
+      context: { direction: 'input' },
+      aggregateTimeoutMs: 100,
+    });
+    expect(out.pass).toBe(true);
+    expect(out.budgetExceeded).toBe(false);
+  });
+
+  it('aggregateTimeoutMs <= 0 disables the aggregate budget', async () => {
+    const slow = makeGuardrail('slow', { pass: true }, 60);
+    const out = await runGuardrails('x', [slow], {
+      context: { direction: 'input' },
+      // Per-guardrail timeout still applies; budget is OFF.
+      timeoutMs: 500,
+      aggregateTimeoutMs: 0,
+    });
+    expect(out.pass).toBe(true);
+    expect(out.budgetExceeded).toBe(false);
   });
 
   it('emits audit events for each failure', async () => {
@@ -191,5 +248,77 @@ describe('withGuardrails wrapper', () => {
       outputNonBlocking: true,
     });
     await expect(wrapped('x')).resolves.toBe('bad');
+  });
+});
+
+describe('loadCustomGuardrails / initGuardrails (customPaths wiring)', () => {
+  function makeTempModule(filename: string, source: string): string {
+    const dir = mkdtempSync(join(tmpdir(), 'aistack-guardrails-'));
+    const path = join(dir, filename);
+    writeFileSync(path, source, 'utf-8');
+    return path;
+  }
+
+  it('registers a guardrail from a module default export', async () => {
+    const path = makeTempModule(
+      'custom-default.mjs',
+      `export default {
+         name: 'tenant-block',
+         direction: 'input',
+         validate: () => ({ pass: true }),
+       };`
+    );
+    try {
+      const reg = defaultRegistry();
+      const loaded = await loadCustomGuardrails([path], { registry: reg });
+      expect(loaded).toBeGreaterThanOrEqual(1);
+      expect(reg.get('tenant-block')).toBeDefined();
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it('registers an array of guardrails from a default export', async () => {
+    const path = makeTempModule(
+      'custom-array.mjs',
+      `export default [
+         { name: 'g1', direction: 'input', validate: () => ({ pass: true }) },
+         { name: 'g2', direction: 'output', validate: () => ({ pass: true }) },
+       ];`
+    );
+    try {
+      const reg = defaultRegistry();
+      await loadCustomGuardrails([path], { registry: reg });
+      expect(reg.get('g1')).toBeDefined();
+      expect(reg.get('g2')).toBeDefined();
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it('skips bad paths without sinking the rest', async () => {
+    const good = makeTempModule(
+      'good.mjs',
+      `export default { name: 'g-ok', direction: 'input', validate: () => ({ pass: true }) };`
+    );
+    try {
+      const reg = defaultRegistry();
+      await loadCustomGuardrails(
+        ['/path/does/not/exist/nope.mjs', good],
+        { registry: reg }
+      );
+      expect(reg.get('g-ok')).toBeDefined();
+    } finally {
+      rmSync(good, { force: true });
+    }
+  });
+
+  it('initGuardrails is a no-op when disabled or paths empty', async () => {
+    await expect(
+      initGuardrails({ enabled: false, builtin: [], customPaths: ['/whatever'] })
+    ).resolves.toBe(0);
+    await expect(
+      initGuardrails({ enabled: true, builtin: [] })
+    ).resolves.toBe(0);
   });
 });

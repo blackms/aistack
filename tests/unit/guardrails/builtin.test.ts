@@ -192,6 +192,59 @@ describe('zodSchemaGuardrail', () => {
   });
 });
 
+describe('regex /g concurrency safety (regression)', () => {
+  // BEFORE the cloneRegex fix, `SECRET_PATTERNS` / PII regex literals
+  // were module-level `/g` instances. Running 50 .validate() calls in
+  // parallel made them race on `lastIndex` and silently miss matches.
+  it('secretsGuardrail finds every match across 50 concurrent runs', async () => {
+    const g = secretsGuardrail();
+    const text = 'token=ghp_1234567890abcdef1234567890abcdef1234 trailing';
+    const N = 50;
+    const results = await Promise.all(
+      Array.from({ length: N }, () => g.validate(text, ctx))
+    );
+    for (const r of results) {
+      expect(r.pass).toBe(false);
+      expect(r.matches?.some((m) => m.kind === 'github-token')).toBe(true);
+    }
+  });
+
+  it('piiGuardrail email matches survive 50 concurrent runs', async () => {
+    const g = piiGuardrail();
+    const text = 'a@b.io and second user@aigen.solutions in payload';
+    const N = 50;
+    const results = await Promise.all(
+      Array.from({ length: N }, () => g.validate(text, ctx))
+    );
+    for (const r of results) {
+      expect(r.pass).toBe(false);
+      const emails = r.matches?.filter((m) => m.kind === 'email') ?? [];
+      expect(emails.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+});
+
+describe('piiGuardrail email whitelist', () => {
+  it('skips emails whose host is in allowDomains', async () => {
+    const g = piiGuardrail({
+      allowDomains: ['notifications.acme.io'],
+    });
+    const r = await g.validate(
+      'system mail no-reply@notifications.acme.io and leak user@evil.example',
+      ctx
+    );
+    const emailMatches = (r.matches ?? []).filter((m) => m.kind === 'email');
+    // Only the non-whitelisted address should be flagged.
+    expect(emailMatches).toHaveLength(1);
+  });
+
+  it('still flags emails when allowDomains is empty', async () => {
+    const g = piiGuardrail();
+    const r = await g.validate('mail no-reply@notifications.acme.io', ctx);
+    expect(r.matches?.some((m) => m.kind === 'email')).toBe(true);
+  });
+});
+
 describe('defaultRegistry', () => {
   it('contains the 3 string-resolvable built-ins', () => {
     const r = defaultRegistry();

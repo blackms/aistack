@@ -8,7 +8,7 @@
  */
 
 import type { Guardrail, GuardrailResult } from '../types.js';
-import { PROMPT_INJECTION_PATTERNS } from '../patterns.js';
+import { PROMPT_INJECTION_PATTERNS, cloneRegex } from '../patterns.js';
 
 export interface PromptInjectionGuardrailOptions {
   direction?: 'input' | 'output' | 'both';
@@ -35,10 +35,9 @@ export function promptInjectionGuardrail(
       let maxSeverity: 'low' | 'high' = 'low';
 
       for (const p of patterns) {
-        const m = p.regex.exec(text);
-        // Reset to be safe (these regexes are not global but we want to be
-        // resilient to future edits).
-        p.regex.lastIndex = 0;
+        // Clone defensively — guards against a future maintainer adding
+        // `/g` to one of these patterns and silently introducing a race.
+        const m = cloneRegex(p.regex).exec(text);
         if (m) {
           matches.push({ kind: p.name, sample: truncate(m[0]), index: m.index });
           if ((p.severity ?? 'high') === 'high') maxSeverity = 'high';

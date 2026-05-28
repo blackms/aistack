@@ -27,6 +27,14 @@ import type {
 } from './types.js';
 
 const DEFAULT_TIMEOUT_MS = 2000;
+/**
+ * Aggregate budget for the whole run. The design criterion in AIG-645
+ * was <100ms cumulative; 200ms is the doubled headroom we expose by
+ * default so cold-start JIT doesn't churn out budget-exceeded warnings
+ * in the wild. Override via `options.aggregateTimeoutMs`; pass <= 0 to
+ * disable.
+ */
+const DEFAULT_AGGREGATE_TIMEOUT_MS = 200;
 
 /**
  * Run a set of guardrails against a payload.
@@ -43,6 +51,8 @@ export async function runGuardrails(
   const start = Date.now();
   const killSwitch = options.killSwitch ?? true;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const aggregateTimeoutMs =
+    options.aggregateTimeoutMs ?? DEFAULT_AGGREGATE_TIMEOUT_MS;
 
   if (guardrails.length === 0) {
     return { pass: true, failures: [], durationMs: 0, shortCircuited: false };
@@ -50,6 +60,12 @@ export async function runGuardrails(
 
   const failures: GuardrailFailure[] = [];
   let shortCircuited = false;
+  let budgetExceeded = false;
+
+  // Per-guardrail settlement flag — used to detect which ones were still
+  // in flight when the aggregate budget elapses.
+  const settled = new Map<string, boolean>();
+  for (const g of guardrails) settled.set(g.name, false);
 
   // Promise-based kill signal: resolves on first high-severity failure.
   let killResolve: (() => void) | null = null;
@@ -76,6 +92,7 @@ export async function runGuardrails(
       failures.push(failure);
       emitAudit(options, failure, g);
       logger.warn('guardrail crashed', { guardrail: g.name, error: reason });
+      settled.set(g.name, true);
       if (killSwitch && killResolve) {
         shortCircuited = true;
         killResolve();
@@ -83,6 +100,7 @@ export async function runGuardrails(
       return;
     }
 
+    settled.set(g.name, true);
     if (!result.pass) {
       const severity = result.severity ?? 'high';
       const failure: GuardrailFailure = {
@@ -102,14 +120,45 @@ export async function runGuardrails(
 
   const allDone = Promise.all(guardrails.map(runOne));
 
-  if (killSwitch) {
-    // Outer race: whichever happens first wins (kill OR all-finished).
-    // The Promise.all continues to settle so its `runOne` calls can
-    // still push to `failures` for audit purposes, but we don't await
-    // them here.
-    await Promise.race([allDone, killSignal]);
-  } else {
-    await allDone;
+  // Aggregate-budget signal — resolves after `aggregateTimeoutMs`.
+  // Pass <= 0 to disable (use a never-resolving promise instead).
+  let budgetTimer: ReturnType<typeof setTimeout> | null = null;
+  const budgetSignal =
+    aggregateTimeoutMs > 0
+      ? new Promise<'budget'>((resolve) => {
+          budgetTimer = setTimeout(() => resolve('budget'), aggregateTimeoutMs);
+        })
+      : new Promise<'budget'>(() => { /* never resolves */ });
+
+  const winner = killSwitch
+    ? await Promise.race([
+        allDone.then(() => 'all' as const),
+        killSignal.then(() => 'kill' as const),
+        budgetSignal,
+      ])
+    : await Promise.race([
+        allDone.then(() => 'all' as const),
+        budgetSignal,
+      ]);
+  if (budgetTimer) clearTimeout(budgetTimer);
+
+  if (winner === 'budget') {
+    budgetExceeded = true;
+    for (const g of guardrails) {
+      if (settled.get(g.name)) continue;
+      const failure: GuardrailFailure = {
+        guardrail: g.name,
+        reason: `dropped: aggregate budget ${aggregateTimeoutMs}ms exceeded`,
+        severity: 'high',
+        crashed: true,
+      };
+      failures.push(failure);
+      emitAudit(options, failure, g);
+      logger.warn('guardrail dropped (aggregate budget exceeded)', {
+        guardrail: g.name,
+        aggregateTimeoutMs,
+      });
+    }
   }
 
   return {
@@ -117,6 +166,7 @@ export async function runGuardrails(
     failures: [...failures],
     durationMs: Date.now() - start,
     shortCircuited,
+    budgetExceeded,
   };
 }
 

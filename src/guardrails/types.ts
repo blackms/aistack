@@ -102,6 +102,12 @@ export interface GuardrailRunOutcome {
   durationMs: number;
   /** True when the run aborted early because of a high-severity failure. */
   shortCircuited: boolean;
+  /**
+   * True when the aggregate budget (`aggregateTimeoutMs`) elapsed before
+   * every guardrail settled. The names of the dropped guardrails are
+   * surfaced as `crashed: true` entries in `failures`.
+   */
+  budgetExceeded?: boolean;
 }
 
 /**
@@ -117,6 +123,19 @@ export interface GuardrailRunOptions {
   killSwitch?: boolean;
   /** Per-guardrail timeout in ms. Defaults to 2000. */
   timeoutMs?: number;
+  /**
+   * Aggregate wall-clock budget for the WHOLE run, in ms. Defaults to 200ms
+   * (the design criterion was <100ms cumulative; we double it as headroom
+   * for cold-start JIT). Guardrails still in flight when the budget elapses
+   * are dropped — they emit a synthetic `crashed: true, reason: 'aggregate
+   * budget exceeded'` failure but do NOT block the agent. Configured
+   * separately from `timeoutMs` so a misbehaving single guardrail can't
+   * burn the whole budget and a slow population doesn't surprise the user.
+   *
+   * Set to 0 (or a negative number) to disable the aggregate budget — in
+   * which case only the per-guardrail `timeoutMs` applies.
+   */
+  aggregateTimeoutMs?: number;
   /**
    * Optional audit emitter. Called once per failure. Intentionally generic
    * so we don't take a hard dep on the audit module (AIG-635).

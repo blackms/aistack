@@ -4,7 +4,7 @@
  */
 
 import type { Guardrail, GuardrailResult } from '../types.js';
-import { HIGH_ENTROPY_TOKEN, SECRET_PATTERNS } from '../patterns.js';
+import { HIGH_ENTROPY_TOKEN, SECRET_PATTERNS, cloneRegex } from '../patterns.js';
 
 export interface SecretsGuardrailOptions {
   /**
@@ -27,10 +27,12 @@ export function secretsGuardrail(opts: SecretsGuardrailOptions = {}): Guardrail 
       const matches: NonNullable<GuardrailResult['matches']> = [];
 
       for (const { name, regex } of SECRET_PATTERNS) {
-        // Reset lastIndex defensively (regex literals are reused).
-        regex.lastIndex = 0;
+        // Clone per-invocation: the exported pattern is a TEMPLATE — using
+        // it directly would let parallel runs clobber each other's
+        // `lastIndex` and silently miss matches. See `patterns.ts` header.
+        const re = cloneRegex(regex);
         let m: RegExpExecArray | null;
-        while ((m = regex.exec(text)) !== null) {
+        while ((m = re.exec(text)) !== null) {
           matches.push({ kind: name, sample: redact(m[0]), index: m.index });
           // Cap per-pattern to avoid pathological scans
           if (matches.length >= 50) break;
@@ -39,9 +41,9 @@ export function secretsGuardrail(opts: SecretsGuardrailOptions = {}): Guardrail 
       }
 
       if (opts.highEntropy && matches.length === 0) {
-        HIGH_ENTROPY_TOKEN.lastIndex = 0;
+        const re = cloneRegex(HIGH_ENTROPY_TOKEN);
         let m: RegExpExecArray | null;
-        while ((m = HIGH_ENTROPY_TOKEN.exec(text)) !== null) {
+        while ((m = re.exec(text)) !== null) {
           matches.push({
             kind: 'high-entropy-token',
             sample: redact(m[0]),

@@ -10,6 +10,7 @@ import {
   IPV4_PATTERN,
   IT_CODICE_FISCALE_PATTERN,
   US_SSN_PATTERN,
+  cloneRegex,
   luhnCheck,
 } from '../patterns.js';
 
@@ -27,6 +28,13 @@ export interface PIIGuardrailOptions {
   direction?: 'input' | 'output' | 'both';
   /** Failure severity. Default `'high'`. */
   severity?: 'low' | 'high';
+  /**
+   * Domains (case-insensitive, exact match on the host portion) whose
+   * email addresses are NOT flagged. Use for transactional / system
+   * mailboxes like `no-reply@notifications.acme.io` that legitimately
+   * appear in agent output.
+   */
+  allowDomains?: string[];
 }
 
 export function piiGuardrail(opts: PIIGuardrailOptions = {}): Guardrail {
@@ -37,6 +45,9 @@ export function piiGuardrail(opts: PIIGuardrailOptions = {}): Guardrail {
     cc: opts.creditCard ?? true,
     ipv4: opts.ipv4 ?? false,
   };
+  const allowDomains = new Set(
+    (opts.allowDomains ?? []).map((d) => d.toLowerCase())
+  );
 
   return {
     name: 'pii',
@@ -47,14 +58,25 @@ export function piiGuardrail(opts: PIIGuardrailOptions = {}): Guardrail {
       if (!text) return { pass: true };
       const matches: NonNullable<GuardrailResult['matches']> = [];
 
-      if (enabled.email) collect(text, EMAIL_PATTERN, 'email', matches);
+      if (enabled.email) {
+        // Email gets a custom collect: skip whitelisted domains.
+        const re = cloneRegex(EMAIL_PATTERN);
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) !== null) {
+          const at = m[0].lastIndexOf('@');
+          const host = at >= 0 ? m[0].slice(at + 1).toLowerCase() : '';
+          if (host && allowDomains.has(host)) continue;
+          matches.push({ kind: 'email', sample: redact(m[0]), index: m.index });
+          if (matches.length >= 50) break;
+        }
+      }
       if (enabled.ssn) collect(text, US_SSN_PATTERN, 'us-ssn', matches);
       if (enabled.cf)
         collect(text, IT_CODICE_FISCALE_PATTERN, 'it-codice-fiscale', matches);
       if (enabled.cc) {
-        CREDIT_CARD_CANDIDATE.lastIndex = 0;
+        const re = cloneRegex(CREDIT_CARD_CANDIDATE);
         let m: RegExpExecArray | null;
-        while ((m = CREDIT_CARD_CANDIDATE.exec(text)) !== null) {
+        while ((m = re.exec(text)) !== null) {
           if (luhnCheck(m[0])) {
             matches.push({ kind: 'credit-card', sample: redact(m[0]), index: m.index });
             if (matches.length >= 50) break;
@@ -82,9 +104,11 @@ function collect(
   kind: string,
   out: NonNullable<GuardrailResult['matches']>
 ): void {
-  regex.lastIndex = 0;
+  // Clone per-invocation — exported regex literals are TEMPLATES that
+  // must not share `lastIndex` across parallel runs.
+  const re = cloneRegex(regex);
   let m: RegExpExecArray | null;
-  while ((m = regex.exec(text)) !== null) {
+  while ((m = re.exec(text)) !== null) {
     out.push({ kind, sample: redact(m[0]), index: m.index });
     if (out.length >= 50) break;
   }

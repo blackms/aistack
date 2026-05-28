@@ -6,6 +6,9 @@
  * box. Custom guardrails are added via `register(g)`.
  */
 
+import { pathToFileURL } from 'node:url';
+import { isAbsolute, resolve as resolvePath } from 'node:path';
+import { logger } from '../utils/logger.js';
 import type { Guardrail, GuardrailRegistry } from './types.js';
 import { secretsGuardrail } from './builtin/secrets.js';
 import { piiGuardrail } from './builtin/pii.js';
@@ -81,4 +84,84 @@ export function registerGuardrail(g: Guardrail): void {
 /** Test helper — reset the global registry. */
 export function resetGuardrailRegistry(): void {
   globalRegistry = null;
+}
+
+/**
+ * Load custom guardrail modules from filesystem paths and register their
+ * exports into the supplied registry (defaults to the global one).
+ *
+ * Contract:
+ *   - Each path is resolved relative to `cwd` if not absolute.
+ *   - The module is imported and inspected for either:
+ *       1. a default export that is itself a Guardrail, OR
+ *       2. a default export that is an array of Guardrails, OR
+ *       3. a `register(reg)` named export that registers manually, OR
+ *       4. any named exports that look like a Guardrail (have
+ *          `name` + `validate`).
+ *   - Modules with side-effects that call `registerGuardrail` at import
+ *     time also work — we just import them.
+ *
+ * One bad path never sinks the others: each failure is logged and skipped.
+ * Returns the count of guardrails newly registered.
+ */
+export async function loadCustomGuardrails(
+  paths: string[],
+  options: { registry?: GuardrailRegistry; cwd?: string } = {}
+): Promise<number> {
+  const registry = options.registry ?? getGuardrailRegistry();
+  const cwd = options.cwd ?? process.cwd();
+  let loaded = 0;
+
+  for (const rawPath of paths) {
+    const abs = isAbsolute(rawPath) ? rawPath : resolvePath(cwd, rawPath);
+    const url = pathToFileURL(abs).href;
+    try {
+      const mod = (await import(url)) as Record<string, unknown>;
+      const before = registry.list().length;
+
+      // Case 3: explicit `register` named export.
+      if (typeof mod.register === 'function') {
+        try {
+          (mod.register as (r: GuardrailRegistry) => void)(registry);
+        } catch (err) {
+          logger.warn('custom guardrail module `register()` threw', {
+            path: abs,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const candidates: unknown[] = [];
+      // Case 1/2: default export.
+      if (mod.default !== undefined) {
+        if (Array.isArray(mod.default)) candidates.push(...mod.default);
+        else candidates.push(mod.default);
+      }
+      // Case 4: scan named exports.
+      for (const [k, v] of Object.entries(mod)) {
+        if (k === 'default' || k === 'register') continue;
+        candidates.push(v);
+      }
+
+      for (const c of candidates) {
+        if (isGuardrail(c)) {
+          registry.register(c);
+        }
+      }
+
+      loaded += registry.list().length - before;
+    } catch (err) {
+      logger.warn('failed to load custom guardrail module', {
+        path: abs,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return loaded;
+}
+
+function isGuardrail(x: unknown): x is Guardrail {
+  if (x === null || typeof x !== 'object') return false;
+  const o = x as { name?: unknown; validate?: unknown };
+  return typeof o.name === 'string' && typeof o.validate === 'function';
 }

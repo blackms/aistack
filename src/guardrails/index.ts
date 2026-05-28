@@ -31,6 +31,7 @@ export { zodSchemaGuardrail } from './builtin/zod-schema.js';
 export {
   defaultRegistry,
   getGuardrailRegistry,
+  loadCustomGuardrails,
   registerGuardrail,
   resetGuardrailRegistry,
 } from './registry.js';
@@ -44,6 +45,7 @@ export {
   CREDIT_CARD_CANDIDATE,
   IPV4_PATTERN,
   HIGH_ENTROPY_TOKEN,
+  cloneRegex,
   luhnCheck,
 } from './patterns.js';
 
@@ -53,7 +55,32 @@ import type {
   GuardrailRunOptions,
   GuardrailRunOutcome,
 } from './types.js';
+import type { GuardrailsConfig } from '../types.js';
 import { runGuardrails } from './runner.js';
+import { loadCustomGuardrails } from './registry.js';
+
+/**
+ * Initialise the guardrails framework from a `GuardrailsConfig` block
+ * (i.e. `aistack.config.json -> guardrails`).
+ *
+ * Currently only `customPaths` is wired here — the rest of the config
+ * (`builtin`, `timeoutMs`, `killSwitch`) is consumed lazily by the
+ * call sites that build `WithGuardrailsOptions` / `GuardrailRunOptions`.
+ * Call sites should invoke this once at process start so that the
+ * registry contains every custom guardrail BEFORE
+ * `registry.resolve([...])` is called against the user-supplied
+ * `builtin` list.
+ *
+ * Returns the number of guardrails loaded from `customPaths`.
+ */
+export async function initGuardrails(
+  config: GuardrailsConfig | undefined,
+  options: { cwd?: string } = {}
+): Promise<number> {
+  if (!config || !config.enabled) return 0;
+  if (!config.customPaths || config.customPaths.length === 0) return 0;
+  return loadCustomGuardrails(config.customPaths, { cwd: options.cwd });
+}
 
 /**
  * Error thrown by `withGuardrails` when input/output validation blocks

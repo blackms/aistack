@@ -12,7 +12,26 @@
  *
  * REVIEW CADENCE: re-check vendor docs every quarter.
  * Last review: 2026-05.
+ *
+ * CONCURRENCY NOTE:
+ *   RegExp objects with the `/g` flag carry mutable `lastIndex` state
+ *   between calls. When two parallel invocations (e.g. the guardrail
+ *   runner racing inputs) share the same instance via `.exec()` / `.test()`,
+ *   one can clobber the other's iteration cursor and produce silent
+ *   false-negatives. To stay safe under concurrency:
+ *     - Treat every exported regex literal here as a *template*.
+ *     - Consumers MUST clone via `cloneRegex(...)` before using `.exec`
+ *       (or use a non-stateful API like `String.prototype.matchAll()`).
  */
+
+/**
+ * Clone a regex into a fresh instance with independent `lastIndex`.
+ * Use this in any code path that may run concurrently with other
+ * consumers of the same exported pattern.
+ */
+export function cloneRegex(re: RegExp): RegExp {
+  return new RegExp(re.source, re.flags);
+}
 
 // ---------------------------------------------------------------------------
 // SECRETS
@@ -103,7 +122,22 @@ export const HIGH_ENTROPY_TOKEN = /\b[A-Za-z0-9+/_-]{40,}={0,2}\b/g;
  *   - IT Codice Fiscale: 16-char alphanumeric per Agenzia delle Entrate spec
  *   - IPv4: standard dotted quad with byte bounds
  */
-export const EMAIL_PATTERN = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+/**
+ * Email — tightened to reduce false-positives on transactional / machine
+ * addresses such as `cron-job+id@svc-01.internal.k8s` style identifiers:
+ *   - local-part must start AND end with an alphanumeric (rejects leading
+ *     `.`/`+`/`-` artifacts often produced by log scrubbers)
+ *   - domain labels cannot start or end with `-`
+ *   - TLD limited to 2-24 ASCII letters (covers every IANA TLD as of 2026
+ *     while rejecting trailing UUID hex chunks like `…@host.0a1b2c3d`)
+ *   - host label limited to 63 chars (RFC 1035) — prevents catastrophic
+ *     backtracking on pathological inputs.
+ *
+ * Callers can whitelist legitimate addresses via the consumer guardrail's
+ * `allowDomains` option (see `piiGuardrail`).
+ */
+export const EMAIL_PATTERN =
+  /\b[A-Za-z0-9](?:[A-Za-z0-9._%+-]{0,62}[A-Za-z0-9])?@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.){1,4}[A-Za-z]{2,24}\b/g;
 
 /**
  * US SSN — excludes ranges the SSA never issues (000, 666, 9xx for area;
