@@ -10,6 +10,7 @@ import {
   createAgentCommand,
   createMemoryCommand,
   createMcpCommand,
+  createMcpBridgeCommand,
   createPluginCommand,
   createStatusCommand,
   createWorkflowCommand,
@@ -48,6 +49,7 @@ async function main(): Promise<void> {
   program.addCommand(createAgentCommand());
   program.addCommand(createMemoryCommand());
   program.addCommand(createMcpCommand());
+  program.addCommand(createMcpBridgeCommand());
   program.addCommand(createPluginCommand());
   program.addCommand(createStatusCommand());
   program.addCommand(createWorkflowCommand());

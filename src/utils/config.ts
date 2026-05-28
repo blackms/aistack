@@ -250,6 +250,51 @@ const SandboxConfigSchema = z.object({
   daytonaApiKey: z.string().optional(),
 });
 
+const PostgresIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  connectionString: z.string().optional(),
+  packageName: z.string().optional(),
+});
+
+const GithubRemoteIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  token: z.string().optional(),
+  toolsets: z.array(z.string()).optional(),
+  image: z.string().optional(),
+});
+
+const SentryIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  authToken: z.string().optional(),
+  organization: z.string().optional(),
+  host: z.string().optional(),
+  packageName: z.string().optional(),
+});
+
+const PlaywrightIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  browser: z.enum(['chromium', 'firefox', 'webkit']).optional(),
+  headless: z.boolean().optional(),
+  userDataDir: z.string().optional(),
+  packageName: z.string().optional(),
+});
+
+const SlackMcpIntegrationSchema = z.object({
+  enabled: z.boolean().optional(),
+  botToken: z.string().optional(),
+  teamId: z.string().optional(),
+  channelIds: z.array(z.string()).optional(),
+  packageName: z.string().optional(),
+});
+
+const IntegrationsConfigSchema = z.object({
+  postgres: PostgresIntegrationSchema.optional(),
+  githubRemote: GithubRemoteIntegrationSchema.optional(),
+  sentry: SentryIntegrationSchema.optional(),
+  playwright: PlaywrightIntegrationSchema.optional(),
+  slack: SlackMcpIntegrationSchema.optional(),
+});
+
 const SmartDispatcherConfigSchema = z.object({
   enabled: z.boolean().default(true),
   cacheEnabled: z.boolean().default(true),
@@ -317,6 +362,7 @@ const ConfigSchema = z.object({
   audit: AuditConfigSchema.default({}),
   checkpointing: CheckpointingConfigSchema.default({}),
   sandbox: SandboxConfigSchema.default({}),
+  integrations: IntegrationsConfigSchema.optional(),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';

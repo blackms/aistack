@@ -354,6 +354,7 @@ export interface AgentStackConfig {
   audit?: AuditConfig;
   checkpointing?: CheckpointingConfig;
   sandbox?: SandboxConfig;
+  integrations?: IntegrationsConfig;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.
@@ -441,6 +442,53 @@ export interface SandboxConfig {
   e2bApiKey?: string;
   daytonaApiUrl?: string;
   daytonaApiKey?: string;
+}
+
+// Battle pack integrations (top-5 MCP servers)
+// See src/integrations/ for adapter implementations.
+export interface IntegrationsConfig {
+  postgres?: PostgresIntegrationConfig;
+  githubRemote?: GithubRemoteIntegrationConfig;
+  sentry?: SentryIntegrationConfig;
+  playwright?: PlaywrightIntegrationConfig;
+  slack?: SlackMcpIntegrationConfig;
+}
+
+export interface PostgresIntegrationConfig {
+  enabled?: boolean;
+  connectionString?: string;
+  packageName?: string;
+}
+
+export interface GithubRemoteIntegrationConfig {
+  enabled?: boolean;
+  token?: string;
+  toolsets?: string[];
+  image?: string;
+}
+
+export interface SentryIntegrationConfig {
+  enabled?: boolean;
+  authToken?: string;
+  organization?: string;
+  host?: string;
+  packageName?: string;
+}
+
+export interface PlaywrightIntegrationConfig {
+  enabled?: boolean;
+  browser?: 'chromium' | 'firefox' | 'webkit';
+  headless?: boolean;
+  userDataDir?: string;
+  packageName?: string;
+}
+
+export interface SlackMcpIntegrationConfig {
+  enabled?: boolean;
+  botToken?: string;
+  teamId?: string;
+  channelIds?: string[];
+  packageName?: string;
 }
 
 export interface MemoryConfig {
