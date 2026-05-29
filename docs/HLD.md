@@ -295,7 +295,7 @@ sequenceDiagram
 
 **Total: 46 tools**
 
-> Note: Review loop functionality is available via programmatic API (`createReviewLoop`) and CLI, but not exposed as MCP tools.
+> Note: Review loop functionality is available via programmatic API (`createReviewLoop`) and REST/web API, but not exposed as MCP tools.
 
 ### 5.2 Provider Interface
 

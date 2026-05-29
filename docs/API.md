@@ -1377,7 +1377,7 @@ Get repository information.
 
 ### Review Loop (Programmatic API)
 
-> **Note:** Review loop functionality is available via the programmatic API (`createReviewLoop`) and CLI (`workflow run adversarial-review`), but not exposed as MCP tools. Use the TypeScript SDK for full review loop capabilities.
+> **Note:** Review loop functionality is available via the programmatic API (`createReviewLoop`) and REST/web API, but not exposed as MCP tools. Use the TypeScript SDK for full review loop capabilities.
 
 #### `review_loop_start` (Programmatic)
 

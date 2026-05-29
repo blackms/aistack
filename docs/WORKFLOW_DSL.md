@@ -26,6 +26,33 @@ Add `--watch` to re-run on every file save:
 aistack workflow run my-flow.yaml --watch --input='{"input":"..."}'
 ```
 
+### M0 TDD workflow
+
+M0 issue work should use the agentic TDD template:
+
+```bash
+aistack workflow run templates/workflows/m0-agentic-tdd.yaml \
+  --input='{
+    "issue_id": "AIG-631",
+    "linear_url": "https://linear.app/...",
+    "github_context": "optional issue or PR links",
+    "input": "Rewrite README positioning with tests first"
+  }'
+```
+
+The template encodes the project workflow for M0 issues:
+
+1. `coordinator` scopes the issue into acceptance criteria.
+2. `researcher`, `architect`, and `tester` run discovery in parallel.
+3. `tester` writes red tests or docs guardrails before implementation.
+4. `coder` implements the smallest passing slice.
+5. `tester`, `adversarial`, and `reviewer` loop back to `implement` on `**VERDICT: REJECT**`.
+6. `documentation` and `devops` produce PR, Linear, and release handoff notes.
+
+Agents communicate through serialized step outputs such as `$steps.issue-discovery.output`,
+`$steps.red-tests.output`, and `$steps.peer-review.output`. Direct message-bus communication
+is still reserved for imperative orchestration code.
+
 ---
 
 ## Document schema
@@ -38,8 +65,8 @@ description: One-line summary    # optional
 version: "1"                     # optional, defaults to "1"
 max_iterations: 30               # optional global safety cap on total step executions
 defaults:
-  timeout_ms: 60000              # optional, per-step default
-  session_id: my-session         # optional, propagated to agent spawner
+  timeout_ms: 60000              # optional runner metadata; core executor does not enforce it
+  session_id: my-session         # optional runner metadata
 steps:                           # required, at least one
   - id: step-id                  # optional, alphanumeric / _ / -
     agent: coder                 # required (XOR with `parallel`)
@@ -54,7 +81,7 @@ steps:                           # required, at least one
       goto: step-id
       max_retries: 1
       fail_after: true
-    timeout_ms: 30000            # optional override
+    timeout_ms: 30000            # optional runner metadata; core executor does not enforce it
   - id: fan-out                  # OR — parallel block (no `agent`)
     parallel:
       - agent: researcher
