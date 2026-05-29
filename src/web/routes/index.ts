@@ -16,3 +16,4 @@ export { createAuthRoutes } from './auth.js';
 export { registerSsoRoutes } from './sso.js';
 export { registerIdentityRoutes } from './identities.js';
 export { registerConsensusRoutes } from './consensus.js';
+export { registerInterruptRoutes } from './interrupts.js';
