@@ -350,6 +350,7 @@ export interface AgentStackConfig {
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
   a2a?: A2AConfig;
+  multitenancy?: MultitenancyConfig;
   daemon?: DaemonConfig;
   telemetry?: TelemetryConfig;
   audit?: AuditConfig;
@@ -370,6 +371,13 @@ export interface A2AConfig {
   publicUrl?: string;
   bearerToken?: string;
   exposedAgents?: string[];
+}
+
+// Multi-tenancy configuration (AIG-649)
+export interface MultitenancyConfig {
+  enabled: boolean;
+  defaultTenantSlug: string;
+  defaultWorkspaceSlug: string;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.

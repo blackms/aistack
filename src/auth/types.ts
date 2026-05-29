@@ -51,4 +51,12 @@ export interface AuthContext {
   userId?: string;
   role?: UserRole;
   permissions?: string[];
+  /**
+   * Multi-tenancy scoping (AIG-649). Populated by the tenant middleware when
+   * the `multitenancy.enabled` config flag is on; left undefined otherwise.
+   * Downstream services should treat undefined as "single-tenant mode".
+   */
+  tenantId?: string;
+  workspaceId?: string;
+  tenantRole?: 'tenant_admin' | 'workspace_admin' | 'member';
 }

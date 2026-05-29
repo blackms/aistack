@@ -13,6 +13,7 @@ import ChatPage from './pages/ChatPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import TaskDetailPage from './pages/TaskDetailPage';
+import InterruptsPage from './pages/InterruptsPage';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useWebSocketNotifications } from './hooks/useWebSocketNotifications';
 
@@ -37,6 +38,7 @@ function App() {
           <Route path="/memory" element={<MemoryPage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
+          <Route path="/interrupts" element={<InterruptsPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/chat" element={<ChatPage />} />
