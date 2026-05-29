@@ -1,0 +1,11 @@
+  __ _ (_) ___ | |_  __ _   ___ | | __
+ / _` || |/ __|| __|/ _` | / __|| |/ /
+| (_| || |\__ \| |_| (_| || (__ |   <
+ \__,_||_||___/ \__|\__,_| \___||_|\_\
+
+aistack -- Claude Code plugin
+Clean multi-agent orchestration for Claude Code.
+
+Typographic placeholder. Replace with a designed mark when available.
+The Cline marketplace requires a 400x400 PNG icon at submission time;
+render plugin/assets/logo.svg to PNG for that (see marketplace/cline-submission.md).

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  aistack — typographic placeholder logo.
+  Intentionally simple (no designed mark yet). Safe to replace with a final
+  asset later. 400x400 canvas so it can double as a marketplace icon source.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400" role="img" aria-label="aistack">
+  <rect width="400" height="400" rx="56" fill="#0B0F19"/>
+  <rect x="14" y="14" width="372" height="372" rx="44" fill="none" stroke="#1F2937" stroke-width="2"/>
+  <!-- stacked bars motif: three layers = "stack" -->
+  <g fill="#6366F1">
+    <rect x="120" y="120" width="160" height="34" rx="8"/>
+  </g>
+  <g fill="#8B5CF6">
+    <rect x="120" y="166" width="160" height="34" rx="8" opacity="0.85"/>
+  </g>
+  <g fill="#A855F7">
+    <rect x="120" y="212" width="160" height="34" rx="8" opacity="0.7"/>
+  </g>
+  <text x="200" y="312" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="52" font-weight="700" fill="#E5E7EB" text-anchor="middle"
+        letter-spacing="2">aistack</text>
+  <text x="200" y="348" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="16" fill="#9CA3AF" text-anchor="middle" letter-spacing="3">CLAUDE CODE PLUGIN</text>
+</svg>
