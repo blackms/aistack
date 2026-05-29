@@ -100,6 +100,7 @@ describe('Tenant routes — auth + RBAC (AIG-649 review fix)', () => {
   let tenantB: { id: string };
 
   let anonReq: () => IncomingMessage;
+  let memberAId: string;
   let adminToken: string;
   let memberAToken: string;
   let memberBToken: string;
@@ -132,6 +133,7 @@ describe('Tenant routes — auth + RBAC (AIG-649 review fix)', () => {
       { email: 'a@x', username: 'a', password: 'pw-member-a' },
       UserRole.DEVELOPER,
     );
+    memberAId = memberA.id;
     const memberB = await authService.register(
       { email: 'b@x', username: 'b', password: 'pw-member-b' },
       UserRole.DEVELOPER,
@@ -260,5 +262,43 @@ describe('Tenant routes — auth + RBAC (AIG-649 review fix)', () => {
     );
     expect(res.statusCode).toBe(200);
     expect(tenantService.getTenantById(tenantB.id)).toBeUndefined();
+  });
+
+  it('rejects workspace reads when header tenant context differs from the path tenant', async () => {
+    tenantService.addMembership(tenantB.id, memberAId, 'member');
+    tenantService.createWorkspace({
+      tenantId: tenantB.id,
+      name: 'Default',
+      slug: 'default',
+    });
+
+    const tenantAwareRouter = new Router();
+    registerTenantRoutes(tenantAwareRouter, {
+      ...makeConfig(dbPath),
+      multitenancy: {
+        enabled: true,
+        defaultTenantSlug: 'tenant-a',
+        defaultWorkspaceSlug: 'default',
+      },
+    });
+
+    const res = createMockResponse();
+    await tenantAwareRouter.handle(
+      createMockRequest(
+        'GET',
+        `/api/v1/tenants/${tenantA.id}/workspaces`,
+        undefined,
+        {
+          authorization: `Bearer ${memberAToken}`,
+          'x-tenant-slug': 'tenant-b',
+        },
+      ),
+      res,
+    );
+
+    expect(res.statusCode).toBe(403);
+    expect((res.getBody() as { error: string }).error).toMatch(
+      /Tenant context mismatch/,
+    );
   });
 });

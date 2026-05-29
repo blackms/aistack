@@ -87,14 +87,38 @@ Memory keys should be scoped under tenant + workspace using
 `workspaceNamespace(ctx)` from `src/multitenancy/`:
 
 ```ts
-import { workspaceNamespace } from '../multitenancy/index.js';
+import {
+  getActiveTenantContext,
+  runWithTenantContext,
+  workspaceNamespace,
+  type MultitenancyContext,
+} from '../multitenancy/index.js';
 
+const ctx: MultitenancyContext = getActiveTenantContext()!;
 const ns = workspaceNamespace(ctx); // e.g. "tenant:<id>:workspace:<id>"
 await memory.store(key, content, { namespace: `${ns}:agents:${agentId}` });
 ```
 
+`ctx` is a `MultitenancyContext`. Request handlers normally read it from
+`getActiveTenantContext()` after route middleware calls `runWithTenantContext`.
+Background jobs and CLI commands should set it explicitly around tenant-scoped
+work:
+
+```ts
+runWithTenantContext(
+  { tenantId, tenantSlug, workspaceId, workspaceSlug, role },
+  async () => {
+    const ctx = getActiveTenantContext()!;
+    const ns = workspaceNamespace(ctx);
+    // ... tenant-scoped memory operations
+  },
+);
+```
+
 Memory entries written in single-tenant mode (pre-migration) live in their
-original namespace; the migration tool does **not** rewrite them. See the
+original namespace; the migration tool does **not** rewrite them. After
+multi-tenancy is enabled, tenant-scoped queries do not read those unscoped
+entries, so preserving them requires a manual backfill or cleanup. See the
 "Retrofit checklist" for the data backfill plan.
 
 ## Single -> multi migration

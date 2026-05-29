@@ -25,7 +25,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import type { AgentStackConfig } from '../../types.js';
 import type { Router } from '../router.js';
 import { sendJson, sendError } from '../router.js';
-import { badRequest, notFound } from '../middleware/error.js';
+import { badRequest, forbidden, notFound } from '../middleware/error.js';
 import { createAuthMiddleware, type AuthContext } from '../middleware/auth.js';
 import {
   TenantService,
@@ -291,6 +291,9 @@ export function registerTenantRoutes(router: Router, config: AgentStackConfig): 
         // already passed assertTenantRole above.
         resolved = undefined;
       }
+    }
+    if (resolved && resolved.tenantId !== id) {
+      throw forbidden('Tenant context mismatch');
     }
 
     runWithTenantContext(resolved, () => {

@@ -107,6 +107,9 @@ export function withTenantContext(
   const workspace = workspaceSlug
     ? service.getWorkspaceBySlug(tenant.id, workspaceSlug)
     : undefined;
+  if (workspaceSlug && !workspace) {
+    throw new Error(`Workspace "${workspaceSlug}" not found in tenant "${tenantSlug}"`);
+  }
 
   let role: TenantUserRole = 'member';
   if (req.userId) {

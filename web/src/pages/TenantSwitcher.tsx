@@ -32,6 +32,12 @@ interface Workspace {
   slug: string;
 }
 
+interface ApiEnvelope<T> {
+  success?: boolean;
+  data?: T;
+  error?: string;
+}
+
 const API_BASE = '/api/v1';
 const STORAGE_KEY_TENANT = 'aistack.activeTenantSlug';
 const STORAGE_KEY_WORKSPACE = 'aistack.activeWorkspaceSlug';
@@ -41,7 +47,16 @@ async function fetchJson<T>(path: string): Promise<T> {
   if (!res.ok) {
     throw new Error(`Request failed (${res.status})`);
   }
-  return res.json() as Promise<T>;
+  const body = (await res.json()) as T | ApiEnvelope<T>;
+  if (
+    body
+    && typeof body === 'object'
+    && 'success' in body
+    && 'data' in body
+  ) {
+    return (body as ApiEnvelope<T>).data as T;
+  }
+  return body as T;
 }
 
 function persistActive(tenantSlug: string | undefined, workspaceSlug?: string): void {
@@ -70,9 +85,16 @@ export default function TenantSwitcher() {
         const data = await fetchJson<{ tenants: Tenant[] }>('/tenants');
         if (cancelled) return;
         setTenants(data.tenants);
-        if (!tenantSlug && data.tenants.length > 0) {
-          setTenantSlug(data.tenants[0].slug);
-          persistActive(data.tenants[0].slug);
+        const currentTenant = data.tenants.find((tenant) => tenant.slug === tenantSlug);
+        if (!currentTenant && data.tenants.length > 0) {
+          const fallbackSlug = data.tenants[0].slug;
+          setTenantSlug(fallbackSlug);
+          setWorkspaceSlug('');
+          persistActive(fallbackSlug);
+        } else if (!currentTenant && data.tenants.length === 0) {
+          setTenantSlug('');
+          setWorkspaceSlug('');
+          persistActive(undefined);
         }
       } catch (err) {
         if (!cancelled) {
@@ -85,7 +107,6 @@ export default function TenantSwitcher() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -94,7 +115,16 @@ export default function TenantSwitcher() {
       return;
     }
     const tenant = tenants.find((t) => t.slug === tenantSlug);
-    if (!tenant) return;
+    if (!tenant) {
+      setWorkspaces([]);
+      if (tenants.length > 0) {
+        const fallbackSlug = tenants[0].slug;
+        setTenantSlug(fallbackSlug);
+        setWorkspaceSlug('');
+        persistActive(fallbackSlug);
+      }
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -103,9 +133,16 @@ export default function TenantSwitcher() {
         );
         if (cancelled) return;
         setWorkspaces(data.workspaces);
-        if (!workspaceSlug && data.workspaces.length > 0) {
-          setWorkspaceSlug(data.workspaces[0].slug);
-          persistActive(tenantSlug, data.workspaces[0].slug);
+        const currentWorkspace = data.workspaces.find(
+          (workspace) => workspace.slug === workspaceSlug,
+        );
+        if (!currentWorkspace && data.workspaces.length > 0) {
+          const fallbackWorkspaceSlug = data.workspaces[0].slug;
+          setWorkspaceSlug(fallbackWorkspaceSlug);
+          persistActive(tenantSlug, fallbackWorkspaceSlug);
+        } else if (!currentWorkspace && data.workspaces.length === 0) {
+          setWorkspaceSlug('');
+          persistActive(tenantSlug, undefined);
         }
       } catch (err) {
         if (!cancelled) {
@@ -116,8 +153,7 @@ export default function TenantSwitcher() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantSlug, tenants.length]);
+  }, [tenantSlug, tenants, workspaceSlug]);
 
   const handleTenantChange = (slug: string) => {
     setTenantSlug(slug);

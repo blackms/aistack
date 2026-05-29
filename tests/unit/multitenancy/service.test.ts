@@ -8,6 +8,7 @@ import { TenantService } from '../../../src/multitenancy/service.js';
 import {
   getActiveTenantContext,
   runWithTenantContext,
+  withTenantContext,
   workspaceNamespace,
   _resetActiveTenantContext,
 } from '../../../src/multitenancy/index.js';
@@ -303,6 +304,24 @@ describe('TenantService', () => {
       expect(observedB).toEqual([tB.id, tB.id]);
       // After both chains complete, the outer scope has no active context.
       expect(getActiveTenantContext()).toBeUndefined();
+    });
+  });
+
+  describe('withTenantContext', () => {
+    it('rejects an explicit workspace slug that does not exist', () => {
+      const tenant = service.createTenant({ name: 'Acme', slug: 'acme' });
+      service.addMembership(tenant.id, 'user-1', 'member');
+
+      expect(() =>
+        withTenantContext(
+          {
+            headers: { 'x-tenant-slug': 'acme', 'x-workspace-slug': 'missing' },
+            userId: 'user-1',
+          },
+          service,
+          { enabled: true, defaultTenantSlug: 'acme', defaultWorkspaceSlug: 'default' },
+        ),
+      ).toThrow(/Workspace "missing" not found/);
     });
   });
 });
