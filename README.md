@@ -49,7 +49,7 @@ Keep agents bounded with consensus checkpoints, drift checks, and resource limit
 <br/>
 
 ```text
-11 agents · 46 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Agent Identity · Drift Detection · Consensus Checkpoints · Resource Monitoring
+11 agents · 46 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · HITL Interrupts · A2A · Multi-Tenancy · Issue-to-PR Automation
 ```
 
 </div>
@@ -63,8 +63,9 @@ aistack turns Claude Code into a local multi-agent delivery loop: one agent writ
 Use it when a task needs more than one model role:
 - **Ship reviewed code** - Coder, tester, reviewer, and adversarial agents iterate until the work is approved or rejected with concrete findings.
 - **Keep local control** - The NPM package runs from your machine with a stdio MCP server, SQLite memory, and no hosted control plane requirement.
-- **Bound agent autonomy** - Consensus checkpoints, semantic drift detection, and resource exhaustion monitoring keep risky or runaway work visible.
+- **Bound agent autonomy** - Consensus checkpoints, HITL interrupts, semantic drift detection, sandboxed execution, and resource exhaustion monitoring keep risky or runaway work visible.
 - **Carry context forward** - Persistent memory stores patterns, decisions, and implementation notes for later Claude Code sessions.
+- **Bridge agent runtimes** - Expose aistack agents over A2A, run a background daemon, and ingest GitHub/GitLab issues into draft PR workflows.
 
 ### Example workflow
 
@@ -86,13 +87,13 @@ aistack:
 
 - Claude Code users who want local multi-agent coding workflows.
 - TypeScript/Node teams that want coder, tester, reviewer, and adversarial agents coordinating through MCP/API.
-- Teams that want review loops, persistent SQLite memory, consensus gates, drift detection, and resource monitoring without adopting a hosted agent platform.
+- Teams that want review loops, persistent SQLite memory, consensus gates, HITL pauses, tenant/workspace controls, and resource monitoring without adopting a hosted agent platform.
 
 ## Who should NOT use aistack
 
 - Python-first teams that want LangGraph/CrewAI-style ecosystems.
-- Teams that need hosted multi-tenancy or horizontally distributed orchestration today.
-- Teams that require production OpenTelemetry tracing, sandboxed execution, or long-lived background runners as hard requirements today.
+- Teams that need a managed SaaS control plane or horizontally distributed orchestration today.
+- Teams that require managed observability hosting or externally managed queue backends as hard requirements today.
 
 ---
 
@@ -108,20 +109,22 @@ We try to stay honest about what is shipped today versus what is on the roadmap 
 |---|---|---|---|---|---|
 | Orchestration model | Multi-agent + message bus | Multi-agent (swarm) | Single agent (loop) | Graph + workflows | Graph (state machine) |
 | Memory persistence | SQLite + FTS5 + optional vectors | SQLite | None (BYO) | LibSQL / Postgres | Checkpointer (Postgres / SQLite / Redis) |
-| Observability | Built-in metrics + web dashboard. OTel: ⚠️ M1 roadmap ([AIG-632](https://linear.app/aigensolutionsit/issue/AIG-632)) | Limited | Tracing via Anthropic API | OTel native + AI tracing | LangSmith (hosted) / OTel |
-| Sandboxed execution | ⚠️ M1 roadmap ([AIG-634](https://linear.app/aigensolutionsit/issue/AIG-634)) | Via hooks | Bash tool (host) | Via tools | Via tools |
+| Observability | Built-in metrics + web dashboard + opt-in OpenTelemetry tracing | Limited | Tracing via Anthropic API | OTel native + AI tracing | LangSmith (hosted) / OTel |
+| Sandboxed execution | ✅ Docker / E2B / Daytona adapters | Via hooks | Bash tool (host) | Via tools | Via tools |
 | OSS license | MIT | MIT | MIT | Elastic License 2.0 | MIT |
 | Distribution | NPM | NPM | NPM / PyPI | NPM | PyPI / NPM (JS port) |
 | Claude Code-native (MCP server built-in) | ✅ 46 MCP tools | ✅ | ✅ (it *is* the SDK) | ❌ (MCP client only) | ❌ |
 | Adversarial review built-in | ✅ dedicated agent + loop | ❌ | ❌ | ❌ | ❌ (DIY in graph) |
 | Consensus checkpoints | ✅ risk-gated, configurable | ❌ | ❌ | ❌ | ❌ (interrupt-based DIY) |
-| Background runner | ⚠️ M1 roadmap ([AIG-636](https://linear.app/aigensolutionsit/issue/AIG-636)) | ✅ | ❌ | ✅ workflows | ✅ |
+| Background runner | ✅ daemon + webhook/file triggers | ✅ | ❌ | ✅ workflows | ✅ |
 
 Feature claims for third-party projects reflect public documentation at time of writing; PRs welcome to correct inaccuracies.
 
 **What is uniquely aistack:**
 - **Adversarial review loop** as a first-class primitive — a dedicated agent attacks the coder's output up to N iterations until APPROVED.
 - **Consensus checkpoints** — high-risk task spawns can require human or different-model approval before proceeding, with full audit trail.
+- **Human-in-the-loop interrupts** — workflows can pause, expose editable state, and resume from CLI, web UI, or REST.
+- **A2A + issue-to-PR automation** — aistack agents can be exposed to other runtimes and can turn GitHub/GitLab issues into draft PRs.
 - **46 MCP tools** wired directly into Claude Code, including memory, identity, drift detection, and consensus management.
 
 → See [docs/COMPARISON.md](./docs/COMPARISON.md) for the extended analysis including CrewAI, AutoGen, and Letta.
@@ -270,6 +273,47 @@ Require validation before high-risk tasks can spawn subtasks:
 - **Checkpoint Lifecycle** - `pending` → `approved`/`rejected`/`expired` with audit trail
 - **Timeout & Auto-Expiry** - Checkpoints expire after configurable timeout
 
+### 🧑‍⚖️ Human-In-The-Loop Interrupts
+
+Pause workflows for operator input without rewriting them as callbacks:
+- **Promise-Based Pause/Resume** - `interrupt()` suspends normal `async/await` flow until a reviewer supplies input
+- **Editable State Snapshots** - Operators can inspect and patch captured workflow state before resuming
+- **CLI, Web, and REST Paths** - Resume through `workflow resume-interrupt`, dashboard `/interrupts`, or `/api/v1/interrupts`
+- **Validation** - Lightweight schemas or Zod validators reopen invalid resumes for correction
+
+### 🧰 Sandboxed Code Execution
+
+Run model-generated code away from the host machine:
+- **Docker Adapter** - Read-only root filesystem, no host volumes, dropped capabilities, resource limits, optional network
+- **Managed Adapters** - E2B and Daytona integrations for teams that do not want local Docker
+- **Opt-In Execution** - Default provider is `none`; choose a sandbox explicitly in config
+- **Security Tests** - Docker argv and managed-provider secret handling are covered in unit tests
+
+### 🕰️ Background Runner & Webhooks
+
+Run aistack headlessly for CI/CD, cron, or external systems:
+- **Daemon Mode** - `aistack daemon start` runs a long-lived worker with on-disk queue state
+- **Webhook Ingestion** - `POST /v1/tasks` accepts signed task payloads
+- **File Watcher** - `aistack watch` turns dropped files into queued agent tasks
+- **Async CLI** - `aistack run --async` enqueues work without keeping the shell attached
+
+### 🚢 On-Prem Deployment Packaging
+
+Run the web/API service inside your own infrastructure:
+- **Docker Image** - Root `Dockerfile` builds the aistack service image
+- **Docker Compose** - Single-host deployment with optional Postgres and OpenTelemetry collector profiles
+- **Helm Chart** - `charts/aistack` renders Kubernetes Deployment, Service, ConfigMap, Secret, PVC, ingress, and network policy resources
+- **Air-Gapped Path** - Deployment docs cover image/chart export for disconnected environments
+
+### 📈 Observability & Tracing
+
+Instrument local and self-hosted runs without shipping task content to a hosted control plane:
+- **OpenTelemetry Tracing** - Opt-in spans for agent execution, LLM calls, MCP tools, memory operations, consensus gates, and review-loop phases
+- **OTLP/HTTP Export** - Send traces to Jaeger, Honeycomb, Datadog Agent, Phoenix, or an OpenTelemetry Collector
+- **Console Exporter** - Validate spans locally without running a collector
+- **Privacy Defaults** - Span attributes include operational metadata only; prompts, generated code, memory content, tool payloads, and secrets are excluded
+- **Deployment Docs** - See [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md) for collector examples and config details
+
 ### 🎯 46 MCP Tools for Claude Code
 
 Control aistack directly from Claude Code IDE:
@@ -281,6 +325,14 @@ Control aistack directly from Claude Code IDE:
 - 3 system tools (status, health, config)
 - 7 GitHub tools (issues, PRs, repo info)
 
+### 🔗 A2A Protocol Interop
+
+Expose aistack agents to other agent runtimes:
+- **Agent Card** - Serves `/.well-known/a2a-agent-card.json` for capability discovery
+- **Message Endpoint** - Accepts A2A v1 task messages at `/v1/a2a/message`
+- **CLI Server/Client** - `aistack a2a serve`, `aistack a2a call`, and `aistack a2a card`
+- **Scoped Exposure** - Limit advertised skills with `a2a.exposedAgents`
+
 ### 🌐 Web Dashboard
 
 Real-time monitoring and control:
@@ -290,6 +342,23 @@ Real-time monitoring and control:
 - Live WebSocket updates
 - React 18 + Material-UI
 - Dark mode support
+
+### 🏢 Multi-Tenancy Base Layer
+
+Model teams, projects, and RBAC boundaries:
+- **Tenant + Workspace Model** - Tenants own one or more workspaces, with tenant-wide or workspace-scoped memberships
+- **Opt-In Compatibility** - Disabled by default so existing 1.x single-tenant installs keep working
+- **Migration Helper** - `aistack tenant migrate` creates a default tenant/workspace for existing databases
+- **Workspace-Aware Flows** - Memory and agent spawning can scope namespaces through the active tenant context
+- **REST + UI Hooks** - Tenant routes and `TenantSwitcher` support workspace-aware web flows
+
+### 🔁 Issue-to-PR Automation
+
+Turn GitHub or GitLab issues into reviewed draft PRs:
+- **CLI Ingestion** - `aistack ingest issue <url>` fetches an issue and runs the autonomous workflow
+- **Webhook Dispatch** - GitHub/GitLab issue events can trigger the same issue-to-PR path
+- **Review Log** - Draft PR/MR descriptions include the plan, adversarial review log, and audit link
+- **Lifecycle Labels** - Configurable labels mark claimed, in-progress, blocked, and done states
 
 ### 🔌 6 LLM Providers
 
@@ -303,10 +372,12 @@ Choose your preferred AI:
 
 ### 🔐 Security & Auth
 
-Production-ready security:
+Security controls:
 - JWT authentication
 - BCrypt password hashing
 - Role-based access control (Admin, Developer, Viewer)
+- Enterprise SSO via SAML 2.0 and OIDC
+- SCIM v2 user/group provisioning with bearer-token auth and mutation rate limits
 - Security Auditor agent for code review
 
 ### 📢 Slack Integration
@@ -333,8 +404,18 @@ Real-time notifications to your team:
 - **[Technical Docs](./docs)** - Architecture and implementation details
   - [API.md](./docs/API.md) - MCP tools and programmatic API
   - [ARCHITECTURE.md](./docs/ARCHITECTURE.md) - System architecture
+  - [A2A.md](./docs/A2A.md) - Agent-to-Agent protocol server/client
+  - [DAEMON.md](./docs/DAEMON.md) - Background runner, webhooks, file watcher
   - [DATA.md](./docs/DATA.md) - Database schemas
+  - [DEPLOY.md](./docs/DEPLOY.md) - Docker, Helm, and air-gapped on-prem deployment
+  - [DURABLE_EXECUTION.md](./docs/DURABLE_EXECUTION.md) - Checkpointing and resume
+  - [GITHUB_INTEGRATION.md](./docs/GITHUB_INTEGRATION.md) - GitHub/GitLab issue-to-PR automation
+  - [HITL.md](./docs/HITL.md) - Human-in-the-loop interrupts
+  - [MULTITENANT.md](./docs/MULTITENANT.md) - Tenants, workspaces, scoping, and migration
+  - [SANDBOX.md](./docs/SANDBOX.md) - Docker/E2B/Daytona sandbox execution
   - [SECURITY.md](./docs/SECURITY.md) - Security model
+  - [SSO.md](./docs/SSO.md) - SAML/OIDC SSO and SCIM provisioning
+  - [WORKFLOW_DSL.md](./docs/WORKFLOW_DSL.md) - YAML workflow templates
   - [ONBOARDING.md](./docs/ONBOARDING.md) - Developer guide
   - [BENCHMARK.md](./docs/BENCHMARK.md) - SWE-bench Verified plan + reproducible harness
 
@@ -417,7 +498,7 @@ Create `aistack.config.json` in your project root:
 
 ```json
 {
-  "version": "1.5.3",
+  "version": "1.6.1",
   "providers": {
     "default": "anthropic",
     "anthropic": {
@@ -438,6 +519,61 @@ Create `aistack.config.json` in your project root:
     "vectorSearch": {
       "enabled": false,
       "provider": "openai"
+    }
+  },
+  "daemon": {
+    "enabled": false,
+    "queueBackend": "file",
+    "webhook": {
+      "enabled": true,
+      "port": 8787,
+      "host": "127.0.0.1",
+      "hmacSecret": "${AISTACK_DAEMON_HMAC_SECRET}"
+    },
+    "maxConcurrent": 4
+  },
+  "a2a": {
+    "enabled": false,
+    "port": 8788,
+    "host": "127.0.0.1",
+    "publicUrl": "http://127.0.0.1:8788",
+    "bearerToken": "${AISTACK_A2A_TOKEN}",
+    "exposedAgents": ["coder", "reviewer", "tester"]
+  },
+  "multitenancy": {
+    "enabled": false,
+    "defaultTenantSlug": "default",
+    "defaultWorkspaceSlug": "default"
+  },
+  "sandbox": {
+    "provider": "none",
+    "timeout": 30000,
+    "memoryMb": 512,
+    "cpus": 1,
+    "pidsLimit": 100,
+    "network": false
+  },
+  "observability": {
+    "otel": {
+      "enabled": false,
+      "serviceName": "aistack",
+      "exporter": "otlp",
+      "endpoint": "http://localhost:4318/v1/traces",
+      "samplingRatio": 1
+    }
+  },
+  "github": {
+    "enabled": false,
+    "useGhCli": true,
+    "token": "${GITHUB_TOKEN}",
+    "webhookSecret": "${GITHUB_WEBHOOK_SECRET}",
+    "gitlabToken": "${GITLAB_TOKEN}",
+    "gitlabWebhookSecret": "${GITLAB_WEBHOOK_SECRET}",
+    "labels": {
+      "claimed": "aistack-claimed",
+      "inProgress": "aistack-in-progress",
+      "blocked": "aistack-blocked-needs-human",
+      "done": "aistack-done"
     }
   },
   "driftDetection": {
@@ -654,6 +790,64 @@ Then open http://localhost:3001 to:
 - 📊 **View** system health and statistics
 - 🔄 **Watch** adversarial review loops in progress
 
+### Example 7: HITL Interrupt Review
+
+```typescript
+import { interrupt } from '@blackms/aistack';
+
+const target = await interrupt<string>({
+  sessionId: 'deploy-2026-05-29',
+  prompt: 'Choose deployment target',
+  schema: { type: 'enum', enum: ['staging', 'production'] },
+  state: { branch: 'main', checks: 'green' },
+  notify: ['console', 'slack'],
+});
+
+console.log(`Deploying to ${target}`);
+```
+
+```bash
+npx @blackms/aistack workflow inspect deploy-2026-05-29
+npx @blackms/aistack workflow resume-interrupt deploy-2026-05-29 --input='"staging"'
+```
+
+### Example 8: A2A Interop
+
+```bash
+# Expose local agents as A2A skills
+export AISTACK_A2A_TOKEN="$(openssl rand -hex 32)"
+npx @blackms/aistack a2a serve --port 8787
+
+# From another shell or runtime, inspect and call the endpoint
+npx @blackms/aistack a2a card http://127.0.0.1:8787
+npx @blackms/aistack a2a call http://127.0.0.1:8787 "Review this migration plan" --skill reviewer
+```
+
+### Example 9: Background Runner
+
+```bash
+# Start a signed webhook task receiver
+export AISTACK_DAEMON_HMAC_SECRET="$(openssl rand -hex 32)"
+npx @blackms/aistack daemon start --port 8787 --detach
+
+# Check queue state
+npx @blackms/aistack daemon status
+
+# Watch a folder and enqueue task files
+npx @blackms/aistack watch ./inbox --pattern="*.task.json" --agent=coder --read-file
+```
+
+### Example 10: Issue-to-PR Automation
+
+```bash
+# Dry-run a GitHub issue ingestion
+npx @blackms/aistack ingest issue https://github.com/blackms/aistack/issues/42 --dry-run --watch
+
+# Create tenants/workspaces when multi-tenancy is enabled
+npx @blackms/aistack tenant migrate
+npx @blackms/aistack tenant create --name "Acme Corp" --slug acme --workspace main
+```
+
 ---
 
 ## 📦 MCP Tools
@@ -815,17 +1009,22 @@ const agentTypes = listAgentTypes();
 ```
 aistack/
 ├── src/
+│   ├── a2a/             # A2A agent card, server, and client
 │   ├── agents/          # 11 agent types with system prompts + identity service
+│   ├── audit/           # Hash-chained audit log
+│   ├── daemon/          # Background runner + queue runtime
 │   ├── mcp/             # MCP server + 46 tools
 │   ├── memory/          # SQLite + FTS5 + vector search
+│   ├── multitenancy/    # Tenants, workspaces, memberships, migration
+│   ├── sandbox/         # Docker, E2B, and Daytona execution adapters
 │   ├── tasks/           # Drift detection service
 │   ├── monitoring/      # Resource exhaustion, metrics, health
 │   ├── coordination/    # Task queue, message bus, review loop
-│   ├── web/             # REST API + WebSocket server + identity routes
+│   ├── web/             # REST API + WebSocket server + identity/tenant routes
 │   ├── providers/       # 6 LLM provider integrations
 │   ├── workflows/       # Multi-phase workflow engine
-│   ├── auth/            # JWT + RBAC authentication
-│   ├── github/          # GitHub issues/PRs integration
+│   ├── auth/            # JWT, RBAC, SAML/OIDC SSO, SCIM
+│   ├── github/          # GitHub/GitLab issues, PRs, webhooks
 │   ├── plugins/         # Plugin system
 │   ├── hooks/           # Lifecycle hooks
 │   └── cli/             # Command-line interface
@@ -839,6 +1038,9 @@ aistack/
 ├── migrations/          # Database migrations
 ├── tests/               # Unit + integration tests
 ├── docs/                # Technical documentation
+├── charts/aistack/      # Helm chart for on-prem Kubernetes
+├── Dockerfile           # Service container image
+├── docker-compose.yml   # Single-host deployment
 └── .github/workflows/   # CI/CD pipeline
 ```
 
@@ -861,15 +1063,15 @@ npm run lint              # ESLint
 
 ### CI/CD Pipeline
 
-GitHub Actions workflow with **5 parallel jobs**:
+GitHub Actions workflow with **5 jobs**:
 
 1. **Lint** - ESLint code quality checks
 2. **Typecheck** - TypeScript type validation
-3. **Unit Tests** - Fast isolated tests
-4. **Integration Tests** - Database + agent integration
-5. **Build** - Production build verification
+3. **Test** - Unit + integration tests via `npm test`
+4. **Build** - Production build verification
+5. **Coverage** - `npm run test:coverage` on `main` push after tests pass
 
-**Code Coverage:** Uploaded to Codecov after test completion
+**Code Coverage:** Uploaded to Codecov after the `main` push coverage job completes
 
 **Code:** `.github/workflows/ci.yml`
 
@@ -886,16 +1088,14 @@ npm run build:web         # Build for production
 
 To set accurate expectations, here are features **explicitly not implemented**:
 
-- ❌ **Docker containerization** (no `Dockerfile` in project root)
-- ❌ **Kubernetes/Helm manifests** (no orchestration configs)
-- ❌ **Cloud-specific deployments** (AWS, GCP, Azure templates)
 - ❌ **GraphQL API** (REST + WebSocket only)
-- ❌ **Multi-tenancy** (single SQLite instance per deployment)
-- ⚠️ **Limited observability** - Built-in health checks and Prometheus-style metrics, but no Grafana dashboards
-- ❌ **Message queue systems** (no Kafka, RabbitMQ, Redis Streams)
-- ❌ **Distributed tracing** (no OpenTelemetry integration)
+- ❌ **Managed SaaS control plane** (self-hosted/local-first package only)
+- ❌ **Provider-specific IaC modules** (no Terraform/CDK/Pulumi templates for AWS, GCP, or Azure)
+- ❌ **Turnkey horizontally distributed scheduler/worker cluster** (daemon defaults to local file-backed queue state)
+- ⚠️ **No bundled observability backend** - OpenTelemetry tracing is built in, but Grafana, Jaeger, Phoenix, Datadog, Honeycomb, or an OpenTelemetry Collector must be run separately
+- ❌ **External queue backend** (Redis/SQS/NATS/Kafka are not bundled; Redis queue is a documented stub)
 
-aistack is designed as a **local-first, NPM-distributed package** for developer workflows, not cloud-native microservices.
+aistack is **local-first by default** and ships self-host/on-prem packaging. It is not a managed hosted agent platform.
 
 ---
 
@@ -947,6 +1147,6 @@ aistack is feature-complete for its primary use case: local Claude Code integrat
 
 <br/>
 
-<sub>✅ **README verified against codebase v1.5.3** - All claims backed by implemented code with file:line references (includes Consensus Checkpoints, Resource Exhaustion Monitoring, and Session-based Memory Isolation)</sub>
+<sub>✅ **README verified against codebase v1.6.1** - Claims reflect implemented code paths for Consensus Checkpoints, HITL Interrupts, A2A, Multi-Tenancy base layer, Sandboxed Execution, Daemon Runner, Issue-to-PR Automation, OpenTelemetry Tracing, On-Prem Packaging, and Session-based Memory Isolation.</sub>
 
 </div>

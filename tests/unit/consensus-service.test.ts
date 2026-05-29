@@ -405,7 +405,7 @@ describe('ConsensusService', () => {
         store,
         createConfig({
           consensusEnabled: true,
-          timeout: 1, // 1ms timeout
+          timeout: 300000,
         })
       );
 
@@ -416,16 +416,16 @@ describe('ConsensusService', () => {
         riskLevel: 'high',
       });
 
-      // Wait a bit for expiration
-      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-      return delay(10).then(() => {
-        const expired = service.expireCheckpoints();
+      store.db
+        .prepare('UPDATE consensus_checkpoints SET expires_at = ? WHERE id = ?')
+        .run(Date.now() - 1, checkpoint.id);
 
-        expect(expired).toBe(1);
+      const expired = service.expireCheckpoints();
 
-        const retrieved = service.getCheckpoint(checkpoint.id);
-        expect(retrieved?.status).toBe('expired');
-      });
+      expect(expired).toBe(1);
+
+      const retrieved = service.getCheckpoint(checkpoint.id);
+      expect(retrieved?.status).toBe('expired');
     });
 
     it('should not expire non-pending checkpoints', () => {
@@ -434,7 +434,7 @@ describe('ConsensusService', () => {
         store,
         createConfig({
           consensusEnabled: true,
-          timeout: 1,
+          timeout: 300000,
         })
       );
 
