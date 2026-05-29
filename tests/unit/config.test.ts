@@ -33,6 +33,8 @@ describe('Configuration', () => {
     expect(config.hooks.sessionEnd).toBe(true);
     expect(config.hooks.preTask).toBe(true);
     expect(config.hooks.postTask).toBe(true);
+    expect(config.observability?.tracing?.enabled).toBe(false);
+    expect(config.observability?.tracing?.serviceName).toBe('aistack');
   });
 
   it('should validate correct config', () => {
@@ -140,6 +142,25 @@ describe('Config File Operations', () => {
       expect(config.agents.maxConcurrent).toBe(7);
       expect(config.memory).toBeDefined();
       expect(config.providers).toBeDefined();
+    });
+
+    it('should normalize observability.otel config into tracing config', () => {
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          observability: {
+            otel: {
+              enabled: true,
+              endpoint: 'http://localhost:4318/v1/traces',
+            },
+          },
+        })
+      );
+
+      const config = loadConfig(configPath);
+
+      expect(config.observability?.tracing?.enabled).toBe(true);
+      expect(config.observability?.tracing?.otlpEndpoint).toBe('http://localhost:4318/v1/traces');
     });
 
     it('should handle invalid JSON gracefully', () => {
@@ -251,6 +272,91 @@ describe('Config Validation', () => {
 
     const result = validateConfig(fullConfig);
     expect(result.valid).toBe(true);
+  });
+
+  it('should validate OpenTelemetry tracing config', () => {
+    const result = validateConfig({
+      observability: {
+        tracing: {
+          enabled: true,
+          exporter: 'otlp',
+          otlpEndpoint: 'http://localhost:4318/v1/traces',
+          samplingRatio: 0.25,
+          headers: { authorization: 'Bearer test' },
+        },
+      },
+    });
+
+    expect(result.valid).toBe(true);
+
+    const invalid = validateConfig({
+      observability: {
+        tracing: {
+          enabled: true,
+          samplingRatio: 1.5,
+        },
+      },
+    });
+    expect(invalid.valid).toBe(false);
+  });
+
+  it('should validate observability.otel endpoint alias', () => {
+    const result = validateConfig({
+      observability: {
+        otel: {
+          enabled: true,
+          endpoint: 'http://localhost:4318/v1/traces',
+          headers: { authorization: 'Bearer test' },
+        },
+      },
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
+  it('should let observability.tracing override observability.otel aliases', () => {
+    const configPath = join(tmpdir(), `aistack-observability-${Date.now()}.json`);
+    writeFileSync(configPath, JSON.stringify({
+      observability: {
+        otel: {
+          enabled: true,
+          endpoint: 'http://otel:4318/v1/traces',
+          serviceName: 'otel-service',
+        },
+        tracing: {
+          enabled: true,
+          exporter: 'otlp',
+          otlpEndpoint: 'http://tracing:4318/v1/traces',
+          serviceName: 'tracing-service',
+        },
+      },
+    }));
+
+    try {
+      const result = validateConfig({
+        observability: {
+          otel: {
+            enabled: true,
+            endpoint: 'http://otel:4318/v1/traces',
+          },
+          tracing: {
+            enabled: true,
+            exporter: 'otlp',
+            otlpEndpoint: 'http://tracing:4318/v1/traces',
+          },
+        },
+      });
+      const config = loadConfig(configPath);
+
+      expect(result.valid).toBe(true);
+      expect(config.observability?.tracing?.enabled).toBe(true);
+      expect(config.observability?.tracing?.serviceName).toBe('tracing-service');
+      expect(config.observability?.tracing?.otlpEndpoint).toBe(
+        'http://tracing:4318/v1/traces'
+      );
+    } finally {
+      rmSync(configPath, { force: true });
+    }
   });
 });
 
