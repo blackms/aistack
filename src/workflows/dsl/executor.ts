@@ -340,6 +340,7 @@ async function executeStep(
       })
     );
     const results = await Promise.all(childPromises);
+    const failures = results.filter((r) => r.error);
     return {
       index,
       id: step.id,
@@ -347,6 +348,12 @@ async function executeStep(
       durationMs: Date.now() - start,
       retries: 0,
       parallelResults: results,
+      error:
+        failures.length > 0
+          ? `parallel child failed: ${failures
+              .map((r) => `${r.id ?? r.agent ?? r.index}: ${r.error}`)
+              .join('; ')}`
+          : undefined,
     };
   }
 

@@ -12,6 +12,11 @@ import { getMemoryManager, getAccessControl } from '../memory/index.js';
 import { Semaphore, AgentPool } from '../utils/semaphore.js';
 import { getIdentityService } from './identity-service.js';
 import { getResourceExhaustionService } from '../monitoring/resource-exhaustion-service.js';
+import {
+  getActiveTenantContext,
+  workspaceNamespace,
+  type MultitenancyContext,
+} from '../multitenancy/index.js';
 import { audit } from '../audit/index.js';
 import { saveCheckpointIfEnabled } from '../persistence/checkpointer.js';
 
@@ -39,6 +44,13 @@ export interface SpawnOptions {
   metadata?: Record<string, unknown>;
   identityId?: string;      // Use existing identity
   createIdentity?: boolean; // Auto-create ephemeral identity (default: false for backward compat)
+  /**
+   * AIG-649: explicit tenant context for this agent's execution. When omitted,
+   * the spawner falls back to `getActiveTenantContext()`. When neither is
+   * available (single-tenant mode) no tenant tagging happens and the agent
+   * behaves exactly as before.
+   */
+  tenantContext?: MultitenancyContext;
 }
 
 /**
@@ -124,9 +136,20 @@ export function spawnAgent(
   // Generate memory namespace for session isolation
   // Use provided sessionId if available, otherwise generate a unique namespace based on agent ID
   const accessControl = getAccessControl();
-  const memoryNamespace = options.sessionId
+  let memoryNamespace = options.sessionId
     ? accessControl.getSessionNamespace(options.sessionId)
     : accessControl.getSessionNamespace(id);  // Use agent ID as fallback for isolated namespace
+
+  // AIG-649 wire-point: when a tenant context is active (either explicit on
+  // SpawnOptions or set by the request handler via runWithTenantContext),
+  // prefix the memory namespace so the agent cannot read another tenant's
+  // session keys even if session ids happen to collide. We also fold the
+  // tenant/workspace into the agent's metadata so persistence and resource
+  // tracking can scope accordingly.
+  const tenantCtx = options.tenantContext ?? getActiveTenantContext();
+  if (tenantCtx) {
+    memoryNamespace = `${workspaceNamespace(tenantCtx)}:${memoryNamespace}`;
+  }
 
   const agent: SpawnedAgent = {
     id,
@@ -136,7 +159,13 @@ export function spawnAgent(
     createdAt: new Date(),
     sessionId: options.sessionId,  // Keep optional - only set if explicitly provided
     memoryNamespace,
-    metadata: options.metadata,
+    metadata: tenantCtx
+      ? {
+          ...options.metadata,
+          tenantId: tenantCtx.tenantId,
+          workspaceId: tenantCtx.workspaceId,
+        }
+      : options.metadata,
     identityId,
   };
 

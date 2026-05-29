@@ -284,6 +284,7 @@ describe('executor — parallel fail-fast abort', () => {
     const elapsed = Date.now() - start;
     expect(aborts).toContain('slow');
     expect(elapsed).toBeLessThan(2000); // Did not wait for the 5s timeout
+    expect(results[0].error).toContain('parallel child failed');
     expect(results[0].parallelResults?.some((r) => r.error?.includes('fast fail'))).toBe(true);
   });
 });
