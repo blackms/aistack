@@ -17,3 +17,4 @@ export { registerSsoRoutes } from './sso.js';
 export { registerIdentityRoutes } from './identities.js';
 export { registerConsensusRoutes } from './consensus.js';
 export { registerTenantRoutes } from './tenants.js';
+export { registerInterruptRoutes } from './interrupts.js';

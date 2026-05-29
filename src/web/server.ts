@@ -27,6 +27,7 @@ import {
   registerIdentityRoutes,
   registerConsensusRoutes,
   registerTenantRoutes,
+  registerInterruptRoutes,
   registerSsoRoutes,
 } from './routes/index.js';
 import type { WebConfig } from './types.js';
@@ -123,6 +124,7 @@ export class WebServer {
     registerFilesystemRoutes(this.router, this.config);
     registerConsensusRoutes(this.router, this.config);
     registerTenantRoutes(this.router, this.config);
+    registerInterruptRoutes(this.router, this.config);
 
     // SSO routes (AIG-646) — registered only if any provider is configured.
     if (this.ssoModule) {
@@ -154,6 +156,7 @@ export class WebServer {
           '/api/v1/filesystem',
           '/api/v1/consensus',
           '/api/v1/tenants',
+          '/api/v1/interrupts',
         ],
       });
     });

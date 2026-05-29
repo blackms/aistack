@@ -1,0 +1,204 @@
+name: m0-agentic-tdd
+description: M0 issue delivery workflow with TDD, shared agent outputs, and iterative review.
+version: "1"
+max_iterations: 60
+
+steps:
+  - id: intake
+    name: Scope M0 issue
+    agent: coordinator
+    input: |
+      Coordinate one M0 delivery issue.
+
+      Issue id: $task.issue_id
+      Linear URL: $task.linear_url
+      GitHub context: $task.github_context
+      Task: $task.input
+
+      Produce a compact execution contract:
+      - acceptance criteria
+      - files likely to change
+      - tests required before implementation
+      - risks or external dependencies
+      - the first smallest deliverable slice
+
+  - id: issue-discovery
+    name: Parallel discovery
+    parallel:
+      - id: product-brief
+        agent: researcher
+        input: |
+          Read the issue contract and summarize the product outcome, user-facing copy,
+          and non-goals.
+
+          Contract:
+          $steps.intake.output
+
+      - id: technical-map
+        agent: architect
+        input: |
+          Read the issue contract and map the smallest code/docs surface that can satisfy it.
+          Name existing modules, tests, templates, and docs to reuse.
+
+          Contract:
+          $steps.intake.output
+
+      - id: test-brief
+        agent: tester
+        input: |
+          Read the issue contract and propose failing tests or guard scripts that prove
+          the acceptance criteria before production changes are made.
+
+          Contract:
+          $steps.intake.output
+
+  - id: test-plan
+    name: TDD plan
+    agent: tester
+    input: |
+      Merge the parallel discovery output into a red-first test plan.
+
+      Discovery:
+      $steps.issue-discovery.output
+
+      Previous handoff or rejection feedback:
+      $prev.output
+
+      Output:
+      - exact test files to add or update
+      - expected red failure before implementation
+      - commands to run for red and green checks
+      - review gates that must return **VERDICT: APPROVE**
+
+  - id: red-tests
+    name: Write failing tests first
+    agent: tester
+    input: |
+      Implement only the failing tests or documentation guardrails from this plan.
+      Do not implement production changes yet.
+
+      Plan:
+      $steps.test-plan.output
+
+      End with **VERDICT: APPROVE** only when the tests fail for the expected reason.
+      End with **VERDICT: REJECT** if the test shape is missing, too broad, or not runnable.
+    on_reject:
+      goto: test-plan
+      max_retries: 2
+      fail_after: true
+
+  - id: implement
+    name: Implement minimal slice
+    agent: coder
+    input: |
+      Implement the smallest change that makes the red tests pass and satisfies the issue.
+
+      Issue contract:
+      $steps.intake.output
+
+      Test plan:
+      $steps.test-plan.output
+
+      Red tests:
+      $steps.red-tests.output
+
+      Latest handoff or rejecting gate feedback:
+      $prev.output
+
+      Preserve unrelated user changes. Keep the patch scoped to the issue.
+
+  - id: verify
+    name: Run focused verification
+    agent: tester
+    input: |
+      Run the targeted checks from the test plan against the implementation.
+
+      Implementation summary:
+      $steps.implement.output
+
+      Red-test output:
+      $steps.red-tests.output
+
+      End with **VERDICT: APPROVE** if the checks pass.
+      End with **VERDICT: REJECT** and include exact failing commands if anything fails.
+    on_reject:
+      goto: implement
+      max_retries: 4
+      fail_after: true
+
+  - id: adversarial-review
+    name: Attack the implementation
+    agent: adversarial
+    input: |
+      Attack the implementation against the issue contract, tests, and known M0 risks.
+      Look for overclaims, stale docs, hidden CI failures, regressions, and missing edge cases.
+
+      Contract:
+      $steps.intake.output
+
+      Verification:
+      $steps.verify.output
+
+      Implementation:
+      $steps.implement.output
+
+      End with **VERDICT: APPROVE** only when no blocking issue remains.
+      End with **VERDICT: REJECT** and concrete fixes otherwise.
+    on_reject:
+      goto: implement
+      max_retries: 3
+      fail_after: true
+
+  - id: peer-review
+    name: Peer review gate
+    agent: reviewer
+    input: |
+      Review the final patch as a PR reviewer.
+
+      Contract:
+      $steps.intake.output
+
+      Tests:
+      $steps.verify.output
+
+      Adversarial review:
+      $steps.adversarial-review.output
+
+      End with **VERDICT: APPROVE** if this is ready for CI and human review.
+      End with **VERDICT: REJECT** with actionable findings otherwise.
+    on_reject:
+      goto: implement
+      max_retries: 2
+      fail_after: true
+
+  - id: docs-and-status
+    name: Update handoff notes
+    agent: documentation
+    input: |
+      Summarize the work for PR and Linear handoff.
+
+      Issue:
+      $steps.intake.output
+
+      Verification:
+      $steps.verify.output
+
+      Peer review:
+      $steps.peer-review.output
+
+      Include remaining risks and do not mark external issues complete unless CI is green.
+
+  - id: release-check
+    name: Final release check
+    agent: devops
+    input: |
+      Produce the final release checklist for this M0 slice.
+
+      Handoff:
+      $steps.docs-and-status.output
+
+      Include:
+      - commands already run
+      - commands still required
+      - branch, commit, and PR readiness
+      - Linear/GitHub follow-up state

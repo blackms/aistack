@@ -21,6 +21,17 @@ export function initAuth(service: AuthService): void {
 }
 
 /**
+ * Check if the AuthService has been initialized. Callers that need to
+ * fail closed when no credentials infrastructure exists (e.g. the HITL
+ * interrupts surface) can probe this BEFORE delegating to
+ * `createAuthMiddleware`, which otherwise allows requests through in
+ * non-production environments for ergonomics.
+ */
+export function isAuthServiceInitialized(): boolean {
+  return authService !== null;
+}
+
+/**
  * Create authentication middleware
  */
 export function createAuthMiddleware(options: { required?: boolean; roles?: string[] } = {}) {
