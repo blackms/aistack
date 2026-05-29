@@ -349,6 +349,7 @@ export interface AgentStackConfig {
   resourceExhaustion?: ResourceExhaustionConfig;
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
+  a2a?: A2AConfig;
   multitenancy?: MultitenancyConfig;
   daemon?: DaemonConfig;
   telemetry?: TelemetryConfig;
@@ -360,6 +361,16 @@ export interface AgentStackConfig {
   /** Authentication config (extended for SSO via auth.sso sub-field). AIG-646. */
   auth?: AuthConfig;
   federation?: FederationConfig;
+}
+
+// A2A (Agent-to-Agent) protocol config
+export interface A2AConfig {
+  enabled: boolean;
+  port?: number;
+  host?: string;
+  publicUrl?: string;
+  bearerToken?: string;
+  exposedAgents?: string[];
 }
 
 // Multi-tenancy configuration (AIG-649)

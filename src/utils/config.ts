@@ -386,6 +386,15 @@ const SmartDispatcherConfigSchema = z.object({
   dispatchModel: z.string().default('claude-haiku-4-5-20251001'),
 });
 
+const A2AConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  port: z.number().min(1).max(65535).optional(),
+  host: z.string().optional(),
+  publicUrl: z.string().url().optional(),
+  bearerToken: z.string().trim().min(1).optional(),
+  exposedAgents: z.array(z.string()).optional(),
+});
+
 /** AIG-636 — daemon (background headless runner). Sibling field, no overlap with other agents. */
 const DaemonConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -500,6 +509,7 @@ const ConfigSchema = z.object({
   resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
   consensus: ConsensusConfigSchema.default({}),
   smartDispatcher: SmartDispatcherConfigSchema.default({}),
+  a2a: A2AConfigSchema.default({}),
   multitenancy: MultitenancyConfigSchema.default({}),
   daemon: DaemonConfigSchema.default({}),
   telemetry: TelemetryConfigSchema.default({}),
