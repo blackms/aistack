@@ -206,6 +206,12 @@ const ConsensusConfigSchema = z.object({
   ]),
 });
 
+const MultitenancyConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  defaultTenantSlug: z.string().default('default'),
+  defaultWorkspaceSlug: z.string().default('default'),
+});
+
 /**
  * Telemetry Configuration Schema (AIG-655)
  *
@@ -494,6 +500,7 @@ const ConfigSchema = z.object({
   resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
   consensus: ConsensusConfigSchema.default({}),
   smartDispatcher: SmartDispatcherConfigSchema.default({}),
+  multitenancy: MultitenancyConfigSchema.default({}),
   daemon: DaemonConfigSchema.default({}),
   telemetry: TelemetryConfigSchema.default({}),
   audit: AuditConfigSchema.default({}),

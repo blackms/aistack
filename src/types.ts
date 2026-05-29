@@ -349,6 +349,7 @@ export interface AgentStackConfig {
   resourceExhaustion?: ResourceExhaustionConfig;
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
+  multitenancy?: MultitenancyConfig;
   daemon?: DaemonConfig;
   telemetry?: TelemetryConfig;
   audit?: AuditConfig;
@@ -359,6 +360,13 @@ export interface AgentStackConfig {
   /** Authentication config (extended for SSO via auth.sso sub-field). AIG-646. */
   auth?: AuthConfig;
   federation?: FederationConfig;
+}
+
+// Multi-tenancy configuration (AIG-649)
+export interface MultitenancyConfig {
+  enabled: boolean;
+  defaultTenantSlug: string;
+  defaultWorkspaceSlug: string;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.

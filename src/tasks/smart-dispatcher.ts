@@ -11,6 +11,11 @@ import type {
 } from '../types.js';
 import { getProvider, AnthropicProvider } from '../providers/index.js';
 import { logger } from '../utils/logger.js';
+import {
+  getActiveTenantContext,
+  workspaceNamespace,
+  type MultitenancyContext,
+} from '../multitenancy/index.js';
 
 const log = logger.child('smart-dispatcher');
 
@@ -108,9 +113,18 @@ export class SmartDispatcher {
   }
 
   /**
-   * Dispatch a task to the appropriate agent type
+   * Dispatch a task to the appropriate agent type.
+   *
+   * AIG-649: an optional tenant context can be passed (or read from the
+   * active context). When set, the dispatcher caches per-tenant — otherwise a
+   * task description from tenant A could resolve to the cached decision from
+   * tenant B even if their model configs / agent inventories diverge. Also
+   * tags log entries so per-tenant routing latency is observable.
    */
-  async dispatch(description: string): Promise<{
+  async dispatch(
+    description: string,
+    opts: { tenantContext?: MultitenancyContext } = {},
+  ): Promise<{
     success: boolean;
     decision?: DispatchDecision;
     error?: string;
@@ -123,6 +137,8 @@ export class SmartDispatcher {
     }
 
     const startTime = Date.now();
+    const tenantCtx = opts.tenantContext ?? getActiveTenantContext();
+    const tenantCacheScope = tenantCtx ? workspaceNamespace(tenantCtx) : '';
 
     try {
       // Truncate description if too long
@@ -130,9 +146,12 @@ export class SmartDispatcher {
 
       // Check cache first
       if (this.config.cacheEnabled) {
-        const cached = this.getCachedDecision(truncatedDesc);
+        const cached = this.getCachedDecision(truncatedDesc, tenantCacheScope);
         if (cached) {
-          log.debug('Cache hit for dispatch', { description: truncatedDesc.slice(0, 50) });
+          log.debug('Cache hit for dispatch', {
+            description: truncatedDesc.slice(0, 50),
+            tenantId: tenantCtx?.tenantId,
+          });
           return {
             success: true,
             decision: {
@@ -163,13 +182,14 @@ export class SmartDispatcher {
 
       // Cache the decision
       if (this.config.cacheEnabled) {
-        this.cacheDecision(truncatedDesc, decision);
+        this.cacheDecision(truncatedDesc, decision, tenantCacheScope);
       }
 
       log.info('Task dispatched', {
         agentType: decision.agentType,
         confidence: decision.confidence,
         latencyMs: decision.latencyMs,
+        tenantId: tenantCtx?.tenantId,
       });
 
       return { success: true, decision };
@@ -274,10 +294,14 @@ export class SmartDispatcher {
   }
 
   /**
-   * Get a cached decision if available and not expired
+   * Get a cached decision if available and not expired.
+   * AIG-649: `tenantScope` partitions the cache so tenants never share entries.
    */
-  private getCachedDecision(description: string): DispatchDecision | null {
-    const key = this.getCacheKey(description);
+  private getCachedDecision(
+    description: string,
+    tenantScope: string = '',
+  ): DispatchDecision | null {
+    const key = this.getCacheKey(description, tenantScope);
     const entry = this.cache.get(key);
 
     if (!entry) return null;
@@ -293,8 +317,12 @@ export class SmartDispatcher {
   /**
    * Cache a dispatch decision
    */
-  private cacheDecision(description: string, decision: DispatchDecision): void {
-    const key = this.getCacheKey(description);
+  private cacheDecision(
+    description: string,
+    decision: DispatchDecision,
+    tenantScope: string = '',
+  ): void {
+    const key = this.getCacheKey(description, tenantScope);
     this.cache.set(key, {
       decision,
       expiresAt: Date.now() + this.config.cacheTTLMs,
@@ -309,15 +337,19 @@ export class SmartDispatcher {
   /**
    * Generate a cache key from a description using FNV-1a hash
    * FNV-1a provides better distribution and fewer collisions than simple hash
+   *
+   * AIG-649: `tenantScope` is mixed into the hashed string so the cache is
+   * partitioned per tenant/workspace.
    */
-  private getCacheKey(description: string): string {
+  private getCacheKey(description: string, tenantScope: string = ''): string {
+    const scoped = tenantScope ? `${tenantScope} ${description}` : description;
     // FNV-1a 32-bit hash parameters
     const FNV_PRIME = 0x01000193;
     const FNV_OFFSET_BASIS = 0x811c9dc5;
 
     let hash = FNV_OFFSET_BASIS;
-    for (let i = 0; i < description.length; i++) {
-      hash ^= description.charCodeAt(i);
+    for (let i = 0; i < scoped.length; i++) {
+      hash ^= scoped.charCodeAt(i);
       hash = Math.imul(hash, FNV_PRIME);
     }
 
