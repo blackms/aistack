@@ -247,6 +247,16 @@ const TelemetryConfigSchema = z.object({
  * Disabled by default. When enabled, aistack exports spans for the core
  * orchestration path: agent execution, LLM calls, MCP tools, and review loops.
  */
+const TracingConfigInputSchema = z.object({
+  enabled: z.boolean().optional(),
+  serviceName: z.string().min(1).optional(),
+  serviceVersion: z.string().optional(),
+  exporter: z.enum(['otlp', 'console']).optional(),
+  otlpEndpoint: z.string().url().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  samplingRatio: z.number().min(0).max(1).optional(),
+});
+
 const TracingConfigSchema = z.object({
   enabled: z.boolean().default(false),
   serviceName: z.string().min(1).default('aistack'),
@@ -257,7 +267,7 @@ const TracingConfigSchema = z.object({
   samplingRatio: z.number().min(0).max(1).default(1),
 });
 
-const OtelConfigSchema = TracingConfigSchema.extend({
+const OtelConfigInputSchema = TracingConfigInputSchema.extend({
   endpoint: z.string().url().optional(),
 }).transform(({ endpoint, ...config }) => ({
   ...config,
@@ -265,15 +275,18 @@ const OtelConfigSchema = TracingConfigSchema.extend({
 }));
 
 const ObservabilityConfigSchema = z.object({
-  tracing: TracingConfigSchema.optional(),
-  otel: OtelConfigSchema.optional(),
-}).transform((config) => ({
-  tracing: {
-    ...TracingConfigSchema.parse({}),
+  tracing: TracingConfigInputSchema.optional(),
+  otel: OtelConfigInputSchema.optional(),
+}).transform((config) => {
+  const mergedTracing = {
     ...(config.otel ?? {}),
     ...(config.tracing ?? {}),
-  },
-}));
+  };
+
+  return {
+    tracing: TracingConfigSchema.parse(mergedTracing),
+  };
+});
 
 /**
  * Audit Log Configuration Schema (AIG-635)

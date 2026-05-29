@@ -313,6 +313,51 @@ describe('Config Validation', () => {
 
     expect(result.valid).toBe(true);
   });
+
+  it('should let observability.tracing override observability.otel aliases', () => {
+    const configPath = join(tmpdir(), `aistack-observability-${Date.now()}.json`);
+    writeFileSync(configPath, JSON.stringify({
+      observability: {
+        otel: {
+          enabled: true,
+          endpoint: 'http://otel:4318/v1/traces',
+          serviceName: 'otel-service',
+        },
+        tracing: {
+          enabled: true,
+          exporter: 'otlp',
+          otlpEndpoint: 'http://tracing:4318/v1/traces',
+          serviceName: 'tracing-service',
+        },
+      },
+    }));
+
+    try {
+      const result = validateConfig({
+        observability: {
+          otel: {
+            enabled: true,
+            endpoint: 'http://otel:4318/v1/traces',
+          },
+          tracing: {
+            enabled: true,
+            exporter: 'otlp',
+            otlpEndpoint: 'http://tracing:4318/v1/traces',
+          },
+        },
+      });
+      const config = loadConfig(configPath);
+
+      expect(result.valid).toBe(true);
+      expect(config.observability?.tracing?.enabled).toBe(true);
+      expect(config.observability?.tracing?.serviceName).toBe('tracing-service');
+      expect(config.observability?.tracing?.otlpEndpoint).toBe(
+        'http://tracing:4318/v1/traces'
+      );
+    } finally {
+      rmSync(configPath, { force: true });
+    }
+  });
 });
 
 describe('Environment Variable Interpolation', () => {
