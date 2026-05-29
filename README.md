@@ -525,9 +525,9 @@ Create `aistack.config.json` in your project root:
   },
   "a2a": {
     "enabled": false,
-    "port": 8787,
+    "port": 8788,
     "host": "127.0.0.1",
-    "publicUrl": "http://127.0.0.1:8787",
+    "publicUrl": "http://127.0.0.1:8788",
     "bearerToken": "${AISTACK_A2A_TOKEN}",
     "exposedAgents": ["coder", "reviewer", "tester"]
   },
