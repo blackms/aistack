@@ -451,15 +451,12 @@ describe('ConsensusService', () => {
         .prepare('UPDATE consensus_checkpoints SET expires_at = ? WHERE id = ?')
         .run(Date.now() - 1, checkpoint.id);
 
-      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-      return delay(10).then(() => {
-        const expired = service.expireCheckpoints();
+      const expired = service.expireCheckpoints();
 
-        expect(expired).toBe(0);
+      expect(expired).toBe(0);
 
-        const retrieved = service.getCheckpoint(checkpoint.id);
-        expect(retrieved?.status).toBe('approved');
-      });
+      const retrieved = service.getCheckpoint(checkpoint.id);
+      expect(retrieved?.status).toBe('approved');
     });
   });
 
