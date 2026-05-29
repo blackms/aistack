@@ -242,6 +242,53 @@ const TelemetryConfigSchema = z.object({
 });
 
 /**
+ * OpenTelemetry tracing config (AIG-632).
+ *
+ * Disabled by default. When enabled, aistack exports spans for the core
+ * orchestration path: agent execution, LLM calls, MCP tools, and review loops.
+ */
+const TracingConfigInputSchema = z.object({
+  enabled: z.boolean().optional(),
+  serviceName: z.string().min(1).optional(),
+  serviceVersion: z.string().optional(),
+  exporter: z.enum(['otlp', 'console']).optional(),
+  otlpEndpoint: z.string().url().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  samplingRatio: z.number().min(0).max(1).optional(),
+});
+
+const TracingConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  serviceName: z.string().min(1).default('aistack'),
+  serviceVersion: z.string().optional(),
+  exporter: z.enum(['otlp', 'console']).default('otlp'),
+  otlpEndpoint: z.string().url().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  samplingRatio: z.number().min(0).max(1).default(1),
+});
+
+const OtelConfigInputSchema = TracingConfigInputSchema.extend({
+  endpoint: z.string().url().optional(),
+}).transform(({ endpoint, ...config }) => ({
+  ...config,
+  otlpEndpoint: config.otlpEndpoint ?? endpoint,
+}));
+
+const ObservabilityConfigSchema = z.object({
+  tracing: TracingConfigInputSchema.optional(),
+  otel: OtelConfigInputSchema.optional(),
+}).transform((config) => {
+  const mergedTracing = {
+    ...(config.otel ?? {}),
+    ...(config.tracing ?? {}),
+  };
+
+  return {
+    tracing: TracingConfigSchema.parse(mergedTracing),
+  };
+});
+
+/**
  * Audit Log Configuration Schema (AIG-635)
  *
  * Controls the hash-chained append-only audit log for SOC2/ISO27001/HIPAA evidence.
@@ -527,6 +574,7 @@ const ConfigSchema = z.object({
   multitenancy: MultitenancyConfigSchema.default({}),
   daemon: DaemonConfigSchema.default({}),
   telemetry: TelemetryConfigSchema.default({}),
+  observability: ObservabilityConfigSchema.default({}),
   audit: AuditConfigSchema.default({}),
   checkpointing: CheckpointingConfigSchema.default({}),
   sandbox: SandboxConfigSchema.default({}),

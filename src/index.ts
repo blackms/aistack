@@ -152,6 +152,16 @@ export {
   createGitHubClient,
 } from './github/index.js';
 
+// Observability
+export {
+  initializeTracing,
+  isTracingEnabled,
+  sanitizeSpanAttributes,
+  shutdownTracing,
+  traceAsync,
+  traceSync,
+} from './observability/index.js';
+
 // Workflows
 export {
   // Types

@@ -23,6 +23,7 @@ import {
 import { DriftDetectionService } from '../tasks/drift-detection-service.js';
 import { ConsensusService } from '../tasks/consensus-service.js';
 import { SmartDispatcher } from '../tasks/smart-dispatcher.js';
+import { traceAsync } from '../observability/index.js';
 
 const log = logger.child('mcp');
 
@@ -117,7 +118,13 @@ export class MCPServer {
 
       try {
         log.debug('Calling tool', { name, args });
-        const result = await tool.handler(args ?? {});
+        const result = await traceAsync(this.config, 'aistack.mcp.tool', {
+          'mcp.tool.name': name,
+        }, async (span) => {
+          const toolResult = await tool.handler(args ?? {});
+          span?.setAttribute('mcp.tool.success', true);
+          return toolResult;
+        });
 
         return {
           content: [

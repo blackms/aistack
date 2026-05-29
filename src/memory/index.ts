@@ -25,6 +25,7 @@ import { MemoryAccessControl, getAccessControl } from './access-control.js';
 import { audit } from '../audit/index.js';
 import { TierManager } from './tiers/tier-manager.js';
 import { logger } from '../utils/logger.js';
+import { traceAsync } from '../observability/index.js';
 import {
   getActiveTenantContext,
   workspaceNamespace,
@@ -175,37 +176,45 @@ export class MemoryManager {
     options: MemoryStoreOptions = {}
   ): Promise<MemoryEntry> {
     // Derive namespace from context if not explicitly provided
-    let namespace = options.namespace;
-    if (!namespace && this.agentContext?.sessionId) {
-      namespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
-    } else if (!namespace) {
-      namespace = this.config.memory.defaultNamespace;
-    }
-
-    // Validate access if we have a context
-    if (this.agentContext?.sessionId) {
-      this.accessControl.validateAccess(
-        { sessionId: this.agentContext.sessionId, agentId: this.agentContext.agentId },
-        namespace,
-        'write'
-      );
-    }
+    let namespace: string = options.namespace
+      ?? (this.agentContext?.sessionId
+        ? this.accessControl.getSessionNamespace(this.agentContext.sessionId)
+        : this.config.memory.defaultNamespace);
 
     // Use explicit agentId if provided, otherwise use context
     const agentId = options.agentId ?? this.agentContext?.agentId;
-    // AIG-649 wire-point: prefix the namespace with tenant/workspace scope
-    // only after validating the raw session namespace above.
-    namespace = applyTenantPrefix(namespace, this.agentContext);
-    const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId });
 
-    // Index for vector search if enabled
-    if (options.generateEmbedding !== false && this.vector.isEnabled()) {
-      await this.vector.indexEntry(entry);
-    }
+    return traceAsync(this.config, 'aistack.memory.store', {
+      'memory.namespace': namespace,
+      'memory.agent_id': agentId,
+      'memory.shared': false,
+      'memory.vector.enabled': this.vector.isEnabled(),
+      'memory.embedding.requested': options.generateEmbedding !== false,
+    }, async (span) => {
+      // Validate access if we have a context
+      if (this.agentContext?.sessionId) {
+        this.accessControl.validateAccess(
+          { sessionId: this.agentContext.sessionId, agentId: this.agentContext.agentId },
+          namespace,
+          'write'
+        );
+      }
 
-    log.debug('Stored memory entry', { key, namespace, agentId });
-    audit(this.config, 'memory.write', { entryId: entry.id, key, namespace, agentId, shared: false });
-    return entry;
+      // AIG-649 wire-point: prefix the namespace with tenant/workspace scope
+      // only after validating the raw session namespace above.
+      namespace = applyTenantPrefix(namespace, this.agentContext);
+      const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId });
+
+      // Index for vector search if enabled
+      if (options.generateEmbedding !== false && this.vector.isEnabled()) {
+        await this.vector.indexEntry(entry);
+      }
+
+      span?.setAttribute('memory.entry.id', entry.id);
+      log.debug('Stored memory entry', { key, namespace, agentId });
+      audit(this.config, 'memory.write', { entryId: entry.id, key, namespace, agentId, shared: false });
+      return entry;
+    });
   }
 
   /**
@@ -218,34 +227,40 @@ export class MemoryManager {
     options: Omit<MemoryStoreOptions, 'agentId'> = {}
   ): Promise<MemoryEntry> {
     // Derive namespace from context if not explicitly provided
-    let namespace = options.namespace;
-    if (!namespace && this.agentContext?.sessionId) {
-      namespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
-    } else if (!namespace) {
-      namespace = this.config.memory.defaultNamespace;
-    }
+    let namespace: string = options.namespace
+      ?? (this.agentContext?.sessionId
+        ? this.accessControl.getSessionNamespace(this.agentContext.sessionId)
+        : this.config.memory.defaultNamespace);
 
-    // Validate access if we have a context
-    if (this.agentContext?.sessionId) {
-      this.accessControl.validateAccess(
-        { sessionId: this.agentContext.sessionId },
-        namespace,
-        'write'
-      );
-    }
+    return traceAsync(this.config, 'aistack.memory.store', {
+      'memory.namespace': namespace,
+      'memory.shared': true,
+      'memory.vector.enabled': this.vector.isEnabled(),
+      'memory.embedding.requested': options.generateEmbedding !== false,
+    }, async (span) => {
+      // Validate access if we have a context
+      if (this.agentContext?.sessionId) {
+        this.accessControl.validateAccess(
+          { sessionId: this.agentContext.sessionId },
+          namespace,
+          'write'
+        );
+      }
 
-    // Explicitly set agentId to undefined to ensure shared memory
-    namespace = applyTenantPrefix(namespace, this.agentContext);
-    const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId: undefined });
+      // Explicitly set agentId to undefined to ensure shared memory
+      namespace = applyTenantPrefix(namespace, this.agentContext);
+      const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId: undefined });
 
-    // Index for vector search if enabled
-    if (options.generateEmbedding !== false && this.vector.isEnabled()) {
-      await this.vector.indexEntry(entry);
-    }
+      // Index for vector search if enabled
+      if (options.generateEmbedding !== false && this.vector.isEnabled()) {
+        await this.vector.indexEntry(entry);
+      }
 
-    log.debug('Stored shared memory entry', { key, namespace });
-    audit(this.config, 'memory.write', { entryId: entry.id, key, namespace, shared: true });
-    return entry;
+      span?.setAttribute('memory.entry.id', entry.id);
+      log.debug('Stored shared memory entry', { key, namespace });
+      audit(this.config, 'memory.write', { entryId: entry.id, key, namespace, shared: true });
+      return entry;
+    });
   }
 
   /**
@@ -578,50 +593,64 @@ export class MemoryManager {
     // Decide whether to use vector search
     const shouldUseVector = useVector ?? this.vector.isEnabled();
 
-    let results: MemorySearchResult[] = [];
+    return traceAsync(this.config, 'aistack.memory.search', {
+      'memory.namespace': namespace,
+      'memory.agent_id': agentId,
+      'memory.include_shared': includeShared,
+      'memory.search.limit': limit,
+      'memory.search.threshold': threshold,
+      'memory.vector.enabled': this.vector.isEnabled(),
+      'memory.vector.requested': shouldUseVector,
+    }, async (span) => {
+      let results: MemorySearchResult[] = [];
+      let usedVector = false;
 
-    // Try vector search first if enabled
-    if (shouldUseVector && this.vector.isEnabled()) {
-      const vectorResults = await this.vector.search(query, {
-        namespace,
-        limit,
-        threshold,
-        agentId,
-        includeShared,
-      });
-      results = vectorResults;
-    }
-
-    // If no vector results or vector disabled, use FTS
-    if (results.length === 0) {
-      results = this.fts.search(query, { namespace, limit, agentId, includeShared });
-    }
-
-    // If we have both, merge and deduplicate
-    if (shouldUseVector && this.vector.isEnabled() && results.length > 0) {
-      const ftsResults = this.fts.search(query, { namespace, limit, agentId, includeShared });
-      results = this.mergeResults(results, ftsResults, limit);
-    }
-
-    // Tier bookkeeping: every search hit counts as a read for the AutoPager
-    // promotion heuristic. Deduplicate via Set so ranked merging doesn't
-    // double-count the same entry.
-    const touched = new Set<string>();
-    for (const r of results) {
-      if (r.entry?.id && !touched.has(r.entry.id)) {
-        touched.add(r.entry.id);
-        this.touchEntry(r.entry.id);
+      // Try vector search first if enabled
+      if (shouldUseVector && this.vector.isEnabled()) {
+        const vectorResults = await this.vector.search(query, {
+          namespace,
+          limit,
+          threshold,
+          agentId,
+          includeShared,
+        });
+        results = vectorResults;
+        usedVector = true;
       }
-    }
 
-    log.debug('Search completed', {
-      query: query.slice(0, 50),
-      results: results.length,
-      namespace,
-      agentId,
+      // If no vector results or vector disabled, use FTS
+      if (results.length === 0) {
+        results = this.fts.search(query, { namespace, limit, agentId, includeShared });
+      }
+
+      // If we have both, merge and deduplicate
+      if (shouldUseVector && this.vector.isEnabled() && results.length > 0) {
+        const ftsResults = this.fts.search(query, { namespace, limit, agentId, includeShared });
+        results = this.mergeResults(results, ftsResults, limit);
+      }
+
+      // Tier bookkeeping: every search hit counts as a read for the AutoPager
+      // promotion heuristic. Deduplicate via Set so ranked merging doesn't
+      // double-count the same entry.
+      const touched = new Set<string>();
+      for (const r of results) {
+        if (r.entry?.id && !touched.has(r.entry.id)) {
+          touched.add(r.entry.id);
+          this.touchEntry(r.entry.id);
+        }
+      }
+
+      span?.setAttribute('memory.search.result_count', results.length);
+      span?.setAttribute('memory.search.used_vector', usedVector);
+      log.debug('Search completed', {
+        query: query.slice(0, 50),
+        results: results.length,
+        namespace,
+        agentId,
+      });
+
+      return results;
     });
-
-    return results;
   }
 
   /**

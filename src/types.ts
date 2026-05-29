@@ -353,6 +353,7 @@ export interface AgentStackConfig {
   multitenancy?: MultitenancyConfig;
   daemon?: DaemonConfig;
   telemetry?: TelemetryConfig;
+  observability?: ObservabilityConfig;
   audit?: AuditConfig;
   checkpointing?: CheckpointingConfig;
   sandbox?: SandboxConfig;
@@ -361,6 +362,39 @@ export interface AgentStackConfig {
   /** Authentication config (extended for SSO via auth.sso sub-field). AIG-646. */
   auth?: AuthConfig;
   federation?: FederationConfig;
+}
+
+/**
+ * Observability configuration.
+ *
+ * OpenTelemetry tracing is disabled by default. When enabled, aistack emits
+ * spans for agent execution, LLM calls, MCP tool calls, and review-loop phases.
+ */
+export interface ObservabilityConfig {
+  tracing?: TracingConfig;
+  /** Alias accepted by config files for OpenTelemetry settings. */
+  otel?: OTelConfig;
+}
+
+export interface TracingConfig {
+  enabled: boolean;
+  /** Service name attached to emitted spans. Default: `aistack`. */
+  serviceName?: string;
+  /** Service version attached to emitted spans. Default: root config version. */
+  serviceVersion?: string;
+  /** Trace exporter backend. Default: `otlp`. */
+  exporter?: 'otlp' | 'console';
+  /** OTLP/HTTP traces endpoint, e.g. `http://localhost:4318/v1/traces`. */
+  otlpEndpoint?: string;
+  /** Static headers sent by the OTLP exporter. Do not commit real secrets. */
+  headers?: Record<string, string>;
+  /** Root sampling ratio between 0 and 1. Default: 1. */
+  samplingRatio?: number;
+}
+
+export interface OTelConfig extends TracingConfig {
+  /** Alias for `otlpEndpoint` in `observability.otel` config. */
+  endpoint?: string;
 }
 
 // A2A (Agent-to-Agent) protocol config
