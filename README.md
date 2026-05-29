@@ -93,7 +93,7 @@ aistack:
 
 - Python-first teams that want LangGraph/CrewAI-style ecosystems.
 - Teams that need a managed SaaS control plane or horizontally distributed orchestration today.
-- Teams that require production OpenTelemetry tracing or externally managed queue backends as hard requirements today.
+- Teams that require managed observability hosting or externally managed queue backends as hard requirements today.
 
 ---
 
@@ -109,7 +109,7 @@ We try to stay honest about what is shipped today versus what is on the roadmap 
 |---|---|---|---|---|---|
 | Orchestration model | Multi-agent + message bus | Multi-agent (swarm) | Single agent (loop) | Graph + workflows | Graph (state machine) |
 | Memory persistence | SQLite + FTS5 + optional vectors | SQLite | None (BYO) | LibSQL / Postgres | Checkpointer (Postgres / SQLite / Redis) |
-| Observability | Built-in metrics + web dashboard. OTel: ⚠️ M1 roadmap ([AIG-632](https://linear.app/aigensolutionsit/issue/AIG-632)) | Limited | Tracing via Anthropic API | OTel native + AI tracing | LangSmith (hosted) / OTel |
+| Observability | Built-in metrics + web dashboard + opt-in OpenTelemetry tracing | Limited | Tracing via Anthropic API | OTel native + AI tracing | LangSmith (hosted) / OTel |
 | Sandboxed execution | ✅ Docker / E2B / Daytona adapters | Via hooks | Bash tool (host) | Via tools | Via tools |
 | OSS license | MIT | MIT | MIT | Elastic License 2.0 | MIT |
 | Distribution | NPM | NPM | NPM / PyPI | NPM | PyPI / NPM (JS port) |
@@ -304,6 +304,15 @@ Run the web/API service inside your own infrastructure:
 - **Docker Compose** - Single-host deployment with optional Postgres and OpenTelemetry collector profiles
 - **Helm Chart** - `charts/aistack` renders Kubernetes Deployment, Service, ConfigMap, Secret, PVC, ingress, and network policy resources
 - **Air-Gapped Path** - Deployment docs cover image/chart export for disconnected environments
+
+### 📈 Observability & Tracing
+
+Instrument local and self-hosted runs without shipping task content to a hosted control plane:
+- **OpenTelemetry Tracing** - Opt-in spans for agent execution, LLM calls, MCP tools, memory operations, consensus gates, and review-loop phases
+- **OTLP/HTTP Export** - Send traces to Jaeger, Honeycomb, Datadog Agent, Phoenix, or an OpenTelemetry Collector
+- **Console Exporter** - Validate spans locally without running a collector
+- **Privacy Defaults** - Span attributes include operational metadata only; prompts, generated code, memory content, tool payloads, and secrets are excluded
+- **Deployment Docs** - See [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md) for collector examples and config details
 
 ### 🎯 46 MCP Tools for Claude Code
 
@@ -543,6 +552,15 @@ Create `aistack.config.json` in your project root:
     "cpus": 1,
     "pidsLimit": 100,
     "network": false
+  },
+  "observability": {
+    "otel": {
+      "enabled": false,
+      "serviceName": "aistack",
+      "exporter": "otlp",
+      "endpoint": "http://localhost:4318/v1/traces",
+      "samplingRatio": 1
+    }
   },
   "github": {
     "enabled": false,
@@ -1074,7 +1092,7 @@ To set accurate expectations, here are features **explicitly not implemented**:
 - ❌ **Managed SaaS control plane** (self-hosted/local-first package only)
 - ❌ **Provider-specific IaC modules** (no Terraform/CDK/Pulumi templates for AWS, GCP, or Azure)
 - ❌ **Turnkey horizontally distributed scheduler/worker cluster** (daemon defaults to local file-backed queue state)
-- ⚠️ **Limited observability** - Built-in health checks and Prometheus-style metrics, but no Grafana dashboards or OpenTelemetry tracing yet
+- ⚠️ **No bundled observability backend** - OpenTelemetry tracing is built in, but Grafana, Jaeger, Phoenix, Datadog, Honeycomb, or an OpenTelemetry Collector must be run separately
 - ❌ **External queue backend** (Redis/SQS/NATS/Kafka are not bundled; Redis queue is a documented stub)
 
 aistack is **local-first by default** and ships self-host/on-prem packaging. It is not a managed hosted agent platform.
@@ -1129,6 +1147,6 @@ aistack is feature-complete for its primary use case: local Claude Code integrat
 
 <br/>
 
-<sub>✅ **README verified against codebase v1.6.1** - Claims reflect implemented code paths for Consensus Checkpoints, HITL Interrupts, A2A, Multi-Tenancy base layer, Sandboxed Execution, Daemon Runner, Issue-to-PR Automation, On-Prem Packaging, and Session-based Memory Isolation.</sub>
+<sub>✅ **README verified against codebase v1.6.1** - Claims reflect implemented code paths for Consensus Checkpoints, HITL Interrupts, A2A, Multi-Tenancy base layer, Sandboxed Execution, Daemon Runner, Issue-to-PR Automation, OpenTelemetry Tracing, On-Prem Packaging, and Session-based Memory Isolation.</sub>
 
 </div>
