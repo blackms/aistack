@@ -349,6 +349,8 @@ export interface AgentStackConfig {
   resourceExhaustion?: ResourceExhaustionConfig;
   consensus?: ConsensusConfig;
   smartDispatcher?: SmartDispatcherConfig;
+  a2a?: A2AConfig;
+  multitenancy?: MultitenancyConfig;
   daemon?: DaemonConfig;
   telemetry?: TelemetryConfig;
   observability?: ObservabilityConfig;
@@ -393,6 +395,23 @@ export interface TracingConfig {
 export interface OTelConfig extends TracingConfig {
   /** Alias for `otlpEndpoint` in `observability.otel` config. */
   endpoint?: string;
+}
+
+// A2A (Agent-to-Agent) protocol config
+export interface A2AConfig {
+  enabled: boolean;
+  port?: number;
+  host?: string;
+  publicUrl?: string;
+  bearerToken?: string;
+  exposedAgents?: string[];
+}
+
+// Multi-tenancy configuration (AIG-649)
+export interface MultitenancyConfig {
+  enabled: boolean;
+  defaultTenantSlug: string;
+  defaultWorkspaceSlug: string;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.
@@ -739,10 +758,30 @@ export interface AgentsConfig {
   defaultTimeout: number;
 }
 
+export interface IssueLabelSet {
+  inProgress?: string;
+  blocked?: string;
+  done?: string;
+  claimed?: string;
+}
+
 export interface GitHubConfig {
   enabled: boolean;
   useGhCli?: boolean;
   token?: string;
+  /** Shared secret for `X-Hub-Signature-256` verification on the GitHub webhook */
+  webhookSecret?: string;
+  /** Shared secret token compared against `X-Gitlab-Token` on the GitLab webhook */
+  gitlabWebhookSecret?: string;
+  /** Personal access token used when calling the GitLab REST API */
+  gitlabToken?: string;
+  /** Customise the lifecycle labels written back to source issues */
+  labels?: IssueLabelSet;
+  /**
+   * Template used to render an audit-trail URL inside the PR description.
+   * Supports `{provider}`, `{owner}`, `{repo}`, `{number}` placeholders.
+   */
+  auditUrlTemplate?: string;
 }
 
 export interface PluginsConfig {

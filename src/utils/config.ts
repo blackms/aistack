@@ -101,10 +101,24 @@ const AgentsConfigSchema = z.object({
   defaultTimeout: z.number().min(10).max(3600).default(300),
 });
 
+const NonEmptyStringSchema = z.string().trim().min(1);
+
+const IssueLabelSetSchema = z.object({
+  inProgress: NonEmptyStringSchema.optional(),
+  blocked: NonEmptyStringSchema.optional(),
+  done: NonEmptyStringSchema.optional(),
+  claimed: NonEmptyStringSchema.optional(),
+});
+
 const GitHubConfigSchema = z.object({
   enabled: z.boolean().default(false),
   useGhCli: z.boolean().optional(),
   token: z.string().optional(),
+  webhookSecret: z.string().optional(),
+  gitlabWebhookSecret: z.string().optional(),
+  gitlabToken: z.string().optional(),
+  labels: IssueLabelSetSchema.optional(),
+  auditUrlTemplate: z.string().optional(),
 });
 
 const PluginsConfigSchema = z.object({
@@ -204,6 +218,12 @@ const ConsensusConfigSchema = z.object({
   mediumRiskPatterns: z.array(z.string()).default([
     'modify', 'update', 'change', 'configure', 'install',
   ]),
+});
+
+const MultitenancyConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  defaultTenantSlug: z.string().default('default'),
+  defaultWorkspaceSlug: z.string().default('default'),
 });
 
 /**
@@ -414,6 +434,15 @@ const SmartDispatcherConfigSchema = z.object({
   dispatchModel: z.string().default('claude-haiku-4-5-20251001'),
 });
 
+const A2AConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  port: z.number().min(1).max(65535).optional(),
+  host: z.string().optional(),
+  publicUrl: z.string().url().optional(),
+  bearerToken: z.string().trim().min(1).optional(),
+  exposedAgents: z.array(z.string()).optional(),
+});
+
 /** AIG-636 — daemon (background headless runner). Sibling field, no overlap with other agents. */
 const DaemonConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -528,6 +557,8 @@ const ConfigSchema = z.object({
   resourceExhaustion: ResourceExhaustionConfigSchema.default({}),
   consensus: ConsensusConfigSchema.default({}),
   smartDispatcher: SmartDispatcherConfigSchema.default({}),
+  a2a: A2AConfigSchema.default({}),
+  multitenancy: MultitenancyConfigSchema.default({}),
   daemon: DaemonConfigSchema.default({}),
   telemetry: TelemetryConfigSchema.default({}),
   observability: ObservabilityConfigSchema.default({}),

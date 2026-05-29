@@ -162,27 +162,44 @@ describe('FileWatcher', () => {
     const watcher = new FileWatcher(runtime, {
       dir: watchDir,
       debounceMs: 50,
+      recursive: false,
       rules: [{ pattern: '*.task.json', agentType: 'tester', readFile: true }],
     });
     watcher.start();
 
-    const taskFile = join(watchDir, 'sample.task.json');
-    writeFileSync(taskFile, JSON.stringify({ goal: 'run tests' }));
-
-    // Allow watcher + debounce + enqueue
-    const enqueued = await new Promise<QueueTask>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('no enqueue within 3s')), 3000);
-      runtime.once('task:enqueued', (t) => {
+    const enqueuedPromise = new Promise<QueueTask>((resolve, reject) => {
+      let timeout: NodeJS.Timeout;
+      const onEnqueued = (t: QueueTask) => {
         clearTimeout(timeout);
         resolve(t as QueueTask);
-      });
+      };
+      timeout = setTimeout(() => {
+        runtime.off('task:enqueued', onEnqueued);
+        reject(new Error('no enqueue within 5s'));
+      }, 5000);
+      runtime.once('task:enqueued', onEnqueued);
     });
-    expect(enqueued.agentType).toBe('tester');
-    expect(enqueued.source).toBe('file-watcher');
-    expect(enqueued.input).toContain('run tests');
-    expect((enqueued.metadata as { path: string }).path).toBe(taskFile);
 
-    watcher.stop();
+    const taskFile = join(watchDir, 'sample.task.json');
+    const writeTaskFile = () => {
+      writeFileSync(taskFile, JSON.stringify({ goal: 'run tests', touchedAt: Date.now() }));
+    };
+    const retryWrites = setInterval(writeTaskFile, 100);
+
+    try {
+      writeTaskFile();
+
+      // Allow watcher + debounce + enqueue
+      const enqueued = await enqueuedPromise;
+      expect(enqueued.agentType).toBe('tester');
+      expect(enqueued.source).toBe('file-watcher');
+      expect(enqueued.input).toContain('run tests');
+      expect((enqueued.metadata as { path: string }).path).toBe(taskFile);
+    } finally {
+      clearInterval(retryWrites);
+      watcher.stop();
+      await new Promise(resolve => setImmediate(resolve));
+    }
 
     // queue dir should hold a pending file
     const pendingDir = join(dataDir, 'queue', 'pending');

@@ -15,6 +15,9 @@ import {
   createStatusCommand,
   createWorkflowCommand,
   createWebCommand,
+  createIngestCommand,
+  createA2aCommand,
+  createTenantCommand,
   createDaemonCommand,
   createWatchCommand,
   createRunCommand,
@@ -56,6 +59,9 @@ async function main(): Promise<void> {
   program.addCommand(createStatusCommand());
   program.addCommand(createWorkflowCommand());
   program.addCommand(createWebCommand());
+  program.addCommand(createIngestCommand());
+  program.addCommand(createA2aCommand());
+  program.addCommand(createTenantCommand());
   program.addCommand(createDaemonCommand());
   program.addCommand(createWatchCommand());
   program.addCommand(createRunCommand());

@@ -2,7 +2,7 @@
 
 # aistack
 
-### Ultra-Modern Multi-Agent Orchestration for Claude Code
+## Claude Code's adversarial layer for code that survives review
 
 [![npm version](https://img.shields.io/npm/v/@blackms/aistack?style=for-the-badge&color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@blackms/aistack)
 [![npm downloads](https://img.shields.io/npm/dw/@blackms/aistack?style=for-the-badge&color=CB3837&logo=npm&logoColor=white&label=downloads%2Fweek)](https://www.npmjs.com/package/@blackms/aistack)
@@ -18,15 +18,37 @@
 
 <br/>
 
-**Production-grade agent orchestration with adversarial validation, persistent memory, and real-time web dashboard.**
+**Spawn specialized local agents that write, attack, fix, and gate code before it reaches your PR.**
 
 <br/>
 
-[Quick Start](#-quick-start) · [What It Does](#what-it-does) · [Features](#-features) · [Documentation](#-documentation)
+<table>
+<tr>
+<td align="left" width="33%">
+<b>Adversarial code review</b><br/>
+Coder and adversarial agents iterate until approval or max rounds.<br/>
+<sub>Proof: <code>createReviewLoop</code> plus REST/web review-loop routes.</sub>
+</td>
+<td align="left" width="33%">
+<b>Local-first Claude Code orchestration</b><br/>
+Run the NPM package, stdio MCP server, and SQLite memory on your machine.<br/>
+<sub>Proof: 46 MCP tools wired into Claude Code.</sub>
+</td>
+<td align="left" width="33%">
+<b>Governable autonomy</b><br/>
+Keep agents bounded with consensus checkpoints, drift checks, and resource limits.<br/>
+<sub>Proof: risk gates, audit trails, and resource exhaustion monitoring.</sub>
+</td>
+</tr>
+</table>
 
 <br/>
 
-```
+[Quick Start](#-quick-start) · [Who should use](#who-should-use-aistack) · [Features](#-features) · [Documentation](#-documentation)
+
+<br/>
+
+```text
 11 agents · 46 MCP tools · 6 LLM providers · SQLite + FTS5 · Web dashboard · Agent Identity · Drift Detection · Consensus Checkpoints · Resource Monitoring
 ```
 
@@ -36,43 +58,41 @@
 
 ## What It Does
 
-aistack helps you **coordinate multiple specialized AI agents** to work together on complex tasks. Think of it as a team of AI specialists:
+aistack turns Claude Code into a local multi-agent delivery loop: one agent writes, another attacks the result, tests gate the change, and the outcome is captured for the next run.
 
-**Instead of asking one AI to do everything, you can:**
-- Spawn a **Coder** agent to write code
-- Spawn an **Adversarial** agent to review and break it
-- Spawn a **Tester** agent to write tests
-- Spawn a **Documentation** agent to document it
-- Store learnings in **persistent memory** for future use
+Use it when a task needs more than one model role:
+- **Ship reviewed code** - Coder, tester, reviewer, and adversarial agents iterate until the work is approved or rejected with concrete findings.
+- **Keep local control** - The NPM package runs from your machine with a stdio MCP server, SQLite memory, and no hosted control plane requirement.
+- **Bound agent autonomy** - Consensus checkpoints, semantic drift detection, and resource exhaustion monitoring keep risky or runaway work visible.
+- **Carry context forward** - Persistent memory stores patterns, decisions, and implementation notes for later Claude Code sessions.
 
-**How it works:**
-1. **Spawn specialized agents** - Each agent has specific expertise (coding, testing, reviewing, etc.)
-2. **They communicate through a message bus** - Agents can coordinate and share information
-3. **Memory persists across sessions** - Agents remember patterns, decisions, and learnings
-4. **Adversarial validation** - Code is automatically reviewed and improved through iterative feedback
-5. **Integrate with Claude Code** - Use agents directly from your IDE via MCP protocol
+### Example workflow
 
-**Perfect for:**
-- Code generation with automatic review cycles
-- Multi-step development workflows (design → code → test → document)
-- Building institutional knowledge that persists across projects
-- Automating complex tasks that need different types of expertise
-
-### Example Workflow
-
-```
+```text
 You ask: "Create a login API endpoint with tests"
 
 aistack:
-1. Spawns a Coder agent → writes the API code
-2. Spawns an Adversarial agent → tries to break it, finds security issues
-3. Coder fixes the issues
-4. Spawns a Tester agent → writes comprehensive tests
-5. Spawns a Documentation agent → generates API docs
-6. Stores patterns in memory → "Always use bcrypt for passwords"
-
-Next time: The memory helps agents make better decisions automatically
+1. Coder writes the endpoint
+2. Tester creates and runs focused tests
+3. Adversarial tries to break authentication and error paths
+4. Coder fixes concrete findings
+5. Reviewer gates the final patch
+6. Memory stores the project pattern for future work
 ```
+
+---
+
+## Who should use aistack
+
+- Claude Code users who want local multi-agent coding workflows.
+- TypeScript/Node teams that want coder, tester, reviewer, and adversarial agents coordinating through MCP/API.
+- Teams that want review loops, persistent SQLite memory, consensus gates, drift detection, and resource monitoring without adopting a hosted agent platform.
+
+## Who should NOT use aistack
+
+- Python-first teams that want LangGraph/CrewAI-style ecosystems.
+- Teams that need hosted multi-tenancy or horizontally distributed orchestration today.
+- Teams that require production OpenTelemetry tracing, sandboxed execution, or long-lived background runners as hard requirements today.
 
 ---
 
@@ -475,29 +495,8 @@ Create `aistack.config.json` in your project root:
 
 ### Example 1: Code Generation with Review
 
-**Via Claude Code (MCP)**:
-```
-In Claude Code, just ask:
-"Use aistack to generate a REST API for user authentication with adversarial review"
-
-aistack will:
-1. Spawn a coder agent to write the API
-2. Spawn an adversarial agent to find vulnerabilities
-3. Fix issues iteratively (up to 3 rounds)
-4. Return production-ready code
-```
-
-**Via CLI**:
-```bash
-# Start adversarial review loop
-npx @blackms/aistack workflow run adversarial-review \
-  --task "Create REST API for user authentication"
-
-# Check the review status
-npx @blackms/aistack agent list
-```
-
 **Via TypeScript**:
+
 ```typescript
 import { createReviewLoop, getConfig } from '@blackms/aistack';
 
@@ -507,8 +506,32 @@ const result = await createReviewLoop(
   { maxIterations: 3 }
 );
 
-console.log(result.finalVerdict); // APPROVED
-console.log(result.currentCode);   // Production-ready code
+console.log(result.finalVerdict); // APPROVED or REJECTED
+console.log(result.currentCode);  // Reviewed code after the final iteration
+console.log(result.reviews);      // Concrete findings from each review round
+```
+
+**Via REST/web API**:
+
+```bash
+# Start the web server first:
+npx @blackms/aistack web start
+
+curl -X POST http://localhost:3001/api/v1/review-loops \
+  -H 'Content-Type: application/json' \
+  -d '{"codeInput":"Create REST API for user authentication","maxIterations":3}'
+```
+
+Review loops are not registered as MCP tools yet. Use MCP for agents, memory, tasks,
+identity, consensus, sessions, system status, and GitHub tools. Use TypeScript or
+REST/web APIs when you want a programmatic review loop, and DSL templates when
+you want a reusable workflow file.
+
+**Via DSL template**:
+
+```bash
+npx @blackms/aistack workflow run templates/workflows/adversarial-review.yaml \
+  --input='{"input":"Create REST API for user authentication"}'
 ```
 
 ### Example 2: Build Institutional Knowledge
@@ -588,12 +611,11 @@ In Claude Code, you can:
 "Search memory for authentication patterns"
 → Uses memory_search tool
 
-"Start an adversarial review of this function"
-→ Uses review_loop_start tool
-
 "List all active agents"
 → Uses agent_list tool
 ```
+
+Review loops are available through the TypeScript API (`createReviewLoop`) and REST/web API, not as MCP tools.
 
 ### Example 5: CLI Workflow
 
@@ -724,7 +746,7 @@ Then open http://localhost:3001 to:
 
 **Total: 46 MCP Tools**
 
-> **Note:** Review loop functionality is available via the programmatic API (`createReviewLoop`) and CLI, but not exposed as MCP tools.
+> **Note:** Review loop functionality is available via the programmatic API (`createReviewLoop`) and REST/web API, but not exposed as MCP tools.
 
 ---
 
@@ -794,7 +816,7 @@ const agentTypes = listAgentTypes();
 aistack/
 ├── src/
 │   ├── agents/          # 11 agent types with system prompts + identity service
-│   ├── mcp/             # MCP server + 41 tools
+│   ├── mcp/             # MCP server + 46 tools
 │   ├── memory/          # SQLite + FTS5 + vector search
 │   ├── tasks/           # Drift detection service
 │   ├── monitoring/      # Resource exhaustion, metrics, health

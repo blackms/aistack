@@ -26,6 +26,11 @@ import { audit } from '../audit/index.js';
 import { TierManager } from './tiers/tier-manager.js';
 import { logger } from '../utils/logger.js';
 import { traceAsync } from '../observability/index.js';
+import {
+  getActiveTenantContext,
+  workspaceNamespace,
+  type MultitenancyContext,
+} from '../multitenancy/index.js';
 
 const log = logger.child('memory');
 
@@ -33,6 +38,59 @@ export interface AgentContext {
   agentId?: string;         // Optional - scoping within session
   sessionId: string;        // Required for session-based isolation
   includeShared?: boolean;
+  /**
+   * Multi-tenancy scoping (AIG-649). When set, memory namespaces are
+   * automatically prefixed with `tenant:<id>[:workspace:<id>]` so a tenant
+   * cannot read another tenant's memory even if they share a session id.
+   * When undefined, the manager falls back to `getActiveTenantContext()` —
+   * which itself returns undefined in single-tenant mode.
+   */
+  tenantContext?: MultitenancyContext;
+}
+
+/**
+ * Compute the effective tenant scope for a memory operation. Returns the
+ * explicit context on `agentContext` first, then the AsyncLocal-ish active
+ * context. Undefined means "no tenant scoping" (single-tenant mode).
+ */
+function effectiveTenantContext(
+  agentContext: AgentContext | null,
+): MultitenancyContext | undefined {
+  return agentContext?.tenantContext ?? getActiveTenantContext();
+}
+
+/**
+ * Prefix a memory namespace with the tenant/workspace scope when one is
+ * active, so cross-tenant key collisions are impossible. No-op for
+ * single-tenant deployments.
+ */
+function applyTenantPrefix(
+  namespace: string,
+  agentContext: AgentContext | null,
+): string {
+  const tctx = effectiveTenantContext(agentContext);
+  if (!tctx) return namespace;
+  const prefix = `${workspaceNamespace(tctx)}:`;
+  return namespace.startsWith(prefix) ? namespace : `${prefix}${namespace}`;
+}
+
+function removeTenantPrefix(
+  namespace: string,
+  agentContext: AgentContext | null,
+): string | null {
+  const tctx = effectiveTenantContext(agentContext);
+  if (!tctx) return namespace;
+
+  const prefix = `${workspaceNamespace(tctx)}:`;
+  if (namespace.startsWith(prefix)) {
+    return namespace.slice(prefix.length);
+  }
+
+  return namespace.startsWith('tenant:') ? null : namespace;
+}
+
+function hasTenantContext(agentContext: AgentContext | null): boolean {
+  return effectiveTenantContext(agentContext) !== undefined;
 }
 
 export class MemoryManager {
@@ -118,12 +176,10 @@ export class MemoryManager {
     options: MemoryStoreOptions = {}
   ): Promise<MemoryEntry> {
     // Derive namespace from context if not explicitly provided
-    let namespace = options.namespace;
-    if (!namespace && this.agentContext?.sessionId) {
-      namespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
-    } else if (!namespace) {
-      namespace = this.config.memory.defaultNamespace;
-    }
+    let namespace: string = options.namespace
+      ?? (this.agentContext?.sessionId
+        ? this.accessControl.getSessionNamespace(this.agentContext.sessionId)
+        : this.config.memory.defaultNamespace);
 
     // Use explicit agentId if provided, otherwise use context
     const agentId = options.agentId ?? this.agentContext?.agentId;
@@ -144,6 +200,9 @@ export class MemoryManager {
         );
       }
 
+      // AIG-649 wire-point: prefix the namespace with tenant/workspace scope
+      // only after validating the raw session namespace above.
+      namespace = applyTenantPrefix(namespace, this.agentContext);
       const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId });
 
       // Index for vector search if enabled
@@ -168,12 +227,10 @@ export class MemoryManager {
     options: Omit<MemoryStoreOptions, 'agentId'> = {}
   ): Promise<MemoryEntry> {
     // Derive namespace from context if not explicitly provided
-    let namespace = options.namespace;
-    if (!namespace && this.agentContext?.sessionId) {
-      namespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
-    } else if (!namespace) {
-      namespace = this.config.memory.defaultNamespace;
-    }
+    let namespace: string = options.namespace
+      ?? (this.agentContext?.sessionId
+        ? this.accessControl.getSessionNamespace(this.agentContext.sessionId)
+        : this.config.memory.defaultNamespace);
 
     return traceAsync(this.config, 'aistack.memory.store', {
       'memory.namespace': namespace,
@@ -191,6 +248,7 @@ export class MemoryManager {
       }
 
       // Explicitly set agentId to undefined to ensure shared memory
+      namespace = applyTenantPrefix(namespace, this.agentContext);
       const entry = this.sqliteStore.store(key, content, { ...options, namespace, agentId: undefined });
 
       // Index for vector search if enabled
@@ -226,6 +284,9 @@ export class MemoryManager {
       );
     }
 
+    // AIG-649 wire-point: tenant-scope the lookup key.
+    effectiveNamespace = applyTenantPrefix(effectiveNamespace, this.agentContext);
+
     const entry = this.sqliteStore.get(key, effectiveNamespace);
     // Tier bookkeeping: record this read for the AutoPager promotion
     // heuristic. No-op if the entry is missing.
@@ -238,12 +299,23 @@ export class MemoryManager {
    */
   getById(id: string): MemoryEntry | null {
     const entry = this.sqliteStore.getById(id);
+    if (!entry) return null;
+
+    const accessNamespace = removeTenantPrefix(entry.namespace, this.agentContext);
+    if (!accessNamespace) {
+      log.warn('Access denied to cross-tenant memory entry', {
+        entryId: id,
+        entryNamespace: entry.namespace,
+        contextTenantId: effectiveTenantContext(this.agentContext)?.tenantId,
+      });
+      return null;
+    }
 
     // Validate access if we have a context
-    if (entry && this.agentContext?.sessionId) {
+    if (this.agentContext?.sessionId) {
       if (!this.accessControl.canAccessEntry(
         { sessionId: this.agentContext.sessionId, agentId: this.agentContext.agentId, includeShared: this.agentContext.includeShared },
-        entry.namespace,
+        accessNamespace,
         entry.agentId
       )) {
         log.warn('Access denied to memory entry', {
@@ -257,7 +329,7 @@ export class MemoryManager {
 
     // Tier bookkeeping for the successful read path only — denied accesses
     // must not look like a hot signal.
-    if (entry) this.touchEntry(entry.id);
+    this.touchEntry(entry.id);
     return entry;
   }
 
@@ -282,6 +354,7 @@ export class MemoryManager {
       );
     }
 
+    effectiveNamespace = applyTenantPrefix(effectiveNamespace, this.agentContext);
     const deleted = this.sqliteStore.delete(key, effectiveNamespace);
     if (deleted) {
       audit(this.config, 'memory.delete', { key, namespace: effectiveNamespace });
@@ -302,6 +375,8 @@ export class MemoryManager {
     let effectiveNamespace = namespace;
     if (!effectiveNamespace && this.agentContext?.sessionId) {
       effectiveNamespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
+    } else if (!effectiveNamespace && hasTenantContext(this.agentContext)) {
+      effectiveNamespace = this.config.memory.defaultNamespace;
     }
 
     // Validate access if we have a context and a namespace
@@ -311,6 +386,10 @@ export class MemoryManager {
         effectiveNamespace,
         'read'
       );
+    }
+
+    if (effectiveNamespace) {
+      effectiveNamespace = applyTenantPrefix(effectiveNamespace, this.agentContext);
     }
 
     // Use explicit agentId if provided, otherwise use context
@@ -326,8 +405,14 @@ export class MemoryManager {
     agentId: string,
     options?: { namespace?: string; limit?: number; offset?: number; includeShared?: boolean }
   ): MemoryEntry[] {
+    const namespace = options?.namespace
+      ? applyTenantPrefix(options.namespace, this.agentContext)
+      : hasTenantContext(this.agentContext)
+        ? applyTenantPrefix(this.config.memory.defaultNamespace, this.agentContext)
+        : undefined;
+
     return this.sqliteStore.list(
-      options?.namespace,
+      namespace,
       options?.limit ?? 100,
       options?.offset ?? 0,
       { agentId, includeShared: options?.includeShared ?? false }
@@ -338,7 +423,15 @@ export class MemoryManager {
    * Count memory entries
    */
   count(namespace?: string): number {
-    return this.sqliteStore.count(namespace);
+    let effectiveNamespace = namespace;
+    if (!effectiveNamespace && hasTenantContext(this.agentContext)) {
+      effectiveNamespace = this.config.memory.defaultNamespace;
+    }
+    return this.sqliteStore.count(
+      effectiveNamespace
+        ? applyTenantPrefix(effectiveNamespace, this.agentContext)
+        : undefined,
+    );
   }
 
   // ==================== Tag Operations ====================
@@ -371,7 +464,16 @@ export class MemoryManager {
    * Search entries by tags
    */
   searchByTags(tags: string[], namespace?: string): MemoryEntry[] {
-    return this.sqliteStore.searchByTags(tags, namespace);
+    let effectiveNamespace = namespace;
+    if (!effectiveNamespace && hasTenantContext(this.agentContext)) {
+      effectiveNamespace = this.config.memory.defaultNamespace;
+    }
+    return this.sqliteStore.searchByTags(
+      tags,
+      effectiveNamespace
+        ? applyTenantPrefix(effectiveNamespace, this.agentContext)
+        : undefined,
+    );
   }
 
   // ==================== Relationship Operations ====================
@@ -467,6 +569,8 @@ export class MemoryManager {
     let namespace = options.namespace;
     if (!namespace && this.agentContext?.sessionId) {
       namespace = this.accessControl.getSessionNamespace(this.agentContext.sessionId);
+    } else if (!namespace && hasTenantContext(this.agentContext)) {
+      namespace = this.config.memory.defaultNamespace;
     }
 
     // Validate access if we have a context and a namespace
@@ -476,6 +580,10 @@ export class MemoryManager {
         namespace,
         'read'
       );
+    }
+
+    if (namespace) {
+      namespace = applyTenantPrefix(namespace, this.agentContext);
     }
 
     // Use explicit agentId if provided, otherwise use context
