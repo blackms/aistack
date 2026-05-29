@@ -8,7 +8,7 @@
 
 import { Command } from 'commander';
 import { getConfig } from '../../utils/config.js';
-import { ingestIssue, runIssueToPRWorkflow } from '../../github/index.js';
+import { ingestIssue, parseIssueUrl, runIssueToPRWorkflow } from '../../github/index.js';
 
 export function createIngestCommand(): Command {
   const command = new Command('ingest').description('Ingest external work items (issues, PRs)');
@@ -34,12 +34,23 @@ export function createIngestCommand(): Command {
 
       try {
         const config = getConfig();
+        const parsed = parseIssueUrl(url);
+        const maxIterations = parsePositiveInteger(
+          opts.maxIterations,
+          '--max-iterations',
+        );
+        const token = parsed.provider === 'gitlab'
+          ? config.github.gitlabToken
+          : config.github.token;
+        const host = parsed.provider === 'github' && parsed.host === 'github.com'
+          ? undefined
+          : parsed.host;
         if (opts.watch) {
           console.log(`[ingest] fetching issue ${url}`);
         }
 
         const { issue, client } = await ingestIssue(url, {
-          credentials: { token: config.github.token },
+          credentials: { token, host },
         });
 
         if (opts.watch) {
@@ -54,7 +65,7 @@ export function createIngestCommand(): Command {
           skipLabels: opts.labels === false,
           base: opts.base,
           head: opts.head,
-          maxIterations: opts.maxIterations ? Number(opts.maxIterations) : undefined,
+          maxIterations,
         });
 
         console.log('\nWorkflow result:');
@@ -78,4 +89,16 @@ export function createIngestCommand(): Command {
     });
 
   return command;
+}
+
+function parsePositiveInteger(value: string | undefined, optionName: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`${optionName} must be a positive integer`);
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${optionName} must be a positive integer`);
+  }
+  return parsed;
 }

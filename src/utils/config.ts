@@ -101,11 +101,13 @@ const AgentsConfigSchema = z.object({
   defaultTimeout: z.number().min(10).max(3600).default(300),
 });
 
+const NonEmptyStringSchema = z.string().trim().min(1);
+
 const IssueLabelSetSchema = z.object({
-  inProgress: z.string().optional(),
-  blocked: z.string().optional(),
-  done: z.string().optional(),
-  claimed: z.string().optional(),
+  inProgress: NonEmptyStringSchema.optional(),
+  blocked: NonEmptyStringSchema.optional(),
+  done: NonEmptyStringSchema.optional(),
+  claimed: NonEmptyStringSchema.optional(),
 });
 
 const GitHubConfigSchema = z.object({

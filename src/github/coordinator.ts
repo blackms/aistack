@@ -91,7 +91,7 @@ export async function runIssueToPRWorkflow(
   try {
     plan = await generatePlan(issue, config);
   } catch (err) {
-    return finishFailure(client, issue, labels, branch, '', [], opts, `plan generation failed: ${(err as Error).message}`);
+    return finishFailure(client, issue, labels, branch, '', [], opts, labelOverrides, `plan generation failed: ${(err as Error).message}`);
   }
 
   // 3. Review loop on the plan + issue body
@@ -110,7 +110,7 @@ export async function runIssueToPRWorkflow(
     reviews = loopResult.reviews;
     approved = loopResult.approved;
   } catch (err) {
-    return finishFailure(client, issue, labels, branch, plan, reviews, opts, `review loop failed: ${(err as Error).message}`);
+    return finishFailure(client, issue, labels, branch, plan, reviews, opts, labelOverrides, `review loop failed: ${(err as Error).message}`);
   }
 
   // 4. Build PR body
@@ -139,6 +139,13 @@ export async function runIssueToPRWorkflow(
 
   // 5. Open draft PR
   if (opts.dryRun) {
+    if (!opts.skipLabels) {
+      try {
+        await applyLifecycleLabel(client, issue.owner, issue.repo, issue.number, 'done', labels, labelOverrides);
+      } catch (err) {
+        log.warn('Failed to apply done label during dry run', { err: (err as Error).message });
+      }
+    }
     log.info('Dry run: skipping PR creation');
     return { status: 'success', issue, branch, plan, reviews, prBody };
   }
@@ -153,7 +160,7 @@ export async function runIssueToPRWorkflow(
       draft: true,
     });
   } catch (err) {
-    return finishFailure(client, issue, labels, branch, plan, reviews, opts, `PR creation failed: ${(err as Error).message}`);
+    return finishFailure(client, issue, labels, branch, plan, reviews, opts, labelOverrides, `PR creation failed: ${(err as Error).message}`);
   }
 
   // 6. Done label
@@ -214,9 +221,12 @@ ${issue.body}
 ${plan}`;
 
   const loop = new ReviewLoopCoordinator(codeInput, config, { maxIterations });
-  const state = await loop.start();
-  loop.cleanup();
-  return { reviews: state.reviews, approved: state.status === 'approved' };
+  try {
+    const state = await loop.start();
+    return { reviews: state.reviews, approved: state.status === 'approved' };
+  } finally {
+    loop.cleanup();
+  }
 }
 
 function renderAuditUrl(config: AgentStackConfig, issue: IssueDetails): string | undefined {
@@ -237,12 +247,13 @@ async function finishFailure(
   plan: string,
   reviews: ReviewResult[],
   opts: IssueToPrOptions,
+  labelOverrides: AgentStackConfig['github']['labels'] | undefined,
   message: string
 ): Promise<IssueToPrResult> {
   log.error('Workflow failed', { message });
   if (!opts.skipLabels) {
     try {
-      await applyLifecycleLabel(client, issue.owner, issue.repo, issue.number, 'blocked', labels);
+      await applyLifecycleLabel(client, issue.owner, issue.repo, issue.number, 'blocked', labels, labelOverrides);
     } catch (err) {
       log.warn('Failed to apply blocked label on failure', { err: (err as Error).message });
     }

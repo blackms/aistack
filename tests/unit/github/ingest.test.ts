@@ -53,6 +53,7 @@ function jsonResponse(status: number, body: unknown, headers?: Record<string, st
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe('parseIssueUrl', () => {
@@ -141,6 +142,33 @@ describe('createProviderClient', () => {
     const c = createProviderClient('github', { token: 'bad' });
 
     await expect(c.getIssue('octocat', 'hello', 42)).rejects.toThrow(/authentication failed/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts provider requests after the provider timeout', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          },
+          { once: true },
+        );
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const c = createProviderClient('github', { token: 't' });
+
+    const pending = expect(c.getIssue('octocat', 'hello', 42)).rejects.toThrow(
+      /GitHub getIssue timed out/,
+    );
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await pending;
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

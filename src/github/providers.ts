@@ -11,6 +11,7 @@ import { logger } from '../utils/logger.js';
 const log = logger.child('github:providers');
 
 const MAX_RATE_LIMIT_WAIT_MS = 30_000;
+const PROVIDER_REQUEST_TIMEOUT_MS = 30_000;
 
 export type ProviderName = 'github' | 'gitlab';
 
@@ -320,7 +321,7 @@ async function fetchWithRateLimitRetry(
   input: string,
   init: RequestInit
 ): Promise<Response> {
-  const first = await fetch(input, init);
+  const first = await fetchWithTimeout(provider, operation, input, init);
   if (!isRateLimited(first)) return first;
 
   const waitMs = retryDelayMs(first.headers);
@@ -331,7 +332,36 @@ async function fetchWithRateLimitRetry(
     waitMs,
   });
   await delay(waitMs);
-  return fetch(input, init);
+  return fetchWithTimeout(provider, operation, input, init);
+}
+
+async function fetchWithTimeout(
+  provider: string,
+  operation: string,
+  input: string,
+  init: RequestInit
+): Promise<Response> {
+  const controller = new AbortController();
+  const upstreamSignal = init.signal;
+  const abortFromUpstream = () => controller.abort();
+  if (upstreamSignal?.aborted) {
+    controller.abort();
+  } else {
+    upstreamSignal?.addEventListener('abort', abortFromUpstream, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(), PROVIDER_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`${provider} ${operation} timed out after ${PROVIDER_REQUEST_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    upstreamSignal?.removeEventListener('abort', abortFromUpstream);
+  }
 }
 
 function isRateLimited(res: Response): boolean {

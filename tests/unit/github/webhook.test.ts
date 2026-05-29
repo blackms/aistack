@@ -94,9 +94,21 @@ describe('shouldDispatch (GitHub)', () => {
   it('dispatches when aistack-claimed label is added', () => {
     const d = shouldDispatch(
       'issues',
-      { action: 'labeled', issue: { html_url: 'x', labels: [{ name: 'aistack-claimed' }] } }
+      { action: 'labeled', label: { name: 'aistack-claimed' }, issue: { html_url: 'x' } }
     );
     expect(d.dispatch).toBe(true);
+  });
+
+  it('ignores unrelated label additions even when the issue already has claimed', () => {
+    const d = shouldDispatch(
+      'issues',
+      {
+        action: 'labeled',
+        label: { name: 'triage' },
+        issue: { html_url: 'x', labels: [{ name: 'aistack-claimed' }] },
+      }
+    );
+    expect(d.dispatch).toBe(false);
   });
 
   it('ignores unrelated events', () => {

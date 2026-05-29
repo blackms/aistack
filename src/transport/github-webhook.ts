@@ -157,6 +157,7 @@ interface GitHubPayload {
     number?: number;
     labels?: Array<{ name?: string } | string>;
   };
+  label?: { name?: string } | string;
   pull_request?: { html_url?: string };
   sender?: { login?: string };
 }
@@ -186,11 +187,12 @@ export function shouldDispatch(
   }
 
   if (event === 'issues' && payload.action === 'labeled') {
-    const labels = payload.issue?.labels ?? [];
-    const claimed = labels.some((l) =>
-      typeof l === 'string' ? l === 'aistack-claimed' : l.name === 'aistack-claimed'
-    );
-    if (claimed) return { dispatch: true, reason: 'aistack-claimed label added' };
+    const addedLabel = typeof payload.label === 'string'
+      ? payload.label
+      : payload.label?.name;
+    if (addedLabel === 'aistack-claimed') {
+      return { dispatch: true, reason: 'aistack-claimed label added' };
+    }
   }
 
   return { dispatch: false, reason: `event ${event}/${payload.action} not actionable` };

@@ -24,11 +24,12 @@ vi.mock('../../../src/agents/spawner.js', () => ({
 
 // Mock the review loop to return a deterministic approved state.
 const reviewLoopMock = vi.fn();
+const reviewLoopCleanupMock = vi.fn();
 vi.mock('../../../src/coordination/review-loop.js', () => {
   return {
     ReviewLoopCoordinator: vi.fn().mockImplementation(() => ({
       start: reviewLoopMock,
-      cleanup: vi.fn(),
+      cleanup: reviewLoopCleanupMock,
     })),
   };
 });
@@ -49,7 +50,7 @@ function baseConfig(overrides: Partial<AgentStackConfig['github']> = {}): AgentS
   };
 }
 
-function fakeIssue(): IssueDetails {
+function fakeIssue(overrides: Partial<IssueDetails> = {}): IssueDetails {
   return {
     provider: 'github',
     host: 'github.com',
@@ -62,6 +63,7 @@ function fakeIssue(): IssueDetails {
     assignees: [],
     htmlUrl: 'https://github.com/octocat/hello/issues/42',
     state: 'open',
+    ...overrides,
   };
 }
 
@@ -143,6 +145,7 @@ function rejectedState(): ReviewLoopState {
 describe('runIssueToPRWorkflow', () => {
   beforeEach(() => {
     reviewLoopMock.mockReset();
+    reviewLoopCleanupMock.mockReset();
   });
 
   it('opens a draft PR and applies done label when review approves', async () => {
@@ -190,18 +193,40 @@ describe('runIssueToPRWorkflow', () => {
     expect(result.status).toBe('success');
     expect(result.pullRequest).toBeUndefined();
     expect(client.createPRCall).toBeUndefined();
+    const finalLabels = client.setLabelCalls.at(-1) ?? [];
+    expect(finalLabels).toContain(DEFAULT_LABELS.done);
   });
 
   it('captures upstream PR failures and labels the issue blocked', async () => {
     reviewLoopMock.mockResolvedValue(approvedState());
     const client = fakeClient({ failPr: true });
+    const config = baseConfig({
+      labels: {
+        claimed: 'custom-claimed',
+        inProgress: 'custom-active',
+        blocked: 'custom-blocked',
+        done: 'custom-done',
+      },
+    });
 
-    const result = await runIssueToPRWorkflow(fakeIssue(), client, baseConfig());
+    const result = await runIssueToPRWorkflow(fakeIssue(), client, config);
 
     expect(result.status).toBe('failed');
     expect(result.error).toMatch(/PR creation failed/);
     const finalLabels = client.setLabelCalls.at(-1) ?? [];
-    expect(finalLabels).toContain(DEFAULT_LABELS.blocked);
+    expect(finalLabels).toContain('custom-blocked');
+    expect(finalLabels).not.toContain(DEFAULT_LABELS.blocked);
+  });
+
+  it('cleans up the review loop when start throws', async () => {
+    reviewLoopMock.mockRejectedValue(new Error('review boom'));
+    const client = fakeClient();
+
+    const result = await runIssueToPRWorkflow(fakeIssue(), client, baseConfig());
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/review loop failed/);
+    expect(reviewLoopCleanupMock).toHaveBeenCalledTimes(1);
   });
 });
 

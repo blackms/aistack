@@ -213,6 +213,23 @@ describe('Config Validation', () => {
     expect(resultHttpValid.valid).toBe(true);
   });
 
+  it('rejects empty lifecycle label overrides', () => {
+    const empty = validateConfig({
+      github: { labels: { blocked: '' } },
+    });
+    expect(empty.valid).toBe(false);
+
+    const whitespace = validateConfig({
+      github: { labels: { done: '   ' } },
+    });
+    expect(whitespace.valid).toBe(false);
+
+    const valid = validateConfig({
+      github: { labels: { blocked: 'needs-human' } },
+    });
+    expect(valid.valid).toBe(true);
+  });
+
   it('should accept full valid config', () => {
     const fullConfig = {
       version: '1.0.0',
