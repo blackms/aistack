@@ -392,6 +392,11 @@ const GuardrailsConfigSchema = z.object({
   customPaths: z.array(z.string()).optional(),
   timeoutMs: z.number().min(50).max(60000).default(2000),
   killSwitch: z.boolean().default(true),
+  // AIG-868 wiring: per-direction overrides + aggregate budget + rollout flag.
+  input: z.array(z.string()).optional(),
+  output: z.array(z.string()).optional(),
+  aggregateTimeoutMs: z.number().min(0).max(60000).optional(),
+  outputNonBlocking: z.boolean().optional(),
 });
 
 const FederationTlsConfigSchema = z.object({
