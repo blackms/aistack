@@ -2,6 +2,8 @@
 
 # aistack
 
+## The adversarial layer where AI code survives review
+
 ### A durable, governed control plane for Claude Code multi-agent work — built on top of the natives, not around them
 
 [![npm version](https://img.shields.io/npm/v/@blackms/aistack?style=for-the-badge&color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@blackms/aistack)
@@ -28,6 +30,12 @@ SSO (SAML/OIDC) + SCIM · Docker + Helm · A2A · Multi-tenancy · Federation (o
 ```
 
 </div>
+
+**Three pillars:**
+
+- **Adversarial code review** — a dedicated adversarial agent attacks the coder's output in a structured loop (`createReviewLoop`) until it survives review or is rejected; consensus checkpoints and per-agent resource limits keep autonomy governable.
+- **Local-first Claude Code orchestration** — runs as an NPM package on your machine: a stdio MCP server (46 MCP tools), SQLite memory, REST/web API, and a dashboard. No hosted control plane.
+- **Governable autonomy** — consensus checkpoints, a hash-chained audit log, and per-agent resource limits gate every high-risk step.
 
 ---
 
@@ -74,6 +82,18 @@ Where aistack adds value is in the gaps Claude Code **explicitly does not cover*
 If your workflow lives inside Claude Code and you want adversarial review, consensus governance, persistent state, and self-host deployment — without adopting a hosted agent platform — aistack is built for you. We stay honest about what is shipped today versus what is partial or on the roadmap; gaps are marked explicitly throughout this README.
 
 ---
+
+## Who should use aistack
+
+- You work inside Claude Code and want **adversarial review, consensus gating, durable state, and self-host deployment** without adopting a hosted agent platform.
+- You need orchestration state that **survives across sessions or machines** (checkpointer, federation) or **enterprise governance** (SSO/SCIM, hash-chained audit, multi-tenancy).
+- You want to run agents **on-prem or air-gapped** via Docker + Helm.
+
+## Who should NOT use aistack
+
+- You work **single-machine, single-session, single-repo**: native Claude Code (subagents, Agent Teams, Agent View, hooks, skills) is enough and often better — there is no reason to add aistack.
+- You want a managed SaaS control plane: aistack is local-first and self-hosted only.
+- You expect features still in development (guardrails wired by default, SWE-bench scores, JetBrains extension): see the partial / roadmap table below.
 
 ## 🚀 Quick Start
 
