@@ -216,9 +216,10 @@ In addition to the opt-in `withGuardrails(...)` wrapper, the review loop
 (`src/coordination/review-loop.ts`) now runs the configured guardrails as a
 **real gate** — not just an available library:
 
-1. **INPUT gate** — the task requirements are validated *before* the coder
-   runs (prompt-injection, secrets/PII smuggled into the requirements). The
-   coder is never invoked when the input gate blocks.
+1. **INPUT gate** — task requirements are validated *before* the initial
+   coder run, and fix instructions are validated before each repair iteration
+   (prompt-injection, secrets/PII smuggled into requirements or review
+   feedback). The coder is never invoked when the input gate blocks.
 2. **OUTPUT gate** — the coder's response is validated *before* it reaches
    the adversarial reviewer or is persisted, on both the initial generation
    and every fix iteration (leaked secrets, PII).
@@ -229,7 +230,7 @@ labels), emits an audit log line, and throws `ReviewLoopGuardrailError`
 (re-exported from the package root). It does **not** proceed silently.
 
 The gate is **disabled by default** — existing installs are unaffected.
-Enable it per project via `agentstack.config.json`:
+Enable it per project via `aistack.config.json`:
 
 ```jsonc
 {
