@@ -1,6 +1,9 @@
 # Guardrails Framework
 
-> Status: Initial — landed in AIG-645 (M2-17).
+> Status: Engine landed in AIG-645 (M2-17). **Wired into the review loop +
+> exposed as a Claude Code `PreToolUse` hook in AIG-868** — see
+> "[Review-loop gate (AIG-868)](#review-loop-gate-aig-868)" and
+> "[Using guardrails as a Claude Code `PreToolUse` hook](#using-guardrails-as-a-claude-code-pretooluse-hook)".
 
 ## Concept
 
@@ -206,6 +209,133 @@ your project routes audit events).
 ```ts
 onAudit: (event) => myAuditSink.write({ ...event, source: 'guardrail' })
 ```
+
+## Review-loop gate (AIG-868)
+
+In addition to the opt-in `withGuardrails(...)` wrapper, the review loop
+(`src/coordination/review-loop.ts`) now runs the configured guardrails as a
+**real gate** — not just an available library:
+
+1. **INPUT gate** — task requirements are validated *before* the initial
+   coder run, and fix instructions are validated before each repair iteration
+   (prompt-injection, secrets/PII smuggled into requirements or review
+   feedback). The coder is never invoked when the input gate blocks.
+2. **OUTPUT gate** — the coder's response is validated *before* it reaches
+   the adversarial reviewer or is persisted, on both the initial generation
+   and every fix iteration (leaked secrets, PII).
+
+On a **blocking** violation the loop sets its status to `failed`, records the
+offending guardrails in `state.guardrailFailures` (as `name(severity)`
+labels), emits an audit log line, and throws `ReviewLoopGuardrailError`
+(re-exported from the package root). It does **not** proceed silently.
+
+The gate is **disabled by default** — existing installs are unaffected.
+Enable it per project via `aistack.config.json`:
+
+```jsonc
+{
+  "guardrails": {
+    "enabled": true,
+    "builtin": ["secrets", "pii", "prompt-injection"],
+    // Optional per-direction overrides (default to `builtin`):
+    "input": ["prompt-injection", "secrets", "pii"],
+    "output": ["secrets", "pii"],
+    "timeoutMs": 2000,
+    "aggregateTimeoutMs": 200,
+    "killSwitch": true,
+    // Output failures log-only instead of blocking (rollout aid). Input
+    // failures ALWAYS block (fail-closed). Default false.
+    "outputNonBlocking": false
+  }
+}
+```
+
+Notes:
+
+- When `builtin` is empty the gate falls back to
+  `['secrets', 'pii', 'prompt-injection']`.
+- A guardrail only runs in the direction it declares — an `input`-only
+  guardrail (e.g. `prompt-injection`) is never run on output, and a
+  `both`/`output` guardrail (`secrets`, `pii`) is run on output.
+- Unknown guardrail names in config **throw** at resolution time, so a typo
+  cannot silently disable the gate (fail-closed).
+
+`ReviewLoopGuardrailError` carries `.direction` (`'input' | 'output'`) and
+`.outcome` (the full `GuardrailRunOutcome` with per-guardrail failures).
+
+## Using guardrails as a Claude Code `PreToolUse` hook
+
+Claude Code's native hook system can invoke the same built-ins as a
+`PreToolUse` hook so prompts / tool inputs are screened *before* a tool
+runs. This reuses the native hook lifecycle — aistack does **not**
+re-implement hooks.
+
+### 1. A tiny hook script
+
+A `PreToolUse` hook receives the tool call as JSON on **stdin** and denies
+the call by exiting non-zero. The script feeds the tool input through the
+engine via the public API:
+
+```js
+// .claude/hooks/guardrails-pretooluse.mjs
+import { runGuardrails, getGuardrailRegistry } from '@blackms/aistack';
+
+const raw = await new Promise((res) => {
+  let buf = '';
+  process.stdin.on('data', (c) => (buf += c));
+  process.stdin.on('end', () => res(buf));
+});
+
+const event = JSON.parse(raw || '{}');
+// Scan the tool input payload (e.g. Bash command, file contents, prompt).
+const payload = JSON.stringify(event.tool_input ?? event);
+
+const guardrails = getGuardrailRegistry().resolve([
+  'secrets',
+  'pii',
+  'prompt-injection',
+]);
+
+const outcome = await runGuardrails(payload, guardrails, {
+  context: { direction: 'input', agentType: 'claude-code' },
+  killSwitch: true,
+  aggregateTimeoutMs: 200,
+});
+
+if (!outcome.pass) {
+  const reasons = outcome.failures
+    .map((f) => `${f.guardrail}: ${f.reason}`)
+    .join('; ');
+  // Stderr is surfaced to the model; non-zero exit denies the tool call.
+  console.error(`Blocked by aistack guardrails -> ${reasons}`);
+  process.exit(2);
+}
+process.exit(0);
+```
+
+### 2. Register it in `.claude/settings.json`
+
+```jsonc
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guardrails-pretooluse.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Every `Bash`, `Write`, or `Edit` tool call is now screened by the same
+secrets / PII / prompt-injection validators used by the review loop. Tune
+the `matcher` and the resolved guardrail list to taste.
 
 ## Roadmap
 

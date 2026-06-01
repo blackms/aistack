@@ -7,6 +7,7 @@ export { MessageBus, getMessageBus, resetMessageBus, type Message } from './mess
 export { HierarchicalCoordinator, type CoordinatorOptions } from './topology.js';
 export {
   ReviewLoopCoordinator,
+  ReviewLoopGuardrailError,
   createReviewLoop,
   getReviewLoop,
   listReviewLoops,

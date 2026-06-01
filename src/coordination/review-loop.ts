@@ -8,19 +8,67 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentStackConfig,
+  GuardrailsConfig,
   ReviewLoopState,
   ReviewResult,
   ReviewIssue,
   ReviewVerdict,
   IssueSeverity,
 } from '../types.js';
-import { spawnAgent, executeAgent, stopAgent, updateAgentStatus } from '../agents/spawner.js';
+import { spawnAgent, executeAgent, stopAgent, updateAgentStatus, type ExecuteResult } from '../agents/spawner.js';
 import { logger } from '../utils/logger.js';
 import { getMemoryManager } from '../memory/index.js';
 import { Semaphore } from '../utils/semaphore.js';
 import { traceAsync } from '../observability/index.js';
+import { initGuardrails, runGuardrails } from '../guardrails/index.js';
+import { getGuardrailRegistry } from '../guardrails/registry.js';
+import type { Guardrail, GuardrailDirection, GuardrailRunOutcome } from '../guardrails/types.js';
 
 const log = logger.child('review-loop');
+
+/** Default built-ins applied by the gate when `builtin` is left empty. */
+const DEFAULT_GUARDRAIL_BUILTINS = ['secrets', 'pii', 'prompt-injection'];
+
+/**
+ * Error raised when a blocking guardrail violation stops the review loop
+ * (AIG-868). Carries the offending direction and the full outcome so
+ * callers can attribute / audit the block instead of guessing.
+ */
+export class ReviewLoopGuardrailError extends Error {
+  constructor(
+    public readonly direction: GuardrailDirection,
+    public readonly outcome: GuardrailRunOutcome
+  ) {
+    super(
+      `guardrails blocked review-loop ${direction}: ${outcome.failures
+        .map((f) => `${f.guardrail}(${f.severity})`)
+        .join(', ')}`
+    );
+    this.name = 'ReviewLoopGuardrailError';
+  }
+}
+
+/**
+ * Resolve the guardrail instances for a direction from config.
+ *
+ * Returns an empty array (gate no-op) when guardrails are disabled or no
+ * names are configured for the direction. Unknown names THROW via the
+ * registry — fail-closed: a typo in config must not silently disable the
+ * gate. A guardrail is only run in a direction it actually declares, so
+ * an output-only validator is never run on input (and vice-versa).
+ */
+function resolveGuardrails(
+  cfg: GuardrailsConfig | undefined,
+  direction: 'input' | 'output'
+): Guardrail[] {
+  if (!cfg || !cfg.enabled) return [];
+  const builtin = cfg.builtin && cfg.builtin.length > 0 ? cfg.builtin : DEFAULT_GUARDRAIL_BUILTINS;
+  const names = (direction === 'input' ? cfg.input : cfg.output) ?? builtin;
+  if (names.length === 0) return [];
+  return getGuardrailRegistry()
+    .resolve(names)
+    .filter((g) => g.direction === direction || g.direction === 'both');
+}
 
 // Concurrency control for review loops
 // Max 5 concurrent review loops (each loop spawns 2 agents = 10 agents max).
@@ -60,6 +108,7 @@ const activeLoops: Map<string, ReviewLoopCoordinator> = new Map();
 export class ReviewLoopCoordinator extends EventEmitter {
   private state: ReviewLoopState;
   private config: AgentStackConfig;
+  private guardrailsInit?: Promise<void>;
 
   constructor(codeInput: string, config: AgentStackConfig, options: ReviewLoopOptions = {}) {
     super();
@@ -120,6 +169,105 @@ export class ReviewLoopCoordinator extends EventEmitter {
   }
 
   /**
+   * Load custom guardrail modules once per coordinator before resolving
+   * config-provided names. This preserves fail-closed behavior for true
+   * typos while allowing configured custom guardrails to participate.
+   */
+  private async ensureGuardrailsInitialized(): Promise<void> {
+    const cfg = this.config.guardrails;
+    if (!cfg?.enabled || !cfg.customPaths || cfg.customPaths.length === 0) return;
+
+    this.guardrailsInit ??= initGuardrails(cfg).then(() => undefined);
+    await this.guardrailsInit;
+  }
+
+  /**
+   * Execute one agent task and always return the agent to idle when the
+   * provider call settles, even if downstream guardrails later block.
+   */
+  private async executeAgentTask(agentId: string, task: string): Promise<ExecuteResult> {
+    updateAgentStatus(agentId, 'running');
+    try {
+      return await executeAgent(agentId, task, this.config);
+    } finally {
+      updateAgentStatus(agentId, 'idle');
+    }
+  }
+
+  /**
+   * Run the configured guardrails for a direction against a payload
+   * (AIG-868 gate).
+   *
+   * No-op (returns immediately) when guardrails are disabled or none are
+   * configured for the direction. On a blocking failure the loop status is
+   * marked `failed`, the offending guardrails are recorded on the state for
+   * audit, and a `ReviewLoopGuardrailError` is thrown so the gate STOPS the
+   * loop instead of letting a tainted payload proceed.
+   *
+   * INPUT failures always block (fail-closed). OUTPUT failures honour the
+   * `outputNonBlocking` config flag — when set they log + record but do not
+   * throw, for measuring false positives during rollout.
+   */
+  private async runGuardrailGate(
+    payload: unknown,
+    direction: 'input' | 'output',
+    agentType: string
+  ): Promise<void> {
+    const cfg = this.config.guardrails;
+    await this.ensureGuardrailsInitialized();
+    const guardrails = resolveGuardrails(cfg, direction);
+    if (guardrails.length === 0) return;
+
+    const outcome = await runGuardrails(payload, guardrails, {
+      context: {
+        direction,
+        taskId: this.state.id,
+        sessionId: this.state.sessionId,
+        agentType,
+      },
+      killSwitch: cfg?.killSwitch ?? true,
+      timeoutMs: cfg?.timeoutMs,
+      aggregateTimeoutMs: cfg?.aggregateTimeoutMs,
+      onAudit: (event) => {
+        log.warn('Guardrail violation', {
+          id: this.state.id,
+          direction: event.direction,
+          guardrail: event.guardrail,
+          severity: event.severity,
+          reason: event.reason,
+        });
+      },
+    });
+
+    if (outcome.pass) return;
+
+    const failureLabels = outcome.failures.map((f) => `${f.guardrail}(${f.severity})`);
+    this.state.guardrailFailures = [
+      ...(this.state.guardrailFailures ?? []),
+      ...failureLabels,
+    ];
+
+    const nonBlocking = direction === 'output' && (cfg?.outputNonBlocking ?? false);
+    if (nonBlocking) {
+      log.warn('Guardrail output violation (non-blocking)', {
+        id: this.state.id,
+        failures: failureLabels,
+      });
+      this.persistState();
+      return;
+    }
+
+    this.state.status = 'failed';
+    this.persistState();
+    log.error('Guardrail gate blocked review loop', {
+      id: this.state.id,
+      direction,
+      failures: failureLabels,
+    });
+    throw new ReviewLoopGuardrailError(direction, outcome);
+  }
+
+  /**
    * Get current state
    */
   getState(): ReviewLoopState {
@@ -176,17 +324,23 @@ export class ReviewLoopCoordinator extends EventEmitter {
     }, async (span) => {
       this.state.status = 'coding';
       this.persistState();
-      updateAgentStatus(this.state.coderId, 'running');
 
       const task = `Generate code for the following requirements:\n\n${this.state.codeInput}\n\nProvide clean, well-structured code that addresses all requirements.`;
 
-      const result = await executeAgent(this.state.coderId, task, this.config);
+      // INPUT gate (AIG-868): validate requirements BEFORE the coder runs.
+      await this.runGuardrailGate(this.state.codeInput, 'input', 'coder');
+
+      const result = await this.executeAgentTask(this.state.coderId, task);
+
+      // OUTPUT gate (AIG-868): validate the coder's output BEFORE it reaches
+      // the adversarial reviewer / is persisted — leaked secrets, PII.
+      await this.runGuardrailGate(result.response, 'output', 'coder');
+
       this.state.currentCode = result.response;
       this.persistState();
       span?.setAttribute('llm.response.model', result.model);
       span?.setAttribute('agent.duration_ms', result.duration);
 
-      updateAgentStatus(this.state.coderId, 'idle');
       log.debug('Initial code generated', { id: this.state.id });
     });
   }
@@ -256,7 +410,6 @@ export class ReviewLoopCoordinator extends EventEmitter {
     }, async (span) => {
       this.state.status = 'reviewing';
       this.persistState();
-      updateAgentStatus(this.state.adversarialId, 'running');
 
       const task = `Review the following code critically. Try to break it with edge cases, find security issues, and identify bugs.
 
@@ -273,8 +426,7 @@ Provide your analysis in this format:
 2. For each issue, explain the attack vector and required fix
 3. End with either **VERDICT: APPROVE** or **VERDICT: REJECT**`;
 
-      const result = await executeAgent(this.state.adversarialId, task, this.config);
-      updateAgentStatus(this.state.adversarialId, 'idle');
+      const result = await this.executeAgentTask(this.state.adversarialId, task);
 
       const parsed = this.parseReviewResult(result.response);
       span?.setAttribute('review.verdict', parsed.verdict);
@@ -363,7 +515,6 @@ Provide your analysis in this format:
     }, async (span) => {
       this.state.status = 'fixing';
       this.persistState();
-      updateAgentStatus(this.state.coderId, 'running');
 
       const issuesList = issues
         .map((issue, i) => `${i + 1}. [${issue.severity}] ${issue.title}\n   Fix: ${issue.requiredFix}`)
@@ -384,13 +535,21 @@ ${this.state.codeInput}
 
 Provide the corrected code that addresses all the identified issues.`;
 
-      const result = await executeAgent(this.state.coderId, task, this.config);
+      // INPUT gate on the fix instructions as well: review feedback becomes
+      // the next coder instruction and can carry prompt-injection text.
+      await this.runGuardrailGate(issuesList, 'input', 'coder');
+
+      const result = await this.executeAgentTask(this.state.coderId, task);
+
+      // OUTPUT gate (AIG-868): re-validate the fixed code before it loops
+      // back into review — a fix must not (re)introduce a secret / PII leak.
+      await this.runGuardrailGate(result.response, 'output', 'coder');
+
       this.state.currentCode = result.response;
       this.persistState();
       span?.setAttribute('llm.response.model', result.model);
       span?.setAttribute('agent.duration_ms', result.duration);
 
-      updateAgentStatus(this.state.coderId, 'idle');
       log.debug('Code fixed', { id: this.state.id, issueCount: issues.length });
     });
   }

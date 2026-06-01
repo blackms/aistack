@@ -576,6 +576,27 @@ export interface GuardrailsConfig {
   timeoutMs?: number;
   /** Abort remaining guardrails on first high-severity failure. Default true. */
   killSwitch?: boolean;
+  /**
+   * Guardrails applied to the INPUT direction (task payload, before the
+   * agent runs). Defaults to `builtin` when omitted. (AIG-868 wiring.)
+   */
+  input?: string[];
+  /**
+   * Guardrails applied to the OUTPUT direction (agent response, before it
+   * is reviewed / persisted). Defaults to `builtin` when omitted. (AIG-868.)
+   */
+  output?: string[];
+  /**
+   * Aggregate wall-clock budget for a whole run (ms). Default 200.
+   * Set to 0 to disable the aggregate budget. (AIG-868 wiring.)
+   */
+  aggregateTimeoutMs?: number;
+  /**
+   * When true, OUTPUT guardrail failures only log instead of blocking the
+   * review loop (rollout / false-positive measurement). INPUT failures
+   * always block (fail-closed). Default false. (AIG-868 wiring.)
+   */
+  outputNonBlocking?: boolean;
 }
 
 /**
@@ -867,6 +888,12 @@ export interface ReviewLoopState {
   finalVerdict?: ReviewVerdict;
   startedAt: Date;
   completedAt?: Date;
+  /**
+   * Guardrail violations recorded during the loop, as `name(severity)`
+   * labels. Populated by the AIG-868 guardrail gate; present even when
+   * `outputNonBlocking` lets the loop continue past an output violation.
+   */
+  guardrailFailures?: string[];
 }
 
 export type ReviewLoopStatus =
