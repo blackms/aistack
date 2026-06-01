@@ -149,7 +149,7 @@ Each feature below links to the real module that implements it. Status is labele
 A dedicated adversarial agent attacks the coder's output, iterating until `APPROVED`/`REJECTED` or `maxIterations` (default 3), with a concurrency semaphore.
 `src/coordination/review-loop.ts` · exposed via the TypeScript API (`createReviewLoop`) and REST/web routes.
 
-> **Note:** the review loop is intentionally **not** registered as an MCP tool. Use the TypeScript API, REST/web API, or a DSL workflow template.
+> **Note:** the review loop is intentionally not registered as an MCP tool. Use the TypeScript API, REST/web API, or a DSL workflow template.
 
 ### 🤝 Consensus checkpoints — *Stable*
 
