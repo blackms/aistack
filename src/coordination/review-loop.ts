@@ -168,6 +168,11 @@ export class ReviewLoopCoordinator extends EventEmitter {
     }
   }
 
+  /**
+   * Load custom guardrail modules once per coordinator before resolving
+   * config-provided names. This preserves fail-closed behavior for true
+   * typos while allowing configured custom guardrails to participate.
+   */
   private async ensureGuardrailsInitialized(): Promise<void> {
     const cfg = this.config.guardrails;
     if (!cfg?.enabled || !cfg.customPaths || cfg.customPaths.length === 0) return;
@@ -176,6 +181,10 @@ export class ReviewLoopCoordinator extends EventEmitter {
     await this.guardrailsInit;
   }
 
+  /**
+   * Execute one agent task and always return the agent to idle when the
+   * provider call settles, even if downstream guardrails later block.
+   */
   private async executeAgentTask(agentId: string, task: string): Promise<ExecuteResult> {
     updateAgentStatus(agentId, 'running');
     try {
