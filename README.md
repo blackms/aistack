@@ -116,6 +116,23 @@ claude mcp add aistack -- npx aistack mcp start
 npx aistack status
 ```
 
+### Install as a Claude Code plugin
+
+A ready-to-use Claude Code plugin bundle ships in [`plugin/`](./plugin/) (manifest, skills, slash-commands, and the bundled `aistack` MCP server). For local testing, point Claude Code straight at the bundle:
+
+```bash
+claude --plugin-dir ./plugin
+```
+
+Once the root marketplace catalog is published, the one-command flow becomes:
+
+```text
+/plugin marketplace add blackms/aistack
+/plugin install aistack
+```
+
+This exposes the `/aistack-init`, `/aistack-pm`, and `/aistack-review` commands plus the orchestrate / memory / consensus skills, and auto-starts the MCP server. See [`plugin/README.md`](./plugin/README.md) for details.
+
 ### Run a review loop
 
 ```bash
@@ -271,7 +288,7 @@ These exist but are **not** complete — do not treat them as finished:
 | **JetBrains extension** | *Scaffold only* | Gradle/Kotlin scaffold under `extensions/jetbrains/`; no substantial Kotlin implementation yet. |
 | **SWE-bench harness** | *Stub* | Reproducible structure under `benchmarks/swe-bench/` (`run.ts`, `baseline.ts`, `aggregate.ts`, Dockerfile), but the aistack-side glue self-declares STUB status and there are no real runs — only `EXAMPLE_OUTPUT.json`. No SWE-bench score is claimed. [`docs/BENCHMARK.md`](./docs/BENCHMARK.md). |
 | **SOC 2 readiness pack** | *Roadmap (not in `main`)* | Only the hash-chained audit log ships today. Control mapping, policies, and an evidence CLI exist on an unmerged branch and are **not** in the released package. |
-| **Claude Code marketplace plugin bundle** | *Roadmap (not in `main`)* | aistack has an internal plugin **system** (`src/plugins/`), but a distributable Claude Code marketplace bundle (manifest, skills, commands) is on an unmerged branch and not yet shipped. |
+| **Claude Code plugin bundle** | *Shipped* | A distributable Claude Code plugin bundle (manifest, skills, slash-commands, bundled MCP server) ships in [`plugin/`](./plugin/). Install locally with `claude --plugin-dir ./plugin` today; one-command marketplace install (`/plugin marketplace add blackms/aistack`) activates once the root `.claude-plugin/marketplace.json` catalog is published (owner approval). This is separate from the internal plugin **system** under `src/plugins/`. |
 
 ---
 
@@ -504,7 +521,7 @@ To set accurate expectations, these are **explicitly not implemented**:
 - ❌ **Turnkey distributed scheduler/worker cluster** (daemon defaults to a local file-backed queue)
 - ❌ **External queue backend** (Redis/SQS/NATS/Kafka not bundled; Redis queue is a documented stub)
 - ⚠️ **No bundled observability backend** — OTel tracing is built in, but Jaeger/Grafana/Phoenix/Datadog/Honeycomb/Collector run separately
-- ⚠️ **Guardrails not wired into the runtime**, **SWE-bench harness is a stub**, **JetBrains extension is a scaffold**, **SOC 2 pack and marketplace bundle are on roadmap** (see the partial/optional table above)
+- ⚠️ **Guardrails not wired into the runtime**, **SWE-bench harness is a stub**, **JetBrains extension is a scaffold**, **SOC 2 pack is on roadmap** (see the partial/optional table above)
 
 aistack does **not** re-implement Claude Code natives (subagents, Agent Teams, Agent View, hooks, skills, MCP client, plan mode, checkpointing, cloud scheduling). It builds on top of them.
 
