@@ -22,6 +22,7 @@ import {
   createWatchCommand,
   createRunCommand,
   createAuditCommand,
+  createGovernanceCommand,
   createExportAgentsCommand,
   createAgentPortableCommand,
   createFederationCommand,
@@ -66,6 +67,7 @@ async function main(): Promise<void> {
   program.addCommand(createWatchCommand());
   program.addCommand(createRunCommand());
   program.addCommand(createAuditCommand());
+  program.addCommand(createGovernanceCommand());
   program.addCommand(createExportAgentsCommand());
   program.addCommand(createAgentPortableCommand());
   program.addCommand(createFederationCommand());

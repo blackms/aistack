@@ -255,3 +255,41 @@ export {
   type GuardrailAuditEvent,
   type WithGuardrailsOptions,
 } from './guardrails/index.js';
+
+// Cost Governance (AIG-867)
+export {
+  // Facade
+  initGovernance,
+  getGovernanceService,
+  recordSpend,
+  resetGovernanceService,
+  // Core
+  GovernanceService,
+  CostBudgetExceededError,
+  CostAggregator,
+  BudgetEnforcer,
+  windowStart,
+  // Price table
+  DEFAULT_PRICE_TABLE,
+  resolvePrice,
+  estimateUsdCost,
+  mergePriceTable,
+  DEFAULT_BUCKET,
+  // Types
+  type GovernanceConfig,
+  type GovernanceEnforceConfig,
+  type CostBudget,
+  type CostBudgetScope,
+  type BudgetWindow,
+  type BudgetState,
+  type BudgetEvaluation,
+  type BudgetCheckContext,
+  type ModelPrice,
+  type PriceTable,
+  type SpendDimension,
+  type SpendRecord,
+  type SpendReport,
+  type SpendReportRow,
+  type SpendQuery,
+  type RecordSpendInput,
+} from './governance/index.js';
