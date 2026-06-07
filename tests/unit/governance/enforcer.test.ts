@@ -9,8 +9,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
-// Capture audit() calls without touching the real audit chain.
-const auditCalls: Array<{ event: string; payload: Record<string, unknown> }> = [];
+// Capture audit() calls without touching the real audit chain. Use vi.hoisted
+// so the capture array exists before the hoisted vi.mock factory runs.
+const { auditCalls } = vi.hoisted(() => ({
+  auditCalls: [] as Array<{ event: string; payload: Record<string, unknown> }>,
+}));
 vi.mock('../../../src/audit/index.js', () => ({
   audit: (_config: unknown, event: string, payload: Record<string, unknown>) => {
     auditCalls.push({ event, payload });

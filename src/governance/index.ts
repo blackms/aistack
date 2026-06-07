@@ -21,6 +21,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import type { AgentStackConfig } from '../types.js';
 import { logger } from '../utils/logger.js';
 import { GovernanceService } from './service.js';
+import type { RecordSpendInput } from './service.js';
 
 export { GovernanceService, CostBudgetExceededError } from './service.js';
 export type { RecordSpendInput } from './service.js';
@@ -122,7 +123,7 @@ export function getGovernanceService(
  */
 export function recordSpend(
   config: AgentStackConfig,
-  input: import('./service.js').RecordSpendInput,
+  input: RecordSpendInput,
 ): void {
   try {
     getGovernanceService(config)?.recordSpend(input);
