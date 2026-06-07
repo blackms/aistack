@@ -14,8 +14,11 @@
  */
 
 // Config-shaped types live in the root types module (single source of truth,
-// referenced by AgentStackConfig.governance). Re-exported here so governance
-// code can import everything from one place.
+// referenced by AgentStackConfig.governance). Imported here for local use in
+// the report/runtime types below, and re-exported so governance code can import
+// everything from one place.
+import type { CostBudget } from '../types.js';
+
 export type {
   ModelPrice,
   PriceTable,
