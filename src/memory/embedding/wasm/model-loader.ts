@@ -50,8 +50,13 @@ export function getModelsCacheDir(): string {
 export async function loadTransformersLibrary(): Promise<TransformersLibrary | null> {
   try {
     // Dynamic import so the optional dep does not break consumers that
-    // never opt into the WASM provider.
-    const mod = (await import('@xenova/transformers')) as unknown as TransformersLibrary;
+    // never opt into the WASM provider. The specifier is held in a variable on
+    // purpose: a non-literal argument stops `tsc` from statically resolving the
+    // optional module, so the build (e.g. the pruned on-prem Docker image where
+    // @xenova/transformers is absent) does not fail with TS2307. Availability is
+    // handled at runtime by the surrounding try/catch.
+    const specifier = '@xenova/transformers';
+    const mod = (await import(specifier)) as unknown as TransformersLibrary;
     return mod;
   } catch (err) {
     log.debug('Optional dependency @xenova/transformers not installed', {
