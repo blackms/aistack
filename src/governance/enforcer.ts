@@ -41,8 +41,9 @@ function globToRegExp(glob: string): RegExp {
 
 /**
  * Compute the inclusive lower bound (epoch millis) of the current budget window.
- * `total` returns 0 (all time). Calendar-aligned for day/month, rolling 7d for
- * week to keep it simple and timezone-independent enough for a soft cap.
+ * `total` returns 0 (all time). All bounded windows are calendar-aligned (using
+ * the same local-time basis as day/month) so the bound is stable within a window
+ * and audit dedup keys derived from it don't churn on every call.
  */
 export function windowStart(window: BudgetWindow, now: number = Date.now()): number {
   if (window === 'total') return 0;
@@ -53,8 +54,10 @@ export function windowStart(window: BudgetWindow, now: number = Date.now()): num
   if (window === 'month') {
     return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
   }
-  // week: rolling 7 days
-  return now - 7 * 24 * 60 * 60 * 1000;
+  // week: start of the current ISO week (Monday) at 00:00 local time.
+  // getDay() is 0..6 with Sunday=0; shift so Monday is the first day.
+  const dayOfWeek = (d.getDay() + 6) % 7;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - dayOfWeek).getTime();
 }
 
 /**

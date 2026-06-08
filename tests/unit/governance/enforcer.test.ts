@@ -6,7 +6,7 @@
  * fail-open for unknown models.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
 // Capture audit() calls without touching the real audit chain. Use vi.hoisted
@@ -151,8 +151,91 @@ describe('BudgetEnforcer', () => {
     });
   });
 
-  it('windowStart total returns 0', () => {
-    expect(windowStart('total')).toBe(0);
+  describe('windowStart', () => {
+    it('total returns 0', () => {
+      expect(windowStart('total')).toBe(0);
+    });
+
+    it('week is calendar-aligned (stable within the same ISO week)', () => {
+      // Two different instants within the same ISO week (Mon 2024-06-03 ..
+      // Sun 2024-06-09) must resolve to the same window start.
+      const monday = new Date(2024, 5, 3, 9, 0, 0).getTime(); // Mon 09:00 local
+      const sunday = new Date(2024, 5, 9, 23, 59, 0).getTime(); // Sun 23:59 local
+      const startMon = windowStart('week', monday);
+      const startSun = windowStart('week', sunday);
+      expect(startMon).toBe(startSun);
+      // Start is Monday 00:00 local of that week.
+      expect(startMon).toBe(new Date(2024, 5, 3, 0, 0, 0, 0).getTime());
+    });
+
+    it('week start is Monday 00:00 for every weekday', () => {
+      const expected = new Date(2024, 5, 3, 0, 0, 0, 0).getTime(); // Mon
+      for (let dow = 0; dow < 7; dow++) {
+        // 2024-06-03 is Monday; iterate Mon..Sun.
+        const instant = new Date(2024, 5, 3 + dow, 12, 0, 0).getTime();
+        expect(windowStart('week', instant)).toBe(expected);
+      }
+      // The next Monday rolls over to a new window start.
+      const nextMon = new Date(2024, 5, 10, 0, 0, 1).getTime();
+      expect(windowStart('week', nextMon)).toBe(
+        new Date(2024, 5, 10, 0, 0, 0, 0).getTime(),
+      );
+    });
+  });
+
+  describe('week-window audit idempotency', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function setupWeek(spentUsd: number) {
+      const governance: GovernanceConfig = {
+        enabled: true,
+        enforce: { block: false, warnThresholdPercent: 80 },
+        budgets: [{ id: 'cap', scope: { tenant: 'a' }, limitUsd: 100, window: 'week' }],
+      };
+      agg.recordSpend({
+        tenantId: 'a',
+        provider: 'anthropic',
+        model: 'claude-3-5-sonnet',
+        inputTokens: 0,
+        outputTokens: 0,
+        usdCost: spentUsd,
+      });
+      return new BudgetEnforcer(makeConfig(governance), governance, agg);
+    }
+
+    it('emits warn only once per week across repeated calls at different instants', () => {
+      vi.useFakeTimers();
+      // Tue 2024-06-04 within the ISO week starting Mon 2024-06-03.
+      vi.setSystemTime(new Date(2024, 5, 4, 10, 0, 0));
+      const e = setupWeek(85);
+
+      e.evaluate({ tenantId: 'a' });
+      // Advance time within the SAME ISO week; rolling-7d would have churned
+      // the dedup key here, calendar-aligned must not.
+      vi.setSystemTime(new Date(2024, 5, 6, 18, 0, 0)); // Thu, same week
+      e.evaluate({ tenantId: 'a' });
+      vi.setSystemTime(new Date(2024, 5, 9, 23, 0, 0)); // Sun, same week
+      e.evaluate({ tenantId: 'a' });
+
+      const warns = auditCalls.filter((c) => c.event === 'cost.budget.warn');
+      expect(warns).toHaveLength(1);
+    });
+
+    it('re-emits warn once the ISO week rolls over', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2024, 5, 6, 10, 0, 0)); // Thu, week of 06-03
+      const e = setupWeek(85);
+      e.evaluate({ tenantId: 'a' });
+
+      // Cross into the next ISO week (Mon 2024-06-10).
+      vi.setSystemTime(new Date(2024, 5, 11, 10, 0, 0)); // Tue, week of 06-10
+      e.evaluate({ tenantId: 'a' });
+
+      const warns = auditCalls.filter((c) => c.event === 'cost.budget.warn');
+      expect(warns).toHaveLength(2);
+    });
   });
 });
 
