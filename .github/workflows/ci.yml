@@ -65,6 +65,38 @@ jobs:
       - name: Run tests
         run: npm test
 
+  # Dedicated guard against time-based flakiness in the consensus expiry
+  # tests (see AIG-854). Runs only the consensus suite, repeated 50x, so it
+  # stays fast while proving the tests are deterministic. Does NOT slow down
+  # the full test suite.
+  consensus-flake-guard:
+    name: Consensus Flake Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # vitest 2.x exposes `repeats` only as a per-test option, not a CLI flag,
+      # so we loop the run 50x at the shell level. The whole loop fails fast if
+      # any single run fails (set -e + explicit exit on non-zero).
+      - name: Repeat consensus tests (50x)
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 50); do
+            echo "::group::consensus run $i/50"
+            npx vitest run tests/unit/consensus-service.test.ts
+            echo "::endgroup::"
+          done
+
   build:
     name: Build
     runs-on: ubuntu-latest

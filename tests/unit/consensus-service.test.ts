@@ -2,7 +2,7 @@
  * Consensus Service tests
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -399,26 +399,45 @@ describe('ConsensusService', () => {
   });
 
   describe('expireCheckpoints', () => {
+    // These tests are time-sensitive: checkpoint expiry compares the stored
+    // `expires_at` against the current time in both the service
+    // (`new Date()` in submitDecision) and the store (`Date.now()` in
+    // expireOldCheckpoints/createConsensusCheckpoint). Relying on the real
+    // wall-clock made them flaky (a slow CI runner could let the timeout
+    // elapse between create and approve). Fake timers freeze the clock so the
+    // create -> approve -> expire sequence is fully deterministic, and we
+    // advance time explicitly to cross the expiry boundary.
+    const FIXED_NOW = new Date('2026-01-01T00:00:00.000Z');
+    const TIMEOUT_MS = 300000;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(FIXED_NOW);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('should expire old checkpoints', () => {
       store = new SQLiteStore(join(tmpDir, 'test.db'));
       const service = new ConsensusService(
         store,
         createConfig({
           consensusEnabled: true,
-          timeout: 300000,
+          timeout: TIMEOUT_MS,
         })
       );
 
-      // Create checkpoint that will expire immediately
+      // Create a pending checkpoint (expires_at = FIXED_NOW + TIMEOUT_MS).
       const checkpoint = service.createCheckpoint({
         taskId: 'task-1',
         proposedSubtasks: [],
         riskLevel: 'high',
       });
 
-      store.db
-        .prepare('UPDATE consensus_checkpoints SET expires_at = ? WHERE id = ?')
-        .run(Date.now() - 1, checkpoint.id);
+      // Advance past the expiry boundary deterministically.
+      vi.setSystemTime(new Date(FIXED_NOW.getTime() + TIMEOUT_MS + 1));
 
       const expired = service.expireCheckpoints();
 
@@ -434,7 +453,7 @@ describe('ConsensusService', () => {
         store,
         createConfig({
           consensusEnabled: true,
-          timeout: 300000,
+          timeout: TIMEOUT_MS,
         })
       );
 
@@ -444,12 +463,14 @@ describe('ConsensusService', () => {
         riskLevel: 'high',
       });
 
-      // Approve before expiration
+      // Approve while the checkpoint is still within its timeout window.
+      // With frozen time this is guaranteed (FIXED_NOW < FIXED_NOW + TIMEOUT_MS).
       const approval = service.approveCheckpoint(checkpoint.id, 'reviewer-1');
       expect(approval.success).toBe(true);
-      store.db
-        .prepare('UPDATE consensus_checkpoints SET expires_at = ? WHERE id = ?')
-        .run(Date.now() - 1, checkpoint.id);
+
+      // Advance past the expiry boundary; the checkpoint is already approved,
+      // so the expiry sweep (which only touches pending checkpoints) must skip it.
+      vi.setSystemTime(new Date(FIXED_NOW.getTime() + TIMEOUT_MS + 1));
 
       const expired = service.expireCheckpoints();
 

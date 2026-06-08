@@ -45,7 +45,7 @@ describe('README M0 positioning', () => {
 
   it('does not regress known documentation claims', () => {
     expect(readme).not.toContain('41 tools');
-    expect(readme).toContain('not exposed as MCP tools');
+    expect(readme).toContain('not registered as an MCP tool');
     expect(readme).toContain('REST/web API');
     expect(readme).not.toContain('workflow run adversarial-review');
     expect(readme).not.toContain('review_loop_start tool');

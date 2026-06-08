@@ -91,6 +91,7 @@ export {
   resetMessageBus,
   HierarchicalCoordinator,
   ReviewLoopCoordinator,
+  ReviewLoopGuardrailError,
   createReviewLoop,
   getReviewLoop,
   listReviewLoops,
@@ -222,3 +223,35 @@ export {
   getEventBridge,
   type WebConfig,
 } from './web/index.js';
+
+// Guardrails (AIG-645 engine, AIG-868 wiring)
+export {
+  // Engine
+  runGuardrails,
+  withGuardrails,
+  initGuardrails,
+  GuardrailBlockedError,
+  // Built-ins
+  secretsGuardrail,
+  piiGuardrail,
+  promptInjectionGuardrail,
+  zodSchemaGuardrail,
+  // Registry
+  defaultRegistry,
+  getGuardrailRegistry,
+  loadCustomGuardrails,
+  registerGuardrail,
+  resetGuardrailRegistry,
+  // Types
+  type Guardrail,
+  type GuardrailContext,
+  type GuardrailDirection,
+  type GuardrailFailure,
+  type GuardrailRegistry,
+  type GuardrailResult,
+  type GuardrailRunOptions,
+  type GuardrailRunOutcome,
+  type GuardrailSeverity,
+  type GuardrailAuditEvent,
+  type WithGuardrailsOptions,
+} from './guardrails/index.js';
