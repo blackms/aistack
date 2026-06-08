@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "aistack",
+  "displayName": "aistack",
+  "version": "1.6.1",
+  "description": "Clean multi-agent orchestration for Claude Code: spawn specialized agents, shared memory, consensus checkpoints, and GitHub workflows via a bundled MCP server.",
+  "author": {
+    "name": "blackms",
+    "url": "https://github.com/blackms"
+  },
+  "homepage": "https://github.com/blackms/aistack",
+  "repository": "https://github.com/blackms/aistack",
+  "license": "MIT",
+  "keywords": [
+    "agent",
+    "orchestration",
+    "claude",
+    "mcp",
+    "multi-agent",
+    "ai",
+    "llm"
+  ],
+  "mcpServers": {
+    "aistack": {
+      "command": "npx",
+      "args": ["@blackms/aistack", "mcp", "start"]
+    }
+  }
+}

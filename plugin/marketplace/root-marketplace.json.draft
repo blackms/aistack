@@ -1,0 +1,20 @@
+{
+  "_README": "DRAFT — this file must be placed at the REPO ROOT as `.claude-plugin/marketplace.json` for the one-command install `/plugin marketplace add blackms/aistack` to work. It lives outside plugin/ so per AIG-629 hard limits it was NOT created at the root automatically — owner approval required. Until then, users can test locally with `claude --plugin-dir ./plugin`. To activate: create `.claude-plugin/marketplace.json` at the repo root with the contents below (drop this `_README` key).",
+  "name": "aistack",
+  "owner": {
+    "name": "blackms",
+    "url": "https://github.com/blackms"
+  },
+  "plugins": [
+    {
+      "name": "aistack",
+      "source": "./plugin",
+      "description": "Clean multi-agent orchestration for Claude Code: specialized agents, shared memory, consensus checkpoints, and GitHub workflows via a bundled MCP server.",
+      "version": "1.6.1",
+      "author": {
+        "name": "blackms",
+        "url": "https://github.com/blackms"
+      }
+    }
+  ]
+}
