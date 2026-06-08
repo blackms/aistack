@@ -229,8 +229,19 @@ describe('BudgetEnforcer', () => {
       const e = setupWeek(85);
       e.evaluate({ tenantId: 'a' });
 
-      // Cross into the next ISO week (Mon 2024-06-10).
+      // Cross into the next ISO week (Mon 2024-06-10) and incur fresh spend
+      // inside that new window. The previous week's spend falls outside the
+      // calendar-aligned window, so the warn legitimately re-arms for the new
+      // week (a new dedup key, not stale rolling-7d churn).
       vi.setSystemTime(new Date(2024, 5, 11, 10, 0, 0)); // Tue, week of 06-10
+      agg.recordSpend({
+        tenantId: 'a',
+        provider: 'anthropic',
+        model: 'claude-3-5-sonnet',
+        inputTokens: 0,
+        outputTokens: 0,
+        usdCost: 85,
+      });
       e.evaluate({ tenantId: 'a' });
 
       const warns = auditCalls.filter((c) => c.event === 'cost.budget.warn');
