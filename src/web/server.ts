@@ -28,6 +28,7 @@ import {
   registerConsensusRoutes,
   registerTenantRoutes,
   registerInterruptRoutes,
+  registerGovernanceRoutes,
   registerSsoRoutes,
 } from './routes/index.js';
 import type { WebConfig } from './types.js';
@@ -125,6 +126,7 @@ export class WebServer {
     registerConsensusRoutes(this.router, this.config);
     registerTenantRoutes(this.router, this.config);
     registerInterruptRoutes(this.router, this.config);
+    registerGovernanceRoutes(this.router, this.config);
 
     // SSO routes (AIG-646) — registered only if any provider is configured.
     if (this.ssoModule) {

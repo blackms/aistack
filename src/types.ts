@@ -362,6 +362,8 @@ export interface AgentStackConfig {
   /** Authentication config (extended for SSO via auth.sso sub-field). AIG-646. */
   auth?: AuthConfig;
   federation?: FederationConfig;
+  /** Cost / budget governance over OTel usage + multitenancy (AIG-867). */
+  governance?: GovernanceConfig;
 }
 
 /**
@@ -412,6 +414,60 @@ export interface MultitenancyConfig {
   enabled: boolean;
   defaultTenantSlug: string;
   defaultWorkspaceSlug: string;
+}
+
+// ===== Cost governance configuration (AIG-867) ==========================
+//
+// Opt-in cost-governance layer. `enabled: false` (default) makes the whole
+// module a no-op; `enforce.block: false` (default) keeps it observe-only even
+// when enabled. See src/governance/ and docs/GOVERNANCE.md.
+
+/** USD-per-million-token pricing for a (provider, model). */
+export interface ModelPrice {
+  inputPerMTok: number;
+  outputPerMTok: number;
+}
+
+/** provider -> (model-glob -> price). */
+export type PriceTable = Record<string, Record<string, ModelPrice>>;
+
+/** Budget window granularity. `total` = all-time / no reset. */
+export type BudgetWindow = 'day' | 'week' | 'month' | 'total';
+
+/** Scope selector for a budget cap (glob on agentPattern). */
+export interface CostBudgetScope {
+  tenant?: string;
+  workspace?: string;
+  project?: string;
+  agentPattern?: string;
+}
+
+/** A single budget cap (USD and/or tokens) over a window. */
+export interface CostBudget {
+  id?: string;
+  scope?: CostBudgetScope;
+  limitUsd?: number;
+  limitTokens?: number;
+  window?: BudgetWindow;
+}
+
+/** Kill-switch settings (warn -> block). */
+export interface GovernanceEnforceConfig {
+  /** Hard-block at 100%. Default false (observe-only). */
+  block: boolean;
+  /** Percentage at which a warn event fires. Default 80. */
+  warnThresholdPercent: number;
+}
+
+/** Top-level governance configuration. */
+export interface GovernanceConfig {
+  /** Master switch. Default false — module is a no-op when disabled. */
+  enabled: boolean;
+  priceTable?: PriceTable;
+  budgets?: CostBudget[];
+  enforce?: GovernanceEnforceConfig;
+  /** Default budget window. Default `month`. */
+  window?: BudgetWindow;
 }
 
 // AIG-636 — daemon (background headless runner) config. Optional sibling field.

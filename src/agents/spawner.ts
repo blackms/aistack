@@ -20,6 +20,7 @@ import {
 import { audit } from '../audit/index.js';
 import { saveCheckpointIfEnabled } from '../persistence/checkpointer.js';
 import { traceAsync, traceSync } from '../observability/index.js';
+import { getGovernanceService } from '../governance/index.js';
 
 const log = logger.child('spawner');
 
@@ -539,7 +540,30 @@ async function executeAgentInternal(
   updateAgentStatus(agentId, 'running');
   const startTime = Date.now();
 
+  // Cost governance (AIG-867): attribution metadata for budgets + spend.
+  // Folded into the agent metadata at spawn (tenantId/workspaceId); project is
+  // an optional free-form label passed via spawn metadata. All optional — falls
+  // back to default buckets when single-tenant.
+  const govTenantId =
+    typeof agent.metadata?.tenantId === 'string' ? agent.metadata.tenantId : undefined;
+  const govWorkspaceId =
+    typeof agent.metadata?.workspaceId === 'string'
+      ? agent.metadata.workspaceId
+      : undefined;
+  const govProject =
+    typeof agent.metadata?.project === 'string' ? agent.metadata.project : undefined;
+
   try {
+    // Pre-call budget check. No-op when governance is disabled. Throws
+    // CostBudgetExceededError BEFORE the LLM call only when enforce.block is on
+    // and the budget is at 100%; warn/observe modes never throw.
+    getGovernanceService(config)?.checkBudget({
+      tenantId: govTenantId,
+      workspaceId: govWorkspaceId,
+      project: govProject,
+      agentType: agent.type,
+    });
+
     log.info('Executing agent task', { agentId, type: agent.type, provider: providerName });
 
     const response = await traceAsync(config, 'aistack.llm.chat', {
@@ -583,6 +607,27 @@ async function executeAgentInternal(
         resourceService.evaluateAgent(agentId);
       } catch (error) {
         log.warn('Failed to record API call', { agentId, error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+
+    // Cost governance (AIG-867): post-call accounting. PRIMARY attribution site
+    // (single point with llm.usage.*) — avoids double counting from review-loop
+    // / consensus spans. No-op when governance is disabled or usage is absent
+    // (CLI providers may not return usage). recordSpend never throws.
+    if (response.usage) {
+      try {
+        getGovernanceService(config)?.recordSpend({
+          inputTokens: response.usage.inputTokens,
+          outputTokens: response.usage.outputTokens,
+          provider: providerName,
+          model: response.model ?? options.model ?? 'unknown',
+          agentType: agent.type,
+          tenantId: govTenantId,
+          workspaceId: govWorkspaceId,
+          project: govProject,
+        });
+      } catch (error) {
+        log.warn('Failed to record spend', { agentId, error: error instanceof Error ? error.message : 'Unknown error' });
       }
     }
 

@@ -308,6 +308,46 @@ const AuditConfigSchema = z.object({
 });
 
 /**
+ * Cost Governance Configuration Schema (AIG-867)
+ *
+ * Opt-in cost/budget governance over OTel usage + multitenancy. Disabled by
+ * default; `enforce.block` is additionally false by default so the module is
+ * observe-only (accounting + warn) until blocking is explicitly enabled.
+ */
+const ModelPriceSchema = z.object({
+  inputPerMTok: z.number().min(0),
+  outputPerMTok: z.number().min(0),
+});
+
+const CostBudgetSchema = z.object({
+  id: z.string().optional(),
+  scope: z
+    .object({
+      tenant: z.string().optional(),
+      workspace: z.string().optional(),
+      project: z.string().optional(),
+      agentPattern: z.string().optional(),
+    })
+    .optional(),
+  limitUsd: z.number().min(0).optional(),
+  limitTokens: z.number().min(0).optional(),
+  window: z.enum(['day', 'week', 'month', 'total']).optional(),
+});
+
+const GovernanceConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  priceTable: z.record(z.string(), z.record(z.string(), ModelPriceSchema)).optional(),
+  budgets: z.array(CostBudgetSchema).optional(),
+  enforce: z
+    .object({
+      block: z.boolean().default(false),
+      warnThresholdPercent: z.number().min(0).max(100).default(80),
+    })
+    .default({}),
+  window: z.enum(['day', 'week', 'month', 'total']).default('month'),
+});
+
+/**
  * Sandbox Configuration Schema (AIG-634)
  *
  * Controls sandboxed code execution for the coder agent and any caller of
@@ -587,6 +627,7 @@ const ConfigSchema = z.object({
   guardrails: GuardrailsConfigSchema.default({}),
   auth: AuthConfigSchema.optional(),
   federation: FederationConfigSchema.default({}),
+  governance: GovernanceConfigSchema.default({}),
 });
 
 const CONFIG_FILE_NAME = 'aistack.config.json';
